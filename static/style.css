@@ -10,69 +10,69 @@
    Custom properties
    ------------------------------------------------------------ */
 :root {
-  /* Ground */
-  --bg-base:        #0e0f11;
-  --bg-surface:     #14161a;
-  --bg-raised:      #1b1e24;
-  --bg-hover:       #21252e;
+  /* Ground — slightly lifted to give text more contrast headroom */
+  --bg-base:        #0f1117;
+  --bg-surface:     #171b23;
+  --bg-raised:      #1e2330;
+  --bg-hover:       #252b38;
 
-  /* Borders */
-  --border-subtle:  #252830;
-  --border-mid:     #31363f;
-  --border-strong:  #454c58;
+  /* Borders — lifted so they're actually visible */
+  --border-subtle:  #2a2f3d;
+  --border-mid:     #373e50;
+  --border-strong:  #525c72;
 
-  /* Text */
-  --text-primary:   #e8eaf0;
-  --text-secondary: #8b93a4;
-  --text-muted:     #545c6b;
-  --text-accent:    #f0a030;
+  /* Text — significantly lifted for readability */
+  --text-primary:   #eceef5;
+  --text-secondary: #b0bace;
+  --text-muted:     #7a8599;
+  --text-accent:    #f5a623;
 
-  /* Score tiers */
-  --score-high-bg:    #0d2b1a;
-  --score-high-text:  #3de87a;
-  --score-high-border:#1a5c36;
+  /* Score tiers — lighter backgrounds, brighter text */
+  --score-high-bg:    #0a3320;
+  --score-high-text:  #4df590;
+  --score-high-border:#1e6b42;
 
-  --score-mid-bg:     #2b2200;
-  --score-mid-text:   #f0c030;
-  --score-mid-border: #5c4800;
+  --score-mid-bg:     #312800;
+  --score-mid-text:   #ffd24d;
+  --score-mid-border: #6b5500;
 
-  --score-low-bg:     #2b0e0e;
-  --score-low-text:   #e85050;
-  --score-low-border: #5c1e1e;
+  --score-low-bg:     #330f0f;
+  --score-low-text:   #ff6b6b;
+  --score-low-border: #6b2020;
 
-  --score-null-bg:    #1e2028;
-  --score-null-text:  #545c6b;
-  --score-null-border:#2d3240;
+  --score-null-bg:    #1e2230;
+  --score-null-text:  #7a8599;
+  --score-null-border:#2d3550;
 
-  /* Skill chips */
-  --chip-match-bg:    #0d2b1a;
-  --chip-match-text:  #3de87a;
-  --chip-match-border:#1a5c36;
+  /* Skill chips — match tier colors */
+  --chip-match-bg:    #0a3320;
+  --chip-match-text:  #4df590;
+  --chip-match-border:#1e6b42;
 
-  --chip-miss-bg:     #2b0e0e;
-  --chip-miss-text:   #b05050;
-  --chip-miss-border: #4a1a1a;
+  --chip-miss-bg:     #330f0f;
+  --chip-miss-text:   #d97070;
+  --chip-miss-border: #5c2020;
 
   /* Card accent borders by tier */
-  --accent-high:  #3de87a;
-  --accent-mid:   #f0c030;
-  --accent-low:   #e85050;
-  --accent-null:  #31363f;
+  --accent-high:  #4df590;
+  --accent-mid:   #ffd24d;
+  --accent-low:   #ff6b6b;
+  --accent-null:  #373e50;
 
   /* Actions */
-  --btn-bg:         #1e2230;
-  --btn-hover:      #262b3a;
-  --btn-border:     #31363f;
+  --btn-bg:         #1e2330;
+  --btn-hover:      #262e3f;
+  --btn-border:     #373e50;
 
-  --star-filled:    #f0a030;
-  --dismiss-hover:  #e85050;
+  --star-filled:    #f5a623;
+  --dismiss-hover:  #ff6b6b;
 
-  /* Typography */
+  /* Typography — unchanged */
   --font-body:  "Georgia", "Times New Roman", serif;
   --font-mono:  "Menlo", "Consolas", "Cascadia Code", "Courier New", monospace;
   --font-ui:    -apple-system, "Segoe UI", system-ui, sans-serif;
 
-  /* Layout */
+  /* Layout — unchanged */
   --max-width: 860px;
   --radius-sm: 4px;
   --radius-md: 6px;
