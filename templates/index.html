@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Matcher{% if view == "bookmarks" %} · Bookmarks{% endif %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/htmx.org@1.9.10" crossorigin="anonymous"></script>
+</head>
+<body>
+<div class="page-wrap">
+
+  {# ── Header ─────────────────────────────────────────────────── #}
+  <header class="site-header">
+    <span class="site-logo">job<span>_</span>matcher</span>
+    <nav class="site-nav">
+      <a href="/"
+         class="nav-tab{% if view == 'feed' %} active{% endif %}">feed</a>
+      <a href="/bookmarks"
+         class="nav-tab{% if view == 'bookmarks' %} active{% endif %}">bookmarks</a>
+    </nav>
+  </header>
+
+  {# ── Feed subtitle ───────────────────────────────────────────── #}
+  {% if view == "feed" %}
+    <div class="feed-meta">
+      <strong>{{ listings | length }}</strong>
+      {%- if listings | length == 1 %} role{% else %} roles{% endif %}
+      &nbsp;·&nbsp;
+      scored {{ threshold | round(1) }}+ &nbsp;·&nbsp; sorted by match
+    </div>
+  {% elif view == "bookmarks" %}
+    <div class="feed-meta">
+      <strong>{{ listings | length }}</strong>
+      {%- if listings | length == 1 %} saved role{% else %} saved roles{% endif %}
+    </div>
+  {% endif %}
+
+  {# ── Listing cards ───────────────────────────────────────────── #}
+  {% if listings %}
+    <div class="card-list">
+      {% for listing in listings %}
+        {% include "_card.html" %}
+      {% endfor %}
+    </div>
+
+  {# ── Empty state ─────────────────────────────────────────────── #}
+  {% else %}
+    <div class="empty-state">
+      {% if view == "bookmarks" %}
+        <span class="empty-state-icon">☆</span>
+        <p class="empty-state-title">No bookmarks yet</p>
+        <p class="empty-state-body">
+          Star a listing from the feed to save it here.
+        </p>
+      {% else %}
+        <span class="empty-state-icon">◎</span>
+        <p class="empty-state-title">Feed is empty</p>
+        <p class="empty-state-body">
+          Run <code>python ingest.py</code> to fetch and score new listings.<br>
+          Results scored {{ threshold | round(1) }}+ will appear here.
+        </p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+</div>
+</body>
+</html>

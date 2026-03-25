@@ -19,12 +19,14 @@
 
 ## Phase 3: Flask UI
 
-- [ ] Implement `app.py` — routes for `/`, `/bookmarks`, `/bookmark/<id>`, `/dismiss/<id>`
-- [ ] Create `templates/index.html` — header/nav, listing cards, score badge, skill tags
-- [ ] Create `templates/_card.html` — reusable card partial for HTMX swaps
-- [ ] Wire up HTMX bookmark toggle — `hx-post`, `hx-swap="outerHTML"` on action buttons
-- [ ] Wire up HTMX dismiss — `hx-post`, removes card from DOM on success
-- [ ] Create `static/style.css` — score badge colours, card layout, minimal polish
+- [x] Implement `app.py` — routes for `/`, `/bookmarks`, `/bookmark/<id>`, `/dismiss/<id>`
+- [x] Create `templates/index.html` — header/nav, listing cards, score badge, skill tags
+- [x] Create `templates/_card.html` — reusable card partial for HTMX swaps
+- [x] Wire up HTMX bookmark toggle — `hx-post`, `hx-swap="outerHTML"` on action buttons
+- [x] Wire up HTMX dismiss — `hx-post`, removes card from DOM on success
+- [x] Create `static/style.css` — score badge colours, card layout, minimal polish
+- [x] Add `get_listing_by_id()` to `db.py` for bookmark toggle read-modify-write
+- [x] Create `templates/_actions.html` — action partial returned by POST /bookmark/<id>
 
 ## Phase 4: Polish & Documentation
 

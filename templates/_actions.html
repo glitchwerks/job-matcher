@@ -1,0 +1,28 @@
+{#- _actions.html — action button group for a single listing card.
+    Returned by POST /bookmark/<id> for HTMX to swap in place.
+    The outer div carries the id used as hx-target on each button. -#}
+<div class="card-actions" id="actions-{{ listing.id }}">
+  <a
+    class="btn btn-view"
+    href="{{ listing.redirect_url }}"
+    target="_blank"
+    rel="noopener noreferrer"
+  >↗ view listing</a>
+
+  <button
+    class="btn btn-bookmark{% if listing.bookmarked %} bookmarked{% endif %}"
+    hx-post="/bookmark/{{ listing.id }}"
+    hx-target="#actions-{{ listing.id }}"
+    hx-swap="outerHTML"
+  >{% if listing.bookmarked %}★ saved{% else %}☆ save{% endif %}</button>
+
+  <span class="actions-spacer"></span>
+
+  <button
+    class="btn btn-dismiss"
+    hx-post="/dismiss/{{ listing.id }}"
+    hx-target="#card-{{ listing.id }}"
+    hx-swap="outerHTML"
+    title="Dismiss"
+  >✕</button>
+</div>

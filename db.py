@@ -223,6 +223,24 @@ def get_bookmarks(db_path: str = "jobs.db") -> list[dict]:
         conn.close()
 
 
+def get_listing_by_id(listing_id: int, db_path: str = "jobs.db") -> dict | None:
+    """Return a single listing by internal id, or None if not found.
+
+    JSON array columns are deserialised to Python lists, consistent with the
+    other read helpers.
+    """
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM listings WHERE id = ?", (listing_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return _deserialise_row(row)
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Toggle helpers
 # ---------------------------------------------------------------------------

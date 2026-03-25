@@ -1,0 +1,556 @@
+/* ============================================================
+   Job Matcher — stylesheet
+   Aesthetic: industrial terminal-ledger. Near-black ground,
+   amber accent, monospaced metadata, score tiers as rack
+   status indicators. No framework, no resets dump — every
+   rule earns its place.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   Custom properties
+   ------------------------------------------------------------ */
+:root {
+  /* Ground */
+  --bg-base:        #0e0f11;
+  --bg-surface:     #14161a;
+  --bg-raised:      #1b1e24;
+  --bg-hover:       #21252e;
+
+  /* Borders */
+  --border-subtle:  #252830;
+  --border-mid:     #31363f;
+  --border-strong:  #454c58;
+
+  /* Text */
+  --text-primary:   #e8eaf0;
+  --text-secondary: #8b93a4;
+  --text-muted:     #545c6b;
+  --text-accent:    #f0a030;
+
+  /* Score tiers */
+  --score-high-bg:    #0d2b1a;
+  --score-high-text:  #3de87a;
+  --score-high-border:#1a5c36;
+
+  --score-mid-bg:     #2b2200;
+  --score-mid-text:   #f0c030;
+  --score-mid-border: #5c4800;
+
+  --score-low-bg:     #2b0e0e;
+  --score-low-text:   #e85050;
+  --score-low-border: #5c1e1e;
+
+  --score-null-bg:    #1e2028;
+  --score-null-text:  #545c6b;
+  --score-null-border:#2d3240;
+
+  /* Skill chips */
+  --chip-match-bg:    #0d2b1a;
+  --chip-match-text:  #3de87a;
+  --chip-match-border:#1a5c36;
+
+  --chip-miss-bg:     #2b0e0e;
+  --chip-miss-text:   #b05050;
+  --chip-miss-border: #4a1a1a;
+
+  /* Card accent borders by tier */
+  --accent-high:  #3de87a;
+  --accent-mid:   #f0c030;
+  --accent-low:   #e85050;
+  --accent-null:  #31363f;
+
+  /* Actions */
+  --btn-bg:         #1e2230;
+  --btn-hover:      #262b3a;
+  --btn-border:     #31363f;
+
+  --star-filled:    #f0a030;
+  --dismiss-hover:  #e85050;
+
+  /* Typography */
+  --font-body:  "Georgia", "Times New Roman", serif;
+  --font-mono:  "Menlo", "Consolas", "Cascadia Code", "Courier New", monospace;
+  --font-ui:    -apple-system, "Segoe UI", system-ui, sans-serif;
+
+  /* Layout */
+  --max-width: 860px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+}
+
+/* ------------------------------------------------------------
+   Base
+   ------------------------------------------------------------ */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  line-height: 1.6;
+  min-height: 100vh;
+
+  /* Subtle grain texture via SVG noise — no external asset needed */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+}
+
+/* ------------------------------------------------------------
+   Layout wrapper
+   ------------------------------------------------------------ */
+.page-wrap {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 20px 60px;
+}
+
+/* ------------------------------------------------------------
+   Header
+   ------------------------------------------------------------ */
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 0 0;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 28px;
+}
+
+.site-logo {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: normal;
+  color: var(--text-muted);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.site-logo span {
+  color: var(--text-accent);
+}
+
+/* Nav tabs */
+.site-nav {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+}
+
+.nav-tab {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--text-muted);
+  padding: 7px 16px 8px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+
+.nav-tab:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-surface);
+  border-color: var(--border-mid);
+}
+
+.nav-tab.active {
+  color: var(--text-accent);
+  background-color: var(--bg-surface);
+  border-color: var(--border-mid);
+  border-bottom-color: var(--bg-surface);
+  position: relative;
+  bottom: -1px;
+}
+
+/* ------------------------------------------------------------
+   Feed subtitle bar
+   ------------------------------------------------------------ */
+.feed-meta {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  padding: 0 0 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 24px;
+}
+
+.feed-meta strong {
+  color: var(--text-secondary);
+  font-weight: normal;
+}
+
+/* ------------------------------------------------------------
+   Listing cards
+   ------------------------------------------------------------ */
+.card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-null);
+  border-radius: var(--radius-lg);
+  padding: 20px 22px 16px;
+  position: relative;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-left-color 80ms ease;
+}
+
+.card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  border-color: var(--border-mid);
+}
+
+/* Tier-specific left accent — applied via data attribute */
+.card[data-tier="high"]  { border-left-color: var(--accent-high); }
+.card[data-tier="mid"]   { border-left-color: var(--accent-mid); }
+.card[data-tier="low"]   { border-left-color: var(--accent-low); }
+.card[data-tier="null"]  { border-left-color: var(--accent-null); }
+
+/* Card header row: title + score badge */
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 6px;
+}
+
+.card-title {
+  font-family: var(--font-ui);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.35;
+  flex: 1;
+}
+
+/* Score badge */
+.score-badge {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: normal;
+  letter-spacing: 0.04em;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+.score-badge.tier-high {
+  background: var(--score-high-bg);
+  color: var(--score-high-text);
+  border-color: var(--score-high-border);
+}
+
+.score-badge.tier-mid {
+  background: var(--score-mid-bg);
+  color: var(--score-mid-text);
+  border-color: var(--score-mid-border);
+}
+
+.score-badge.tier-low {
+  background: var(--score-low-bg);
+  color: var(--score-low-text);
+  border-color: var(--score-low-border);
+}
+
+.score-badge.tier-null {
+  background: var(--score-null-bg);
+  color: var(--score-null-text);
+  border-color: var(--score-null-border);
+}
+
+/* Meta row: company · location · salary */
+.card-meta {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  letter-spacing: 0.03em;
+  margin-bottom: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 6px;
+  align-items: center;
+}
+
+.card-meta .sep {
+  color: var(--text-muted);
+}
+
+.salary {
+  color: var(--text-accent);
+}
+
+.salary.predicted {
+  color: var(--text-muted);
+}
+
+/* Skill chip rows */
+.skill-section {
+  margin-bottom: 10px;
+}
+
+.skill-label {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-bottom: 5px;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.chip {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 2px 9px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+  line-height: 1.5;
+}
+
+.chip.matched {
+  background: var(--chip-match-bg);
+  color: var(--chip-match-text);
+  border-color: var(--chip-match-border);
+}
+
+.chip.missing {
+  background: var(--chip-miss-bg);
+  color: var(--chip-miss-text);
+  border-color: var(--chip-miss-border);
+}
+
+/* Concerns */
+.concerns-section {
+  margin-bottom: 10px;
+}
+
+.concerns-label {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.concerns-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.concerns-list li {
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  padding-left: 14px;
+  position: relative;
+}
+
+.concerns-list li::before {
+  content: "·";
+  position: absolute;
+  left: 4px;
+  color: var(--text-muted);
+}
+
+/* Verdict */
+.verdict {
+  font-style: italic;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  margin: 10px 0 14px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border-mid);
+}
+
+/* Divider above actions */
+.card-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 0 -22px 14px;
+}
+
+/* ------------------------------------------------------------
+   Action row
+   ------------------------------------------------------------ */
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.73rem;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  color: var(--text-secondary);
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  border-radius: var(--radius-sm);
+  padding: 5px 12px;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 100ms ease, background-color 100ms ease, border-color 100ms ease;
+  white-space: nowrap;
+}
+
+.btn:hover {
+  color: var(--text-primary);
+  background: var(--btn-hover);
+  border-color: var(--border-strong);
+}
+
+/* "View listing" — slightly more prominent */
+.btn-view {
+  color: var(--text-accent);
+  border-color: #3a2e10;
+}
+
+.btn-view:hover {
+  background: #221c08;
+  border-color: #5a4820;
+  color: #f5b040;
+}
+
+/* Bookmark button */
+.btn-bookmark {
+  color: var(--text-muted);
+}
+
+.btn-bookmark:hover {
+  color: var(--star-filled);
+  border-color: #5a3a00;
+}
+
+.btn-bookmark.bookmarked {
+  color: var(--star-filled);
+  border-color: #5a3a00;
+  background: #1e1500;
+}
+
+.btn-bookmark.bookmarked:hover {
+  color: var(--text-secondary);
+  background: var(--btn-hover);
+  border-color: var(--btn-border);
+}
+
+/* Spacer pushes dismiss to the right */
+.actions-spacer {
+  flex: 1;
+}
+
+/* Dismiss button */
+.btn-dismiss {
+  color: var(--text-muted);
+  border-color: transparent;
+  background: transparent;
+  font-size: 0.85rem;
+  padding: 5px 8px;
+}
+
+.btn-dismiss:hover {
+  color: var(--dismiss-hover);
+  background: #1a0808;
+  border-color: #3a1010;
+}
+
+/* HTMX request indicator — dim the card while request is in-flight */
+.htmx-request .card-actions {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------
+   Empty state
+   ------------------------------------------------------------ */
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+}
+
+.empty-state-icon {
+  font-size: 2.4rem;
+  margin-bottom: 16px;
+  opacity: 0.25;
+  display: block;
+}
+
+.empty-state-title {
+  font-family: var(--font-ui);
+  font-size: 1.05rem;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.empty-state-body {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+  line-height: 1.8;
+}
+
+/* ------------------------------------------------------------
+   Scrollbar (Webkit) — keep the dark theme consistent
+   ------------------------------------------------------------ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-base);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* ------------------------------------------------------------
+   Selection
+   ------------------------------------------------------------ */
+::selection {
+  background: rgba(240, 160, 48, 0.25);
+  color: var(--text-primary);
+}
