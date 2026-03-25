@@ -35,6 +35,30 @@
 - [x] Write `README.md` — setup steps, config instructions, how to run ingest + server, cron example
 - [ ] Manual end-to-end test with real Adzuna API credentials
 
+## Release Readiness
+
+### Security
+- [x] Verify `config.json` was never committed (`git log --all --full-history -- config.json`)
+- [ ] Rotate Anthropic and Adzuna API keys before making repo public
+
+### Missing files
+- [x] Create `profile.example.json` with sanitised generic values (mirrors `config.example.json` pattern)
+- [x] Add `profile.json` to `.gitignore` (contains personal career data)
+- [x] Add `.vscode/` to `.gitignore` (machine-specific paths in `settings.json`)
+
+### README updates
+- [x] Add venv creation + activation step before `pip install`
+- [x] Document `--config` and `--profile` CLI flags alongside `--rescore`
+- [x] Add brief description of all four UI pages (`/`, `/bookmarks`, `/applied`, `/stats`)
+
+### requirements.txt
+- [x] Pin `pytest` to an exact version (currently unpinned while all other deps are pinned)
+
+### Design doc updates
+- [x] `DESIGN.md`: update config example block to include `distance` and `max_days_old`
+- [x] `DESIGN.md`: update file map (section 8) to reflect actual template/static files
+- [x] `DESIGN.md`: update route table (section 2.3) to include `/applied`, `/stats`, `POST /apply/<id>`
+
 ## Portfolio Hardening
 
 ### Critical fixes

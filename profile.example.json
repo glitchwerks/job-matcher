@@ -1,0 +1,32 @@
+{
+  "_comment": "Copy this file to profile.json and fill in your own skills and preferences. profile.json is gitignored and must never be committed.",
+  "primary_skills": [
+    "Python, 5yr, active",
+    "Go, 2yr, active",
+    "SQL, 6yr, active",
+    "Docker, 3yr, active",
+    "Linux, 4yr, active",
+    "Kubernetes, 1yr, active",
+    "C++, 4yr, dormant"
+  ],
+  "anti_preferences": [
+    "no pure frontend roles (React / Vue / Angular only — no backend component)",
+    "no QA or test engineer roles",
+    "no pure DevOps or sysadmin roles with no software development scope",
+    "no junior or associate level positions"
+  ],
+  "seniority": "Senior / Staff",
+  "preferred_industries": [
+    "developer tooling and platforms",
+    "AI and ML platforms",
+    "data engineering and analytics",
+    "B2B enterprise software",
+    "fintech"
+  ],
+  "location_preference": "remote, or on-site / hybrid in [your city]",
+  "scoring_notes": [
+    "Senior-level roles are strongly preferred. If two roles are otherwise equal, a Senior role should score 1-2 points higher than a Mid-level role.",
+    "Mid-level roles are acceptable and should not be excluded, but must be noted in concerns.",
+    "A Mid-level role with excellent technical fit can still score 7-8. A Senior role with weaker fit should not automatically outscore it."
+  ]
+}

@@ -19,10 +19,13 @@
 ┌───────────────────────────▼─────────────────────────────┐
 │                   app.py (Flask server)                  │
 │                                                         │
-│  GET /          → main feed (scored, not dismissed)     │
-│  GET /bookmarks → bookmarked listings only              │
+│  GET /              → main feed (scored, not dismissed) │
+│  GET /bookmarks     → bookmarked listings only          │
+│  GET /applied       → applied listings only             │
+│  GET /stats         → usage and cost dashboard          │
 │  POST /bookmark/<id>  → HTMX toggle bookmark           │
 │  POST /dismiss/<id>   → HTMX dismiss listing           │
+│  POST /apply/<id>     → HTMX toggle applied            │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -88,10 +91,13 @@ Thin server layer. Routes delegate to `db.py`; no business logic lives here.
 
 | Route | Method | Template / Response |
 |---|---|---|
-| `/` | GET | `index.html` with feed listings |
+| `/` | GET | `index.html` with feed listings; accepts `min_score`, `remote_only`, `search`, `job_type` query params |
 | `/bookmarks` | GET | `index.html` with bookmarked listings |
+| `/applied` | GET | `index.html` with applied listings |
+| `/stats` | GET | `stats.html` — cumulative token usage and estimated cost by day |
 | `/bookmark/<id>` | POST | HTMX partial — updated action buttons for that card |
 | `/dismiss/<id>` | POST | HTMX — removes card from DOM (empty 200 response) |
+| `/apply/<id>` | POST | HTMX partial — updated action buttons; listing moves to `/applied` |
 
 HTMX actions swap only the affected card or button — no full page reload.
 
@@ -165,6 +171,8 @@ provided with placeholder values.
     "country": "us",
     "what": "software engineer",
     "where": "miami",
+    "distance": 32,
+    "max_days_old": 14,
     "salary_min": 120000,
     "results_per_page": 50,
     "max_pages": 5
@@ -176,8 +184,8 @@ provided with placeholder values.
   "prefilter": {
     "title_exclude": ["junior", "intern", "lead", "manager", "director", "principal"],
     "title_include": ["engineer", "developer", "architect", "sre", "devops"],
-    "require_contract_time": "full_time",
-    "require_contract_type": "permanent"
+    "require_contract_time": null,
+    "require_contract_type": null
   }
 }
 ```
@@ -291,21 +299,30 @@ No other third-party packages. SQLite is stdlib. HTMX is loaded from CDN in the 
 ## 8. File Map
 
 ```
-job-matcher/
+job_aggregator/
 ├── ingest.py              # CLI pipeline: fetch → filter → scrape → score → store
 ├── app.py                 # Flask server + route handlers
 ├── db.py                  # SQLite schema init and all query helpers
-├── profile.json           # User skills profile (edit this)
-├── config.json            # API keys and search config (not committed)
+├── profile.json           # User skills profile (gitignored — copy from profile.example.json)
+├── profile.example.json   # Safe template for profile.json
+├── config.json            # API keys and search config (gitignored — copy from config.example.json)
 ├── config.example.json    # Safe template for config.json
-├── requirements.txt       # Python dependencies
+├── requirements.txt       # Python dependencies (pinned)
 ├── templates/
-│   ├── index.html         # Main template (feed + bookmarks)
-│   └── _card.html         # Listing card partial (reused by HTMX swaps)
+│   ├── index.html         # Main page template (feed, bookmarks, applied views)
+│   ├── _card.html         # Listing card partial (reused by HTMX swaps)
+│   ├── _actions.html      # Action buttons partial returned by POST routes
+│   └── stats.html         # Usage and cost dashboard
 ├── static/
-│   └── style.css          # Minimal stylesheet
-├── jobs.db                # SQLite database (generated, not committed)
-├── REQUIREMENTS.MD        # Original requirements
+│   ├── style.css          # Stylesheet — dark terminal-ledger theme
+│   └── favicon.svg        # JM monogram favicon
+├── tests/
+│   ├── __init__.py
+│   ├── test_prefilter.py  # Unit tests for prefilter() logic
+│   ├── test_db.py         # Unit tests for DB layer
+│   └── test_ingest.py     # Unit tests for ingest utilities
+├── jobs.db                # SQLite database (generated, gitignored)
+├── REQUIREMENTS.md        # Original requirements spec
 ├── DESIGN.md              # This document
 └── TODO.md                # Implementation task list
 ```

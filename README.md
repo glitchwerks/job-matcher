@@ -21,13 +21,25 @@ git clone <repo-url>
 cd job_aggregator
 ```
 
-**2. Install dependencies**
+**2. Create and activate a virtual environment**
+
+```bash
+# bash / macOS / Linux
+python -m venv .venv
+source .venv/bin/activate
+
+# PowerShell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+**3. Install dependencies**
 
 ```bash
 pip install -r requirements.txt
 ```
 
-**3. Create your config file**
+**4. Create your config file**
 
 ```bash
 # bash / macOS / Linux
@@ -37,7 +49,17 @@ cp config.example.json config.json
 Copy-Item config.example.json config.json
 ```
 
-**4. Fill in `config.json`**
+Also copy the example profile:
+
+```bash
+# bash / macOS / Linux
+cp profile.example.json profile.json
+
+# PowerShell
+Copy-Item profile.example.json profile.json
+```
+
+**5. Fill in `config.json`**
 
 Open `config.json` and set the following. All three top-level API keys are required — the script will exit immediately if any are missing or empty.
 
@@ -59,7 +81,7 @@ Open `config.json` and set the following. All three top-level API keys are requi
 | `prefilter.require_contract_time` | No | e.g. `"full_time"`. Set to `null` to skip this check. |
 | `prefilter.require_contract_type` | No | e.g. `"permanent"`. Set to `null` to skip this check. |
 
-**5. Edit `profile.json` to match your skills**
+**6. Edit `profile.json` to match your skills**
 
 See [Customising your profile](#customising-your-profile) below.
 
@@ -89,6 +111,18 @@ python ingest.py --rescore
 
 Scores, matched/missing skills, concerns, and verdicts are overwritten in place. Dismissed, bookmarked, and applied status is preserved.
 
+### Overriding config and profile paths
+
+By default, `ingest.py` reads `config.json` and `profile.json` from the current directory. You can override either with:
+
+```bash
+python ingest.py --config path/to/other_config.json
+python ingest.py --profile path/to/other_profile.json
+python ingest.py --rescore --profile path/to/other_profile.json
+```
+
+This is useful if you maintain separate profiles for different job searches (e.g. backend vs. SRE roles).
+
 Log output is prefixed with the action taken for each listing:
 
 ```
@@ -116,8 +150,10 @@ python app.py
 
 Then open `http://localhost:5000` in your browser.
 
-- **Feed** (`/`) — listings scored at or above `scoring.threshold`, sorted by score descending, with dismissed listings hidden
+- **Feed** (`/`) — listings scored at or above `scoring.threshold`, sorted by score descending, with dismissed listings hidden. Filterable by score, job type, remote-only, and title/company search.
 - **Bookmarks** (`/bookmarks`) — listings you have saved for later review
+- **Applied** (`/applied`) — listings you have marked as applied; excluded from the main feed
+- **Stats** (`/stats`) — cumulative token usage and estimated API cost, broken down by day
 
 Each listing card shows the score, matched and missing skills, concerns, and Haiku's one-sentence verdict alongside the job title, company, location, salary, and a link to the original posting. Bookmark and dismiss actions update instantly without a page reload.
 
