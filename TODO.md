@@ -10,12 +10,12 @@
 
 ## Phase 2: Ingestion Pipeline
 
-- [ ] Implement `AdzunaClient` in `ingest.py` — paginated fetch, respects `max_pages` config
-- [ ] Implement `prefilter()` — title include/exclude regex, salary floor, contract type/time
-- [ ] Implement `scrape_description()` — GET redirect_url, extract visible text via BS4, fallback to API snippet on failure
-- [ ] Implement `score_listing()` — call Claude Haiku, parse structured JSON response, retry once on failure
-- [ ] Wire up `run()` orchestrator in `ingest.py` — full pipeline with summary output
-- [ ] Add startup validation — raise clearly if config keys are missing
+- [x] Implement `AdzunaClient` in `ingest.py` — paginated fetch, respects `max_pages` config
+- [x] Implement `prefilter()` — title include/exclude regex, salary floor, contract type/time
+- [x] Implement `scrape_description()` — GET redirect_url, extract visible text via BS4, fallback to API snippet on failure
+- [x] Implement `score_listing()` — call Claude Haiku, parse structured JSON response, retry once on failure
+- [x] Wire up `run()` orchestrator in `ingest.py` — full pipeline with summary output
+- [x] Add startup validation — raise clearly if config keys are missing
 
 ## Phase 3: Flask UI
 
