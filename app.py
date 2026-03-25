@@ -44,6 +44,7 @@ def load_config(path: str = "config.json") -> dict:
 
 
 CONFIG = load_config()
+db.init_db()
 
 
 # ---------------------------------------------------------------------------
