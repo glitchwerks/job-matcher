@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Matcher · Stats</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="page-wrap">
+
+  {# ── Header ─────────────────────────────────────────────────── #}
+  <header class="site-header">
+    <span class="site-logo">job<span>_</span>matcher</span>
+    <nav class="site-nav">
+      <a href="/"
+         class="nav-tab{% if view == 'feed' %} active{% endif %}">feed</a>
+      <a href="/bookmarks"
+         class="nav-tab{% if view == 'bookmarks' %} active{% endif %}">bookmarks</a>
+      <a href="/stats"
+         class="nav-tab{% if view == 'stats' %} active{% endif %}">stats</a>
+    </nav>
+  </header>
+
+  {# ── Summary stat boxes ──────────────────────────────────────── #}
+  <div class="stats-summary">
+    <div class="stat-box">
+      <div class="stat-value">{{ stats.total_scored }}</div>
+      <div class="stat-label">listings scored</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-value">
+        {{ "{:,}".format(stats.total_tokens_input + stats.total_tokens_output) }}
+      </div>
+      <div class="stat-label">total tokens used</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-value">${{ "%.4f" | format(stats.estimated_cost_usd) }}</div>
+      <div class="stat-label">estimated cost</div>
+    </div>
+  </div>
+
+  {# ── Per-day breakdown ───────────────────────────────────────── #}
+  {% if stats.by_date %}
+    <table class="stats-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th class="num">Scored</th>
+          <th class="num">Input tokens</th>
+          <th class="num">Output tokens</th>
+          <th class="num">Est. cost</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in stats.by_date %}
+          <tr>
+            <td class="stats-date">{{ row.date }}</td>
+            <td class="num">{{ row.scored }}</td>
+            <td class="num">{{ "{:,}".format(row.tokens_input) }}</td>
+            <td class="num">{{ "{:,}".format(row.tokens_output) }}</td>
+            <td class="num cost">${{ "%.4f" | format(row.cost_usd) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty-state">
+      <span class="empty-state-icon">◎</span>
+      <p class="empty-state-title">No scoring data yet</p>
+      <p class="empty-state-body">
+        Run <code>python ingest.py</code> to get started.
+      </p>
+    </div>
+  {% endif %}
+
+  {# ── Disclaimer ──────────────────────────────────────────────── #}
+  <p class="stats-disclaimer">
+    Cost estimates use Haiku list pricing ($0.80/MTok input, $4.00/MTok output).
+    Actual charges may differ.
+  </p>
+
+</div>
+</body>
+</html>

@@ -501,6 +501,14 @@ def score_listing(
             )
             continue
 
+        # Attach token usage from the API response, if available.
+        try:
+            parsed["tokens_input"] = message.usage.input_tokens
+            parsed["tokens_output"] = message.usage.output_tokens
+        except AttributeError:
+            parsed["tokens_input"] = None
+            parsed["tokens_output"] = None
+
         return parsed
 
     logger.warning("Scoring failed after 2 attempts; listing will be stored unscored")
@@ -544,6 +552,8 @@ def run(config_path: str = "config.json", profile_path: str = "profile.json") ->
     scraped_fallback = 0
     scored = 0
     score_failed = 0
+    total_tokens_input = 0
+    total_tokens_output = 0
 
     for page in client.pages():
         for listing in page:
@@ -603,6 +613,8 @@ def run(config_path: str = "config.json", profile_path: str = "profile.json") ->
                     score_result.get("score", 0),
                     title,
                 )
+                total_tokens_input += score_result.get("tokens_input") or 0
+                total_tokens_output += score_result.get("tokens_output") or 0
                 listing.update(score_result)
                 listing["seen"] = 1
 
@@ -616,10 +628,16 @@ def run(config_path: str = "config.json", profile_path: str = "profile.json") ->
             except Exception as exc:  # noqa: BLE001
                 logger.warning("DB insert failed for %s: %s", title, exc)
 
+    total_tokens = total_tokens_input + total_tokens_output
+    run_cost = (
+        total_tokens_input / 1_000_000 * 0.80
+        + total_tokens_output / 1_000_000 * 4.00
+    )
     print(
         f"Run complete: {fetched} fetched | {prefiltered} pre-filtered | "
         f"{deduped} dupes skipped | {scored} scored ({score_failed} failed) | "
-        f"{scraped_fallback} scrape fallbacks"
+        f"{scraped_fallback} scrape fallbacks | "
+        f"~{total_tokens:,} tok | ~${run_cost:.4f}"
     )
 
 

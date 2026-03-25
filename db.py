@@ -12,6 +12,13 @@ Rows returned from read helpers are plain dicts, not sqlite3.Row objects.
 import json
 import sqlite3
 
+# ---------------------------------------------------------------------------
+# Pricing constants — Haiku pricing per million tokens (update if rates change)
+# ---------------------------------------------------------------------------
+
+_HAIKU_INPUT_COST_PER_MTOK = 0.80   # USD per million input tokens
+_HAIKU_OUTPUT_COST_PER_MTOK = 4.00  # USD per million output tokens
+
 
 # ---------------------------------------------------------------------------
 # Connection
@@ -65,6 +72,21 @@ def init_db(db_path: str = "jobs.db") -> None:
                 seen                INTEGER DEFAULT 0
             )
         """)
+
+        # Migrate existing databases — SQLite does not support
+        # ALTER TABLE ... ADD COLUMN IF NOT EXISTS, so we catch the
+        # OperationalError that is raised when the column already exists.
+        for column, typedef in (
+            ("tokens_input", "INTEGER"),
+            ("tokens_output", "INTEGER"),
+        ):
+            try:
+                conn.execute(
+                    f"ALTER TABLE listings ADD COLUMN {column} {typedef}"
+                )
+            except sqlite3.OperationalError:
+                pass  # Column already present; nothing to do.
+
         conn.commit()
     finally:
         conn.close()
@@ -104,6 +126,10 @@ def insert_listing(listing: dict, db_path: str = "jobs.db") -> None:
         elif val is None:
             row[col] = json.dumps([])
 
+    # Ensure token columns are present even if absent from the source dict.
+    row.setdefault("tokens_input", None)
+    row.setdefault("tokens_output", None)
+
     conn = get_connection(db_path)
     try:
         conn.execute(
@@ -115,7 +141,8 @@ def insert_listing(listing: dict, db_path: str = "jobs.db") -> None:
                 description, redirect_url,
                 created_at, fetched_at,
                 score, matched_skills, missing_skills, concerns, verdict,
-                bookmarked, dismissed, seen
+                bookmarked, dismissed, seen,
+                tokens_input, tokens_output
             ) VALUES (
                 :adzuna_id, :title, :company, :location,
                 :salary_min, :salary_max, :salary_is_predicted,
@@ -123,7 +150,8 @@ def insert_listing(listing: dict, db_path: str = "jobs.db") -> None:
                 :description, :redirect_url,
                 :created_at, :fetched_at,
                 :score, :matched_skills, :missing_skills, :concerns, :verdict,
-                :bookmarked, :dismissed, :seen
+                :bookmarked, :dismissed, :seen,
+                :tokens_input, :tokens_output
             )
             """,
             row,
@@ -157,10 +185,17 @@ def update_score(adzuna_id: str, score_data: dict, db_path: str = "jobs.db") -> 
                 missing_skills = :missing_skills,
                 concerns       = :concerns,
                 verdict        = :verdict,
-                seen           = 1
+                seen           = 1,
+                tokens_input   = :tokens_input,
+                tokens_output  = :tokens_output
             WHERE adzuna_id = :adzuna_id
             """,
-            {**data, "adzuna_id": adzuna_id},
+            {
+                **data,
+                "adzuna_id": adzuna_id,
+                "tokens_input": data.get("tokens_input"),
+                "tokens_output": data.get("tokens_output"),
+            },
         )
         conn.commit()
     finally:
@@ -237,6 +272,84 @@ def get_listing_by_id(listing_id: int, db_path: str = "jobs.db") -> dict | None:
         if row is None:
             return None
         return _deserialise_row(row)
+    finally:
+        conn.close()
+
+
+def get_usage_stats(db_path: str = "jobs.db") -> dict:
+    """Return aggregated API usage and cost statistics.
+
+    Queries the listings table to produce totals and a per-day breakdown.
+    All token columns are nullable — NULL values are treated as 0 via
+    SQLite's COALESCE so the arithmetic is always well-defined.
+
+    Returns:
+        Dict with keys:
+            total_scored        -- count of listings with score IS NOT NULL
+            total_tokens_input  -- sum of tokens_input across all rows
+            total_tokens_output -- sum of tokens_output across all rows
+            estimated_cost_usd  -- float, calculated from Haiku list pricing
+            by_date             -- list of per-day dicts, most recent first;
+                                   each dict has: date, scored, tokens_input,
+                                   tokens_output, cost_usd
+    """
+    conn = get_connection(db_path)
+    try:
+        totals_row = conn.execute(
+            """
+            SELECT
+                COUNT(CASE WHEN score IS NOT NULL THEN 1 END) AS total_scored,
+                COALESCE(SUM(tokens_input), 0)                AS total_tokens_input,
+                COALESCE(SUM(tokens_output), 0)               AS total_tokens_output
+            FROM listings
+            """
+        ).fetchone()
+
+        total_scored: int = totals_row["total_scored"]
+        total_tokens_input: int = totals_row["total_tokens_input"]
+        total_tokens_output: int = totals_row["total_tokens_output"]
+        estimated_cost_usd: float = (
+            total_tokens_input / 1_000_000 * _HAIKU_INPUT_COST_PER_MTOK
+            + total_tokens_output / 1_000_000 * _HAIKU_OUTPUT_COST_PER_MTOK
+        )
+
+        day_rows = conn.execute(
+            """
+            SELECT
+                DATE(fetched_at)                                    AS date,
+                COUNT(CASE WHEN score IS NOT NULL THEN 1 END)       AS scored,
+                COALESCE(SUM(tokens_input), 0)                      AS tokens_input,
+                COALESCE(SUM(tokens_output), 0)                     AS tokens_output
+            FROM listings
+            GROUP BY DATE(fetched_at)
+            ORDER BY date DESC
+            """
+        ).fetchall()
+
+        by_date: list[dict] = []
+        for row in day_rows:
+            tok_in = row["tokens_input"]
+            tok_out = row["tokens_output"]
+            by_date.append(
+                {
+                    "date": row["date"],
+                    "scored": row["scored"],
+                    "tokens_input": tok_in,
+                    "tokens_output": tok_out,
+                    "cost_usd": (
+                        tok_in / 1_000_000 * _HAIKU_INPUT_COST_PER_MTOK
+                        + tok_out / 1_000_000 * _HAIKU_OUTPUT_COST_PER_MTOK
+                    ),
+                }
+            )
+
+        return {
+            "total_scored": total_scored,
+            "total_tokens_input": total_tokens_input,
+            "total_tokens_output": total_tokens_output,
+            "estimated_cost_usd": estimated_cost_usd,
+            "by_date": by_date,
+        }
     finally:
         conn.close()
 

@@ -34,3 +34,12 @@
 - [x] Handle `score = NULL` listings in UI gracefully (show "pending score" state)
 - [x] Write `README.md` — setup steps, config instructions, how to run ingest + server, cron example
 - [ ] Manual end-to-end test with real Adzuna API credentials
+
+## Feature: Usage & Cost Tracking
+
+- [x] Add `tokens_input` and `tokens_output` columns to `listings` table (migrate existing DB)
+- [x] Capture token usage from Anthropic API response in `score_listing()`, return alongside score data
+- [x] Store token counts per listing in DB via `insert_listing()` / `update_score()`
+- [x] Add `get_usage_stats()` to `db.py` — total tokens, estimated cost, per-run breakdown
+- [x] Print per-run cost estimate in ingest summary line
+- [x] Add `/stats` route to `app.py` and `stats` nav tab showing cumulative usage and cost

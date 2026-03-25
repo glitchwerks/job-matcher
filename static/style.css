@@ -554,3 +554,104 @@ body {
   background: rgba(240, 160, 48, 0.25);
   color: var(--text-primary);
 }
+
+/* ------------------------------------------------------------
+   Stats page — summary boxes
+   ------------------------------------------------------------ */
+.stats-summary {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 32px;
+  flex-wrap: wrap;
+}
+
+.stat-box {
+  flex: 1;
+  min-width: 160px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+}
+
+.stat-value {
+  font-family: var(--font-mono);
+  font-size: 1.55rem;
+  color: var(--text-accent);
+  letter-spacing: 0.02em;
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 0.70rem;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------
+   Stats page — per-day table
+   ------------------------------------------------------------ */
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  margin-bottom: 28px;
+}
+
+.stats-table thead th {
+  text-align: left;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 0 12px 10px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.stats-table thead th.num {
+  text-align: right;
+}
+
+.stats-table tbody td {
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  vertical-align: middle;
+}
+
+.stats-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.stats-table tbody tr:hover td {
+  background: var(--bg-surface);
+}
+
+.stats-table td.num {
+  text-align: right;
+}
+
+.stats-table td.stats-date {
+  color: var(--text-primary);
+}
+
+.stats-table td.cost {
+  color: var(--text-accent);
+}
+
+/* ------------------------------------------------------------
+   Stats page — disclaimer
+   ------------------------------------------------------------ */
+.stats-disclaimer {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}

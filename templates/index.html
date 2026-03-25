@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Job Matcher{% if view == "bookmarks" %} · Bookmarks{% endif %}</title>
+  <title>Job Matcher{% if view == "bookmarks" %} · Bookmarks{% elif view == "stats" %} · Stats{% endif %}</title>
   <link rel="stylesheet" href="/static/style.css">
   <script src="https://unpkg.com/htmx.org@1.9.10" crossorigin="anonymous"></script>
 </head>
@@ -18,6 +18,8 @@
          class="nav-tab{% if view == 'feed' %} active{% endif %}">feed</a>
       <a href="/bookmarks"
          class="nav-tab{% if view == 'bookmarks' %} active{% endif %}">bookmarks</a>
+      <a href="/stats"
+         class="nav-tab{% if view == 'stats' %} active{% endif %}">stats</a>
     </nav>
   </header>
 

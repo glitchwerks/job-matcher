@@ -129,6 +129,13 @@ def toggle_bookmark(listing_id: int):
     return render_template("_actions.html", listing=listing)
 
 
+@app.route("/stats")
+def stats():
+    """API usage and cost statistics."""
+    data = db.get_usage_stats()
+    return render_template("stats.html", stats=data, view="stats")
+
+
 @app.route("/dismiss/<int:listing_id>", methods=["POST"])
 def dismiss(listing_id: int):
     """Dismiss a listing.
