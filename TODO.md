@@ -30,7 +30,7 @@
 
 ## Phase 4: Polish & Documentation
 
-- [ ] Add logging throughout `ingest.py` (counts: fetched / pre-filtered / deduped / scraped / scored)
-- [ ] Handle `score = NULL` listings in UI gracefully (show "pending score" state)
-- [ ] Write `README.md` — setup steps, config instructions, how to run ingest + server, cron example
+- [x] Add logging throughout `ingest.py` (counts: fetched / pre-filtered / deduped / scraped / scored)
+- [x] Handle `score = NULL` listings in UI gracefully (show "pending score" state)
+- [x] Write `README.md` — setup steps, config instructions, how to run ingest + server, cron example
 - [ ] Manual end-to-end test with real Adzuna API credentials
