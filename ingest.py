@@ -476,7 +476,7 @@ def score_listing(
         try:
             message = client.messages.create(
                 model=model,
-                max_tokens=512,
+                max_tokens=1024,
                 messages=[{"role": "user", "content": prompt}],
             )
         except anthropic.APIError as exc:
