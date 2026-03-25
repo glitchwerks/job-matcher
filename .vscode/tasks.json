@@ -31,6 +31,20 @@
       "problemMatcher": []
     },
     {
+      "label": "Rescore Listings",
+      "type": "shell",
+      "command": ".venv/Scripts/python ingest.py --rescore",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "job-matcher"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Start Job Matcher",
       "dependsOn": ["Start Web UI"],
       "dependsOrder": "parallel",
