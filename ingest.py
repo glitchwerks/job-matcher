@@ -923,7 +923,6 @@ def rescore(
         keys_path:    Path to keys.json (default ``"keys.json"``).  Override
                       in tests to inject a temp file.
     """
-    config = load_config(config_path)
     profile = load_profile(profile_path)
 
     keys = load_keys(keys_path)
