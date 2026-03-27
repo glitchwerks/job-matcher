@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Matcher · Settings</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="page-wrap">
+
+  {# ── Header ─────────────────────────────────────────────────── #}
+  <header class="site-header">
+    <span class="site-logo">job<span>_</span>matcher</span>
+    <nav class="site-nav">
+      <a href="/"
+         class="nav-tab{% if view == 'feed' %} active{% endif %}">feed</a>
+      <a href="/bookmarks"
+         class="nav-tab{% if view == 'bookmarks' %} active{% endif %}">bookmarks</a>
+      <a href="/applied"
+         class="nav-tab{% if view == 'applied' %} active{% endif %}">applied</a>
+      <a href="/stats"
+         class="nav-tab{% if view == 'stats' %} active{% endif %}">stats</a>
+      <a href="/settings"
+         class="nav-tab{% if view == 'settings' %} active{% endif %}">settings</a>
+    </nav>
+  </header>
+
+  {# ── Page heading ─────────────────────────────────────────────── #}
+  <div class="feed-meta">
+    Settings
+  </div>
+
+  {# ── Success notice ───────────────────────────────────────────── #}
+  {% if saved %}
+    <p class="save-notice">Settings saved.</p>
+  {% endif %}
+
+  {# ── Settings form ────────────────────────────────────────────── #}
+  <form class="settings-form" method="post" action="/settings">
+
+    <h2 class="settings-section-title">API Keys &amp; Models</h2>
+
+    {# ── Anthropic ── #}
+    <div class="provider-row">
+      <div class="provider-header">
+        <span class="provider-name">Anthropic</span>
+        {% if providers.anthropic.has_key %}
+          <span class="key-status configured">&#10003; configured</span>
+        {% else %}
+          <span class="key-status not-set">&#9675; not set</span>
+        {% endif %}
+      </div>
+      <label class="settings-label" for="anthropic_key">API Key</label>
+      <input
+        id="anthropic_key"
+        class="settings-input"
+        type="password"
+        name="anthropic_key"
+        autocomplete="off"
+        placeholder="Enter new key to update (leave blank to keep existing)">
+      <label class="settings-label" for="anthropic_model">Model ID</label>
+      <input
+        id="anthropic_model"
+        class="settings-input"
+        type="text"
+        name="anthropic_model"
+        value="{{ providers.anthropic.model }}">
+    </div>
+
+    {# ── OpenAI ── #}
+    <div class="provider-row">
+      <div class="provider-header">
+        <span class="provider-name">OpenAI</span>
+        {% if providers.openai.has_key %}
+          <span class="key-status configured">&#10003; configured</span>
+        {% else %}
+          <span class="key-status not-set">&#9675; not set</span>
+        {% endif %}
+      </div>
+      <label class="settings-label" for="openai_key">API Key</label>
+      <input
+        id="openai_key"
+        class="settings-input"
+        type="password"
+        name="openai_key"
+        autocomplete="off"
+        placeholder="Enter new key to update (leave blank to keep existing)">
+      <label class="settings-label" for="openai_model">Model ID</label>
+      <input
+        id="openai_model"
+        class="settings-input"
+        type="text"
+        name="openai_model"
+        value="{{ providers.openai.model }}">
+    </div>
+
+    {# ── Gemini ── #}
+    <div class="provider-row">
+      <div class="provider-header">
+        <span class="provider-name">Gemini</span>
+        {% if providers.gemini.has_key %}
+          <span class="key-status configured">&#10003; configured</span>
+        {% else %}
+          <span class="key-status not-set">&#9675; not set</span>
+        {% endif %}
+      </div>
+      <label class="settings-label" for="gemini_key">API Key</label>
+      <input
+        id="gemini_key"
+        class="settings-input"
+        type="password"
+        name="gemini_key"
+        autocomplete="off"
+        placeholder="Enter new key to update (leave blank to keep existing)">
+      <label class="settings-label" for="gemini_model">Model ID</label>
+      <input
+        id="gemini_model"
+        class="settings-input"
+        type="text"
+        name="gemini_model"
+        value="{{ providers.gemini.model }}">
+    </div>
+
+    {# ── Preferred provider ── #}
+    <div class="provider-row">
+      <label class="settings-label" for="preferred_provider">Preferred Provider</label>
+      <select id="preferred_provider" class="settings-select filter-select" name="preferred_provider">
+        <option value="anthropic" {% if preferred_provider == "anthropic" %}selected{% endif %}>Anthropic</option>
+        <option value="openai"    {% if preferred_provider == "openai"    %}selected{% endif %}>OpenAI</option>
+        <option value="gemini"    {% if preferred_provider == "gemini"    %}selected{% endif %}>Gemini</option>
+      </select>
+    </div>
+
+    <button type="submit" class="btn btn-save">Save</button>
+
+  </form>
+
+</div>
+</body>
+</html>

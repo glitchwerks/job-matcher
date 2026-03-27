@@ -15,6 +15,17 @@ import db
 app = Flask(__name__)
 
 DB_PATH: str = os.environ.get("DB_PATH", "jobs.db")
+_KEYS_PATH: str = os.path.join(os.path.dirname(__file__), "keys.json")
+
+# Default structure mirrors keys.example.json — used when keys.json is absent.
+_KEYS_DEFAULTS: dict = {
+    "providers": {
+        "anthropic": {"api_key": "", "model": "claude-haiku-4-5-20251001"},
+        "openai":    {"api_key": "", "model": "gpt-4o-mini"},
+        "gemini":    {"api_key": "", "model": "gemini-1.5-flash"},
+    },
+    "preferred_provider": "anthropic",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +220,89 @@ def dismiss(listing_id: int):
     """
     db.set_dismissed(listing_id, 1, db_path=DB_PATH)
     return make_response("", 200)
+
+
+def _load_keys() -> dict:
+    """Load keys.json if it exists, otherwise return a copy of the defaults.
+
+    Returns a deep copy so callers can mutate freely without touching the
+    module-level default structure.
+    """
+    import copy
+    if not os.path.exists(_KEYS_PATH):
+        return copy.deepcopy(_KEYS_DEFAULTS)
+    try:
+        with open(_KEYS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        # Guarantee every expected provider key exists, using defaults as
+        # fallback for any provider absent from the file.
+        data.setdefault("providers", {})
+        for provider, defaults in _KEYS_DEFAULTS["providers"].items():
+            data["providers"].setdefault(provider, copy.deepcopy(defaults))
+            data["providers"][provider].setdefault("api_key", "")
+            data["providers"][provider].setdefault("model", defaults["model"])
+        data.setdefault("preferred_provider", _KEYS_DEFAULTS["preferred_provider"])
+        return data
+    except (json.JSONDecodeError, OSError):
+        return copy.deepcopy(_KEYS_DEFAULTS)
+
+
+@app.route("/settings", methods=["GET", "POST"])
+def settings():
+    """Settings page — manage API keys and preferred provider.
+
+    GET:  Reads keys.json and passes only boolean has_key flags to the
+          template — raw key values are never sent to the browser.
+    POST: Merges submitted form values over the existing keys.json.
+          A blank key field means "keep existing"; a non-blank field
+          replaces the stored key. Model is always updated (not secret).
+    """
+    saved = False
+
+    if request.method == "POST":
+        keys_data = _load_keys()
+
+        for provider in ("anthropic", "openai", "gemini"):
+            submitted_key = request.form.get(f"{provider}_key", "").strip()
+            submitted_model = request.form.get(f"{provider}_model", "").strip()
+
+            # Only update the stored key when the field was filled in.
+            if submitted_key:
+                keys_data["providers"][provider]["api_key"] = submitted_key
+
+            # Model is never secret — always round-trip whatever was submitted.
+            if submitted_model:
+                keys_data["providers"][provider]["model"] = submitted_model
+
+        preferred = request.form.get("preferred_provider", "").strip()
+        if preferred in ("anthropic", "openai", "gemini"):
+            keys_data["preferred_provider"] = preferred
+
+        with open(_KEYS_PATH, "w", encoding="utf-8") as f:
+            json.dump(keys_data, f, indent=2)
+
+        saved = True
+        # Re-load the just-written file so the template reflects current state.
+        keys_data = _load_keys()
+    else:
+        keys_data = _load_keys()
+
+    # Build the template context — only booleans for key presence, never values.
+    providers_ctx = {}
+    for provider in ("anthropic", "openai", "gemini"):
+        cfg = keys_data["providers"][provider]
+        providers_ctx[provider] = {
+            "has_key": bool(cfg.get("api_key", "").strip()),
+            "model": cfg.get("model", _KEYS_DEFAULTS["providers"][provider]["model"]),
+        }
+
+    return render_template(
+        "settings.html",
+        view="settings",
+        providers=providers_ctx,
+        preferred_provider=keys_data.get("preferred_provider", "anthropic"),
+        saved=saved,
+    )
 
 
 # ---------------------------------------------------------------------------
