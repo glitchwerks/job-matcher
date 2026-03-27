@@ -1,5 +1,14 @@
 # TODO
 
+## CI/CD: GitHub Actions (issue #19)
+
+- [x] Create `requirements-dev.txt` with `pytest` and `ruff`
+- [x] Create `.github/workflows/ci.yml` (trigger on push/PR to `main`)
+- [x] Configure Python 3.11 environment in workflow
+- [x] Add `pytest` step (full test suite)
+- [x] Add `ruff check .` linting step
+- [ ] Verify workflow passes on current codebase
+
 ## Feature: Pluggable model provider (issue #8)
 
 - [x] Define `LLMProvider` abstract base class / Protocol in a new `providers/` package (or `scoring.py`)

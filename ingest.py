@@ -29,13 +29,13 @@ import time
 from datetime import datetime, timezone
 from typing import Iterator
 
-_DB_PATH: str = os.environ.get("DB_PATH", "jobs.db")
-
 import requests
 from bs4 import BeautifulSoup
 
 import db
 from providers import make_provider, LLMProvider
+
+_DB_PATH: str = os.environ.get("DB_PATH", "jobs.db")
 
 # ---------------------------------------------------------------------------
 # Logger
