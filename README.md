@@ -39,25 +39,21 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-**4. Create your config file**
+**4. Copy the config files**
 
 ```bash
 # bash / macOS / Linux
 cp config.example.json config.json
-
-# PowerShell
-Copy-Item config.example.json config.json
-```
-
-Also copy the example profile:
-
-```bash
-# bash / macOS / Linux
+cp keys.example.json keys.json
 cp profile.example.json profile.json
 
 # PowerShell
+Copy-Item config.example.json config.json
+Copy-Item keys.example.json keys.json
 Copy-Item profile.example.json profile.json
 ```
+
+`keys.json` holds LLM provider API keys and model selection. You can fill it in directly or configure it through the `/settings` UI after starting the web server.
 
 **5. Fill in `config.json`**
 
@@ -74,7 +70,6 @@ Open `config.json` and set the following. Both Adzuna keys are required — the 
 | `search.results_per_page` | Yes | Max 50 (Adzuna API limit) |
 | `search.max_pages` | Yes | Number of pages to fetch per run. 5 pages at 50 results = up to 250 raw listings. |
 | `scoring.threshold` | Yes | Minimum score (0–10) for a listing to appear in the feed |
-| `scoring.model` | Yes | Anthropic model ID. Default: `claude-haiku-4-5-20251001` |
 | `prefilter.title_include` | No | Listing title must match at least one of these (case-insensitive substring). Omit to allow all titles. |
 | `prefilter.title_exclude` | No | Listing title must match none of these. |
 | `prefilter.require_contract_time` | No | e.g. `"full_time"`. Set to `null` to skip this check. |
@@ -321,4 +316,4 @@ The self-hosted runner must be registered on the server before automated deploym
 
 ### Secrets and config
 
-`config.json` and `profile.json` are gitignored and are never touched by the workflow. API keys live only in `config.json` on the server — the deployment workflow does not use or require any GitHub Actions secrets for application credentials.
+`config.json`, `keys.json`, and `profile.json` are gitignored and are never touched by the workflow. API keys live only in `keys.json` on the server — the deployment workflow does not use or require any GitHub Actions secrets for application credentials.
