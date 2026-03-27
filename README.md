@@ -39,35 +39,30 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-**4. Create your config file**
+**4. Copy the config files**
 
 ```bash
 # bash / macOS / Linux
 cp config.example.json config.json
-
-# PowerShell
-Copy-Item config.example.json config.json
-```
-
-Also copy the example profile:
-
-```bash
-# bash / macOS / Linux
+cp keys.example.json keys.json
 cp profile.example.json profile.json
 
 # PowerShell
+Copy-Item config.example.json config.json
+Copy-Item keys.example.json keys.json
 Copy-Item profile.example.json profile.json
 ```
 
+`keys.json` holds LLM provider API keys and model selection. You can fill it in directly or configure it through the `/settings` UI after starting the web server.
+
 **5. Fill in `config.json`**
 
-Open `config.json` and set the following. All three top-level API keys are required — the script will exit immediately if any are missing or empty.
+Open `config.json` and set the following. Both Adzuna keys are required — the script will exit immediately if either is missing or empty. LLM provider keys (Anthropic etc.) are configured separately via `keys.json` and the `/settings` UI.
 
 | Key | Required | Notes |
 |---|---|---|
 | `adzuna_app_id` | Yes | From your Adzuna developer dashboard |
 | `adzuna_app_key` | Yes | From your Adzuna developer dashboard |
-| `anthropic_api_key` | Yes | `sk-ant-...` key from Anthropic console |
 | `search.country` | Yes | Adzuna country code: `us`, `gb`, `au`, etc. |
 | `search.what` | Yes | Keyword query sent to Adzuna, e.g. `"software engineer"` |
 | `search.where` | No | Location filter, e.g. `"miami"`. Omit or leave empty for nationwide. |
@@ -75,7 +70,6 @@ Open `config.json` and set the following. All three top-level API keys are requi
 | `search.results_per_page` | Yes | Max 50 (Adzuna API limit) |
 | `search.max_pages` | Yes | Number of pages to fetch per run. 5 pages at 50 results = up to 250 raw listings. |
 | `scoring.threshold` | Yes | Minimum score (0–10) for a listing to appear in the feed |
-| `scoring.model` | Yes | Anthropic model ID. Default: `claude-haiku-4-5-20251001` |
 | `prefilter.title_include` | No | Listing title must match at least one of these (case-insensitive substring). Omit to allow all titles. |
 | `prefilter.title_exclude` | No | Listing title must match none of these. |
 | `prefilter.require_contract_time` | No | e.g. `"full_time"`. Set to `null` to skip this check. |
@@ -174,7 +168,7 @@ To run ingestion nightly at 07:00:
 **Windows Task Scheduler**
 
 ```powershell
-schtasks /create /tn "JobMatcherIngest" /tr "python C:\path\to\job_aggregator\ingest.py" /sc daily /st 07:00
+schtasks /create /tn "JobMatcherIngest" /tr "python C:\Apps\job_matcher\ingest.py" /sc daily /st 07:00
 ```
 
 ---
@@ -224,25 +218,26 @@ Use this approach if you want the web UI running as a Windows service and ingest
 
 ### Environment variables
 
-Set API keys and the database path as machine-level environment variables so both the service and the scheduled task pick them up automatically:
+Set Adzuna credentials and the database path as machine-level environment variables so both the service and the scheduled task pick them up automatically:
 
 ```powershell
 [System.Environment]::SetEnvironmentVariable("DB_PATH", "C:\path\to\data\jobs.db", "Machine")
-[System.Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", "your_key", "Machine")
 [System.Environment]::SetEnvironmentVariable("ADZUNA_APP_ID", "your_id", "Machine")
 [System.Environment]::SetEnvironmentVariable("ADZUNA_APP_KEY", "your_key", "Machine")
 ```
 
 Restart your terminal after setting machine-level variables for them to take effect.
 
+LLM provider API keys are managed separately through `keys.json` and the `/settings` UI — do not set them as environment variables.
+
 ### Web service (NSSM)
 
 Register gunicorn as a Windows service named `JobMatcher`:
 
 ```powershell
-nssm install JobMatcher "i:\Web Development\job_matcher\venv\Scripts\gunicorn.exe"
+nssm install JobMatcher "C:\Apps\job_matcher\venv\Scripts\gunicorn.exe"
 nssm set JobMatcher AppParameters "app:app --bind 0.0.0.0:5000 --workers 2"
-nssm set JobMatcher AppDirectory "i:\Web Development\job_matcher"
+nssm set JobMatcher AppDirectory "C:\Apps\job_matcher"
 nssm set JobMatcher Start SERVICE_AUTO_START
 nssm start JobMatcher
 ```
@@ -261,9 +256,9 @@ Create a daily ingest task running at 6am:
 
 ```powershell
 $action = New-ScheduledTaskAction `
-    -Execute "i:\Web Development\job_matcher\venv\Scripts\python.exe" `
+    -Execute "C:\Apps\job_matcher\venv\Scripts\python.exe" `
     -Argument "ingest.py --hours 25" `
-    -WorkingDirectory "i:\Web Development\job_matcher"
+    -WorkingDirectory "C:\Apps\job_matcher"
 
 $trigger = New-ScheduledTaskTrigger -Daily -At 6am
 
@@ -289,6 +284,10 @@ New-Item -ItemType Directory -Force -Path "C:\path\to\data"
 ```
 
 The SQLite database (`jobs.db`) is created there automatically on the first run.
+
+### API keys (LLM providers)
+
+LLM provider keys (Anthropic, OpenAI, Gemini, etc.) are stored in `keys.json` at the project root and managed through the `/settings` UI — they are not set as environment variables. `keys.json` is gitignored and never committed. After running `scripts/setup.ps1`, navigate to `http://localhost:5000/settings` to enter your API keys.
 
 ---
 
@@ -317,4 +316,4 @@ The self-hosted runner must be registered on the server before automated deploym
 
 ### Secrets and config
 
-`config.json` and `profile.json` are gitignored and are never touched by the workflow. API keys live only in `config.json` on the server — the deployment workflow does not use or require any GitHub Actions secrets for application credentials.
+`config.json`, `keys.json`, and `profile.json` are gitignored and are never touched by the workflow. API keys live only in `keys.json` on the server — the deployment workflow does not use or require any GitHub Actions secrets for application credentials.

@@ -51,7 +51,7 @@ The application runs natively on Windows using two independent processes:
 └─────────────────────────────────────────────────────────┘
 ```
 
-`DB_PATH` and API keys are configured as machine-level Windows environment variables, so both the service and the scheduled task pick them up automatically without a `.env` file.
+`DB_PATH` and Adzuna credentials are configured as machine-level Windows environment variables, so both the service and the scheduled task pick them up automatically without a `.env` file. LLM provider API keys (Anthropic, OpenAI, Gemini, etc.) are stored separately in `keys.json` at the project root and managed through the `/settings` UI — they are never set as environment variables.
 
 ---
 
@@ -179,14 +179,14 @@ Human-editable. Loaded at scoring time and injected into the Haiku prompt verbat
 
 ### 2.6 `config.json` — Runtime Configuration
 
-Never committed to source control (contains API keys). A `config.example.json` is
-provided with placeholder values.
+Never committed to source control (contains Adzuna credentials). A `config.example.json`
+is provided with placeholder values. LLM provider API keys are stored in `keys.json`
+(managed via `/settings`), not here.
 
 ```json
 {
   "adzuna_app_id": "",
   "adzuna_app_key": "",
-  "anthropic_api_key": "",
   "search": {
     "country": "us",
     "what": "software engineer",

@@ -1,10 +1,8 @@
 {
-  "_comment": "Copy this file to config.json and fill in your API keys and preferences. config.json is gitignored and must never be committed.",
+  "_comment": "Copy this file to config.json and fill in your values. config.json is gitignored and must never be committed.",
+  "_keys_comment": "API keys and model selection live in keys.json (see keys.example.json). config.json only controls search, scoring threshold, prefilter, and scheduling.",
   "adzuna_app_id": "",
   "adzuna_app_key": "",
-  "anthropic_api_key": "",
-  "openai_api_key": "",
-  "google_api_key": "",
   "search": {
     "_comment": "country must be a valid Adzuna country code (us, gb, au, etc.). salary_min is in the local currency unit (USD for us). results_per_page max is 50 for Adzuna. max_pages caps how many pages are fetched per run. distance is in km; omit or set to 0 for Adzuna default radius. max_days_old limits results to listings posted within N days; omit or set to 0 for no restriction.",
     "country": "us",
@@ -17,11 +15,8 @@
     "max_pages": 5
   },
   "scoring": {
-    "_comment": "threshold is the minimum score (0–10) a listing must receive to appear in the feed. provider selects the LLM backend; model must be a valid ID for that provider.",
-    "provider": "anthropic",
-    "_provider_comment": "Supported: anthropic, openai, gemini",
-    "threshold": 7.0,
-    "model": "claude-haiku-4-5-20251001"
+    "_comment": "threshold is the minimum score (0–10) a listing must receive to appear in the feed.",
+    "threshold": 7.0
   },
   "prefilter": {
     "_comment": "title_exclude and title_include are case-insensitive substring matches. A listing passes only if its title matches at least one title_include pattern and zero title_exclude patterns. require_contract_time and require_contract_type are matched against Adzuna response fields; set to null to skip the check.",

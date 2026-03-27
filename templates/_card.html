@@ -64,6 +64,10 @@
       <span class="badge-jobtype">{{ listing.job_type | title }}</span>
     {% endif %}
 
+    {% if listing.model_used %}
+      <span class="model-badge">{{ listing.model_used.split('/')[-1] }}</span>
+    {% endif %}
+
   </summary>
 
   {# ── Body: full card detail, shown when open ─────────────────── #}

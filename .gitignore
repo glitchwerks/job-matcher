@@ -1,6 +1,7 @@
 profile.json
 .vscode/
 config.json
+keys.json
 jobs.db
 __pycache__/
 *.pyc

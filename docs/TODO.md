@@ -180,10 +180,22 @@
 
 ## Feature: Pluggable Model Provider (#8)
 
-- [ ] Define a common scorer interface/adapter shape `{score, matched_skills, missing_skills, concerns, verdict, tokens_input, tokens_output}`
-- [ ] Add `scoring.provider` key to `config.json` / `config.example.json` (e.g. `"provider": "anthropic"`)
-- [ ] Implement Anthropic adapter (refactor existing `score_listing()`)
-- [ ] Implement OpenAI adapter (GPT-4o-mini / GPT-4o)
-- [ ] Implement Gemini adapter (gemini-1.5-flash / gemini-1.5-pro)
-- [ ] Instantiate correct client in `run()` / `rescore()` based on config provider value
-- [ ] Add provider-specific API key fields to `config.example.json`
+- [x] Define a common scorer interface/adapter shape `{score, matched_skills, missing_skills, concerns, verdict, tokens_input, tokens_output}`
+- [x] Add `scoring.provider` key to `config.json` / `config.example.json` (e.g. `"provider": "anthropic"`)
+- [x] Implement Anthropic adapter (refactor existing `score_listing()`)
+- [x] Implement OpenAI adapter (GPT-4o-mini / GPT-4o)
+- [x] Implement Gemini adapter (gemini-1.5-flash / gemini-1.5-pro)
+- [x] Instantiate correct client in `run()` / `rescore()` based on config provider value
+- [x] Add provider-specific API key fields to `config.example.json`
+
+## Milestone: Dynamic Provider Key Management (#28–#36)
+
+- [x] **#28** — Create `keys.example.json`; strip API key fields from `config.example.json`; add `keys.json` to `.gitignore`
+- [x] **#29** — Add `build_provider_chain()` to `providers/__init__.py`; add `TestBuildProviderChain` tests
+- [x] **#30** — Add `model_used TEXT` column to `listings` table via migration in `db.py`
+- [x] **#31** — Add `load_keys()` to `ingest.py` with env-var fallback; update `load_config()` to use it
+- [x] **#32** — Wire provider chain into `run()`/`rescore()`; per-listing fallback loop; cost breakdown by provider
+- [x] **#33** — Flask `/settings` GET+POST routes; `settings.html` template (keys-only, masked display)
+- [x] **#34** — `model_used` badge on listing cards; add settings nav tab to all templates
+- [x] **#35** — Update `setup.ps1` (key file ACLs, remove LLM key prompts); deployment docs
+- [x] **#36** — Final `CLAUDE.md` and `README.md` documentation pass

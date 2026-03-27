@@ -33,7 +33,7 @@ import requests
 from bs4 import BeautifulSoup
 
 import db
-from providers import make_provider, LLMProvider
+from providers import build_provider_chain, LLMProvider
 
 _DB_PATH: str = os.environ.get("DB_PATH", "jobs.db")
 
@@ -50,14 +50,14 @@ logger = logging.getLogger("ingest")
 
 _REQUIRED_TOP_LEVEL = ("adzuna_app_id", "adzuna_app_key")
 _REQUIRED_SEARCH = ("country", "what", "results_per_page", "max_pages")
-_REQUIRED_SCORING = ("threshold", "model")
+_REQUIRED_SCORING = ("threshold",)
 
-# Mapping from provider name to the config key and env var that hold its API key.
-_PROVIDER_KEY_MAP: dict[str, tuple[str, str]] = {
-    "anthropic": ("anthropic_api_key", "ANTHROPIC_API_KEY"),
-    "openai":    ("openai_api_key",    "OPENAI_API_KEY"),
-    "gemini":    ("google_api_key",    "GOOGLE_API_KEY"),
-}
+# Default models used when constructing a keys dict from env vars.
+_ENV_VAR_DEFAULTS: tuple[tuple[str, str, str], ...] = (
+    ("ANTHROPIC_API_KEY", "anthropic", "claude-haiku-4-5-20251001"),
+    ("OPENAI_API_KEY",    "openai",    "gpt-4o-mini"),
+    ("GOOGLE_API_KEY",    "gemini",    "gemini-1.5-flash"),
+)
 
 
 def load_config(path: str = "config.json") -> dict:
@@ -65,6 +65,9 @@ def load_config(path: str = "config.json") -> dict:
 
     Raises SystemExit with a descriptive message if the file cannot be read
     or any required key is missing.
+
+    LLM provider API keys are no longer validated here — they have moved to
+    ``keys.json`` and are loaded by :func:`load_keys`.
     """
     try:
         with open(path, encoding="utf-8") as fh:
@@ -76,12 +79,11 @@ def load_config(path: str = "config.json") -> dict:
 
     # Environment variables override config.json values for containerised deployments.
     # Applied before the missing-key check so env vars can satisfy required key validation.
+    # LLM provider keys (ANTHROPIC_API_KEY etc.) are intentionally excluded here —
+    # they are handled by load_keys().
     for env_var, config_key in (
-        ("ADZUNA_APP_ID",    "adzuna_app_id"),
-        ("ADZUNA_APP_KEY",   "adzuna_app_key"),
-        ("ANTHROPIC_API_KEY", "anthropic_api_key"),
-        ("OPENAI_API_KEY",   "openai_api_key"),
-        ("GOOGLE_API_KEY",   "google_api_key"),
+        ("ADZUNA_APP_ID",  "adzuna_app_id"),
+        ("ADZUNA_APP_KEY", "adzuna_app_key"),
     ):
         val = os.environ.get(env_var)
         if val:
@@ -108,22 +110,78 @@ def load_config(path: str = "config.json") -> dict:
             "Missing or empty required config keys: " + ", ".join(missing)
         )
 
-    # Validate that the active provider's API key is present.
-    provider_name: str = scoring.get("provider", "anthropic")
-    if provider_name in _PROVIDER_KEY_MAP:
-        config_key, env_var = _PROVIDER_KEY_MAP[provider_name]
-        if not config.get(config_key):
+    return config
+
+
+def load_keys(path: str = "keys.json") -> dict:
+    """Load LLM provider API keys and preferred provider from ``keys.json``.
+
+    Supports two paths:
+
+    * **keys.json present** — load and return it directly. The file must have
+      a ``providers`` key whose value is a non-empty dict.
+    * **keys.json absent** — construct an equivalent dict from environment
+      variables (``ANTHROPIC_API_KEY``, ``OPENAI_API_KEY``, ``GOOGLE_API_KEY``).
+      Only providers whose env var is non-empty are included.
+      ``preferred_provider`` is set to the first provider found, or
+      ``"anthropic"`` if none are found (which also triggers ``SystemExit``).
+
+    Raises:
+        SystemExit: If neither ``keys.json`` nor any env var provides at least
+            one API key.
+
+    Returns:
+        Dict matching the ``keys.example.json`` structure::
+
+            {
+                "providers": {
+                    "anthropic": {"api_key": "...", "model": "..."},
+                    ...
+                },
+                "preferred_provider": "anthropic"
+            }
+    """
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                keys = json.load(fh)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"keys.json is not valid JSON: {exc}")
+
+        providers = keys.get("providers")
+        if not isinstance(providers, dict) or not providers:
             raise SystemExit(
-                f"Missing API key for provider {provider_name!r}: "
-                f"set '{config_key}' in config.json or the {env_var} environment variable."
+                f"keys.json must have a non-empty 'providers' dict. "
+                f"Copy keys.example.json to {path} and fill in your API keys."
             )
-    else:
+
+        logger.info("Loaded keys.json")
+        return keys
+
+    # keys.json not present — fall back to environment variables.
+    logger.info("keys.json not found — using env var fallback")
+
+    providers: dict[str, dict[str, str]] = {}
+    preferred_provider: str = "anthropic"
+    first_found = True
+
+    for env_var, provider_name, default_model in _ENV_VAR_DEFAULTS:
+        api_key = os.environ.get(env_var, "")
+        if api_key:
+            providers[provider_name] = {"api_key": api_key, "model": default_model}
+            if first_found:
+                preferred_provider = provider_name
+                first_found = False
+
+    if not providers:
         raise SystemExit(
-            f"Unknown provider {provider_name!r} in scoring.provider. "
-            "Supported values: 'anthropic', 'openai', 'gemini'."
+            "No LLM API keys found. Either:\n"
+            "  1. Copy keys.example.json to keys.json and fill in your API keys, or\n"
+            "  2. Set at least one of ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY "
+            "as an environment variable."
         )
 
-    return config
+    return {"providers": providers, "preferred_provider": preferred_provider}
 
 
 def load_profile(path: str = "profile.json") -> dict:
@@ -517,6 +575,137 @@ def score_listing(
 
 
 # ---------------------------------------------------------------------------
+# Provider-chain fallback scorer
+# ---------------------------------------------------------------------------
+
+_AUTH_MARKERS = ("401", "403", "unauthorized", "authentication")
+
+
+def _provider_name(provider: LLMProvider) -> str:
+    """Derive a short provider name from a provider instance's class name.
+
+    Strips the ``"provider"`` suffix (case-insensitive) so that
+    ``AnthropicProvider`` → ``"anthropic"``.
+
+    Args:
+        provider: Any ``LLMProvider`` instance.
+
+    Returns:
+        Lowercase name string, e.g. ``"anthropic"``, ``"openai"``, ``"gemini"``.
+    """
+    return type(provider).__name__.lower().replace("provider", "")
+
+
+def _provider_model(provider: LLMProvider) -> str:
+    """Return the model string stored on a provider instance.
+
+    Concrete providers store the model as ``_model`` or ``_model_name``
+    (private attributes); this helper tries both and falls back to
+    ``"unknown"`` so callers never receive an AttributeError.
+
+    Args:
+        provider: Any ``LLMProvider`` instance.
+
+    Returns:
+        Model identifier string.
+    """
+    return (
+        getattr(provider, "_model", None)
+        or getattr(provider, "_model_name", None)
+        or "unknown"
+    )
+
+
+def _is_auth_error(exc: RuntimeError) -> bool:
+    """Return True if the error message indicates an auth failure (401/403).
+
+    Auth errors mean the API key is bad for the entire run; transient errors
+    (rate limits, 5xx, network blips) only skip the current listing.
+
+    Args:
+        exc: The ``RuntimeError`` raised by ``provider.complete()``.
+
+    Returns:
+        True when the message contains an auth/credential-related marker.
+    """
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _AUTH_MARKERS)
+
+
+def score_listing_with_fallback(
+    listing: dict,
+    profile: dict,
+    chain: list,
+    dead_providers: set,
+) -> dict | None:
+    """Score a listing, falling back through the provider chain on failure.
+
+    Builds the scoring prompt once and then iterates the ordered provider
+    chain, calling ``provider.complete()`` directly so that ``RuntimeError``
+    exceptions propagate here for auth-vs-transient classification.
+    (``score_listing()`` wraps ``provider.complete()`` but swallows
+    ``RuntimeError``; going directly gives us the error detail we need.)
+
+    Failure modes:
+
+    * **Auth error (401/403)**: permanently adds the provider to
+      ``dead_providers`` for the rest of the run — the key is bad.
+    * **Transient error (rate-limit, 5xx, etc.)**: logs a warning and moves
+      to the next provider, keeping this one available for future listings.
+    * **Success**: injects ``"model_used"`` as ``"{provider_name}/{model}"``
+      into the result dict and returns it.
+
+    Args:
+        listing:        Normalised listing dict.  Uses ``listing["description"]``
+                        for the prompt.
+        profile:        Candidate profile dict loaded from ``profile.json``.
+        chain:          Ordered list of ``LLMProvider`` instances.
+        dead_providers: Set of provider name strings (mutated in-place).
+                        Providers in this set are skipped entirely.
+
+    Returns:
+        Scoring result dict with an added ``"model_used"`` key, or ``None``
+        if every provider in the chain failed.
+    """
+    prompt = _PROMPT_TEMPLATE.format(
+        profile_json=json.dumps(profile, indent=2),
+        description=listing["description"],
+    )
+
+    for provider in chain:
+        name = _provider_name(provider)
+        if name in dead_providers:
+            logger.debug("Skipping dead provider: %s", name)
+            continue
+
+        try:
+            result = provider.complete(prompt)
+            result["model_used"] = f"{name}/{_provider_model(provider)}"
+            return result
+
+        except RuntimeError as exc:
+            if _is_auth_error(exc):
+                logger.warning(
+                    "Auth error from provider %s — removing from chain for this run: %s",
+                    name,
+                    exc,
+                )
+                dead_providers.add(name)
+            else:
+                logger.warning(
+                    "Transient error from provider %s — trying next provider: %s",
+                    name,
+                    exc,
+                )
+
+    logger.warning(
+        "All providers in chain failed for listing: %s",
+        listing.get("title", "(no title)"),
+    )
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
@@ -524,6 +713,7 @@ def run(
     config_path: str = "config.json",
     profile_path: str = "profile.json",
     hours: int | None = None,
+    keys_path: str = "keys.json",
 ) -> None:
     """Run the full ingestion pipeline.
 
@@ -537,6 +727,8 @@ def run(
         hours:        If provided, only process listings whose ``created_at``
                       timestamp is within the last N hours. Overrides
                       ``search.max_days_old`` in config with ``ceil(hours/24)``.
+        keys_path:    Path to keys.json (default ``"keys.json"``).  Override
+                      in tests to inject a temp file.
     """
     config = load_config(config_path)
     profile = load_profile(profile_path)
@@ -553,7 +745,9 @@ def run(
         config=config,
     )
 
-    provider = make_provider(config)
+    keys = load_keys(keys_path)
+    chain = build_provider_chain(keys)
+    dead_providers: set[str] = set()
 
     # Counters.
     fetched = 0
@@ -565,6 +759,8 @@ def run(
     score_failed = 0
     total_tokens_input = 0
     total_tokens_output = 0
+    # Per-provider cost tracking: {provider_name: {input, output, cost}}
+    provider_costs: dict[str, dict] = {}
 
     # Cutoff used for --hours filtering.
     hours_cutoff: datetime | None = None
@@ -621,10 +817,11 @@ def run(
             listing["description"] = description
 
             # --- Score ---
-            score_result = score_listing(
-                description=description,
+            score_result = score_listing_with_fallback(
+                listing=listing,
                 profile=profile,
-                provider=provider,
+                chain=chain,
+                dead_providers=dead_providers,
             )
 
             if score_result is None:
@@ -647,8 +844,34 @@ def run(
                     score_result.get("score", 0),
                     title,
                 )
-                total_tokens_input += score_result.get("tokens_input") or 0
-                total_tokens_output += score_result.get("tokens_output") or 0
+                tok_in = score_result.get("tokens_input") or 0
+                tok_out = score_result.get("tokens_output") or 0
+                total_tokens_input += tok_in
+                total_tokens_output += tok_out
+
+                # Accumulate per-provider cost for the run summary.
+                used_provider = score_result.get("model_used", "").split("/")[0] or "unknown"
+                if used_provider not in provider_costs:
+                    # Retrieve the matching provider to get its pricing rates.
+                    matched = next(
+                        (p for p in chain if _provider_name(p) == used_provider),
+                        None,
+                    )
+                    provider_costs[used_provider] = {
+                        "input": 0,
+                        "output": 0,
+                        "cost": 0.0,
+                        "_in_rate": matched.input_cost_per_mtok if matched else 0.0,
+                        "_out_rate": matched.output_cost_per_mtok if matched else 0.0,
+                    }
+                bucket = provider_costs[used_provider]
+                bucket["input"] += tok_in
+                bucket["output"] += tok_out
+                bucket["cost"] += (
+                    tok_in  / 1_000_000 * bucket["_in_rate"]
+                    + tok_out / 1_000_000 * bucket["_out_rate"]
+                )
+
                 listing.update(score_result)
                 listing["seen"] = 1
 
@@ -664,37 +887,47 @@ def run(
                 logger.warning("DB insert failed for %s: %s", title, exc)
 
     total_tokens = total_tokens_input + total_tokens_output
-    run_cost = (
-        total_tokens_input  / 1_000_000 * provider.input_cost_per_mtok
-        + total_tokens_output / 1_000_000 * provider.output_cost_per_mtok
-    )
+    run_cost = sum(b["cost"] for b in provider_costs.values())
     print(
         f"Run complete: {fetched} fetched | {prefiltered} pre-filtered | "
         f"{deduped} dupes skipped | {scored} scored ({score_failed} failed) | "
         f"{scraped_fallback} scrape fallbacks | "
         f"~{total_tokens:,} tok | ~${run_cost:.4f}"
     )
+    if len(provider_costs) > 1:
+        breakdown = " | ".join(
+            f"{name}: ~{b['input'] + b['output']:,} tok ~${b['cost']:.4f}"
+            for name, b in provider_costs.items()
+        )
+        print(f"  Cost breakdown: {breakdown}")
 
 
 # ---------------------------------------------------------------------------
 # Rescorer
 # ---------------------------------------------------------------------------
 
-def rescore(config_path: str = "config.json", profile_path: str = "profile.json") -> None:
+def rescore(
+    config_path: str = "config.json",
+    profile_path: str = "profile.json",
+    keys_path: str = "keys.json",
+) -> None:
     """Re-score all previously scored listings against the current profile.
 
     Loads config and profile, fetches every listing with seen = 1 from the
-    database, and re-runs Claude scoring on each one.  Does not fetch new
-    listings from Adzuna.
+    database, and re-runs scoring on each one via the provider chain.
+    Does not fetch new listings from Adzuna.
 
     Args:
         config_path:  Path to config.json (default ``"config.json"``).
         profile_path: Path to profile.json (default ``"profile.json"``).
+        keys_path:    Path to keys.json (default ``"keys.json"``).  Override
+                      in tests to inject a temp file.
     """
-    config = load_config(config_path)
     profile = load_profile(profile_path)
 
-    provider = make_provider(config)
+    keys = load_keys(keys_path)
+    chain = build_provider_chain(keys)
+    dead_providers: set[str] = set()
 
     listings = db.get_all_scored(db_path=_DB_PATH)
     if not listings:
@@ -706,30 +939,62 @@ def rescore(config_path: str = "config.json", profile_path: str = "profile.json"
     failed = 0
     tokens_input = 0
     tokens_output = 0
+    provider_costs: dict[str, dict] = {}
 
     for listing in listings:
         title = listing.get("title", "(no title)")
-        result = score_listing(listing["description"], profile, provider)
+        result = score_listing_with_fallback(
+            listing=listing,
+            profile=profile,
+            chain=chain,
+            dead_providers=dead_providers,
+        )
 
         if result is not None:
             db.update_score(listing["adzuna_id"], result, db_path=_DB_PATH)
             rescored += 1
-            tokens_input += result.get("tokens_input") or 0
-            tokens_output += result.get("tokens_output") or 0
+            tok_in = result.get("tokens_input") or 0
+            tok_out = result.get("tokens_output") or 0
+            tokens_input += tok_in
+            tokens_output += tok_out
             logger.info("RESCORED %d/10  %s", result.get("score", 0), title)
+
+            used_provider = result.get("model_used", "").split("/")[0] or "unknown"
+            if used_provider not in provider_costs:
+                matched = next(
+                    (p for p in chain if _provider_name(p) == used_provider),
+                    None,
+                )
+                provider_costs[used_provider] = {
+                    "input": 0,
+                    "output": 0,
+                    "cost": 0.0,
+                    "_in_rate": matched.input_cost_per_mtok if matched else 0.0,
+                    "_out_rate": matched.output_cost_per_mtok if matched else 0.0,
+                }
+            bucket = provider_costs[used_provider]
+            bucket["input"] += tok_in
+            bucket["output"] += tok_out
+            bucket["cost"] += (
+                tok_in  / 1_000_000 * bucket["_in_rate"]
+                + tok_out / 1_000_000 * bucket["_out_rate"]
+            )
         else:
             failed += 1
             logger.warning("RESCORE FAILED  %s", title)
 
     total_tokens = tokens_input + tokens_output
-    cost = (
-        tokens_input  / 1_000_000 * provider.input_cost_per_mtok
-        + tokens_output / 1_000_000 * provider.output_cost_per_mtok
-    )
+    cost = sum(b["cost"] for b in provider_costs.values())
     print(
         f"Rescore complete: {total} listings | {rescored} rescored ({failed} failed) | "
         f"~{total_tokens:,} tok | ~${cost:.4f}"
     )
+    if len(provider_costs) > 1:
+        breakdown = " | ".join(
+            f"{name}: ~{b['input'] + b['output']:,} tok ~${b['cost']:.4f}"
+            for name, b in provider_costs.items()
+        )
+        print(f"  Cost breakdown: {breakdown}")
 
 
 # ---------------------------------------------------------------------------

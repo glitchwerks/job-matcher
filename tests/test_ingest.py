@@ -5,15 +5,17 @@ Covers:
   - Markdown fence stripping (replicates the logic inside score_listing)
   - salary_fmt template filter
   - prefilter() return type contract
+  - score_listing_with_fallback() provider-chain fallback logic
 """
 
 import json
 import os
 import sys
+from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from ingest import prefilter
+from ingest import prefilter, score_listing_with_fallback
 from app import salary_fmt
 
 
@@ -210,3 +212,116 @@ class TestPrefilterReturnType:
         config = {"prefilter": {"require_contract_time": "full_time"}}
         result = prefilter(listing, config)
         assert isinstance(result, str) and len(result) > 0
+
+
+# ---------------------------------------------------------------------------
+# score_listing_with_fallback() tests
+# ---------------------------------------------------------------------------
+
+def _make_provider(name: str, model: str = "test-model") -> MagicMock:
+    """Return a mock LLMProvider whose class name follows the real convention.
+
+    The class is named ``{Name}Provider`` so that ``_provider_name()`` in
+    ingest.py strips "provider" and returns the bare name.
+    """
+    # Dynamically create a class with the right name so type(provider).__name__
+    # returns e.g. "AnthropicProvider" → _provider_name() → "anthropic".
+    cls = type(f"{name.capitalize()}Provider", (MagicMock,), {})
+    provider = cls()
+    provider._model = model
+    provider.input_cost_per_mtok = 0.80
+    provider.output_cost_per_mtok = 4.00
+    return provider
+
+
+_SCORE_RESULT = {
+    "score": 8,
+    "matched_skills": ["Python"],
+    "missing_skills": [],
+    "concerns": [],
+    "verdict": "Good match",
+    "tokens_input": 100,
+    "tokens_output": 50,
+}
+
+_LISTING = {"title": "Software Engineer", "description": "We need a Python dev."}
+_PROFILE = {"primary_skills": ["Python"]}
+
+
+class TestScoreListingWithFallback:
+
+    def test_uses_first_provider_on_success(self):
+        """First provider succeeds; result includes model_used."""
+        p1 = _make_provider("anthropic")
+        p1.complete.return_value = dict(_SCORE_RESULT)
+
+        dead: set = set()
+        result = score_listing_with_fallback(_LISTING, _PROFILE, [p1], dead)
+
+        assert result is not None
+        assert result["score"] == 8
+        assert result["model_used"] == "anthropic/test-model"
+        p1.complete.assert_called_once()
+
+    def test_falls_back_on_transient_error(self):
+        """First provider raises a non-auth RuntimeError; second provider succeeds."""
+        p1 = _make_provider("openai")
+        p1.complete.side_effect = RuntimeError("503 Service Unavailable")
+
+        p2 = _make_provider("anthropic")
+        p2.complete.return_value = dict(_SCORE_RESULT)
+
+        dead: set = set()
+        result = score_listing_with_fallback(_LISTING, _PROFILE, [p1, p2], dead)
+
+        assert result is not None
+        assert result["model_used"] == "anthropic/test-model"
+        # Transient error — p1 must NOT be added to dead_providers.
+        assert "openai" not in dead
+        p1.complete.assert_called_once()
+        p2.complete.assert_called_once()
+
+    def test_auth_error_removes_provider_permanently(self):
+        """Auth RuntimeError from first provider adds it to dead_providers."""
+        p1 = _make_provider("openai")
+        p1.complete.side_effect = RuntimeError("401 Unauthorized — check your API key")
+
+        p2 = _make_provider("anthropic")
+        p2.complete.return_value = dict(_SCORE_RESULT)
+
+        dead: set = set()
+        result = score_listing_with_fallback(_LISTING, _PROFILE, [p1, p2], dead)
+
+        assert result is not None
+        assert result["model_used"] == "anthropic/test-model"
+        # Auth error — p1 must be in dead_providers.
+        assert "openai" in dead
+
+    def test_all_providers_fail_returns_none(self):
+        """When every provider raises RuntimeError, the function returns None."""
+        p1 = _make_provider("anthropic")
+        p1.complete.side_effect = RuntimeError("503 error")
+
+        p2 = _make_provider("openai")
+        p2.complete.side_effect = RuntimeError("503 error")
+
+        dead: set = set()
+        result = score_listing_with_fallback(_LISTING, _PROFILE, [p1, p2], dead)
+
+        assert result is None
+
+    def test_dead_provider_skipped(self):
+        """A provider already in dead_providers is not called at all."""
+        p1 = _make_provider("anthropic")
+        p2 = _make_provider("openai")
+        p2.complete.return_value = dict(_SCORE_RESULT)
+
+        # Mark anthropic as dead before the call.
+        dead: set = {"anthropic"}
+        result = score_listing_with_fallback(_LISTING, _PROFILE, [p1, p2], dead)
+
+        assert result is not None
+        assert result["model_used"] == "openai/test-model"
+        # p1 must never have been called.
+        p1.complete.assert_not_called()
+        p2.complete.assert_called_once()

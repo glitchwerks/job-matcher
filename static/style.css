@@ -955,6 +955,21 @@ body {
   color: var(--text-muted);
 }
 
+/* Model used badge — monospace, dimmer than badge-jobtype, no uppercase */
+.model-badge {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.60rem;
+  letter-spacing: 0.03em;
+  padding: 2px 7px;
+  border-radius: 20px;
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+  background: transparent;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
 /* ------------------------------------------------------------
    Stats page — disclaimer
    ------------------------------------------------------------ */
@@ -966,4 +981,125 @@ body {
   margin-top: 8px;
   padding-top: 16px;
   border-top: 1px solid var(--border-subtle);
+}
+
+/* ------------------------------------------------------------
+   Settings page
+   ------------------------------------------------------------ */
+.settings-section-title {
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 600px;
+}
+
+.provider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+}
+
+.provider-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.provider-name {
+  font-family: var(--font-ui);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.key-status {
+  font-family: var(--font-mono);
+  font-size: 0.70rem;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+}
+
+.key-status.configured {
+  color: var(--score-high-text);
+  background: var(--score-high-bg);
+  border-color: var(--score-high-border);
+}
+
+.key-status.not-set {
+  color: var(--text-muted);
+  background: var(--bg-raised);
+  border-color: var(--border-subtle);
+}
+
+.settings-label {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.settings-input {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  width: 100%;
+  letter-spacing: 0.02em;
+  transition: border-color 120ms ease, color 120ms ease;
+  outline: none;
+}
+
+.settings-input::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.settings-input:focus {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+/* Reuse .filter-select for the preferred-provider dropdown but allow
+   full width within the form column. */
+.settings-select {
+  width: 100%;
+}
+
+.btn-save {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+.save-notice {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+  color: var(--score-high-text);
+  background: var(--score-high-bg);
+  border: 1px solid var(--score-high-border);
+  border-radius: var(--radius-sm);
+  padding: 7px 14px;
+  margin-bottom: 20px;
+  max-width: 600px;
 }

@@ -40,18 +40,19 @@ Adzuna page → [1] hours filter → [2] prefilter() → [3] dedup check → [4]
 
 Any step can short-circuit the listing with a logged reason (`FILTERED`, `DUPE`, `SCRAPE FALLBACK`, `SCORE FAILED`). A summary is printed at the end of each run.
 
-### Claude integration
+### LLM provider integration
 
-`score_listing()` sends the full job description + `profile.json` to Claude Haiku via `client.messages.create()`. It expects a JSON response with exactly: `score` (0–10), `matched_skills`, `missing_skills`, `concerns`, `verdict`. Markdown code fences are stripped before parsing. One retry with a 2-second delay on failure; if both fail, the listing is stored with `score=NULL` for later re-scoring.
+`load_keys()` reads `keys.json` (falling back to env vars `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` if the file is absent). `build_provider_chain()` returns an ordered list of `LLMProvider` instances based on the `preferred_provider` field and dict insertion order. `score_listing_with_fallback()` tries providers in sequence: auth failures (401/403) permanently remove a provider for the run; transient failures skip only the current listing. The scoring prompt expects a JSON response with exactly: `score` (0–10), `matched_skills`, `missing_skills`, `concerns`, `verdict`. Markdown code fences are stripped before parsing.
 
-Model and threshold are set in `config.json` under `scoring`. Token counts and estimated cost are stored per listing and aggregated in the `/stats` view.
+Results include a `model_used` field stored as `"provider/model"` per listing. Scoring threshold is set in `config.json` under `scoring`. Token counts and estimated cost are stored per listing and aggregated in the `/stats` view.
 
 ### Config & profile
 
-- **`config.json`** — API keys, Adzuna search params (`country`, `what`, `where`, `distance`, `max_days_old`, `results_per_page`, `max_pages`), scoring threshold and model, and optional `prefilter` block (title include/exclude patterns, contract type/time).
-- **`profile.json`** — Candidate skills and preferences injected verbatim into the Haiku prompt. Fields: `primary_skills`, `anti_preferences`, `seniority`, `preferred_industries`, `location_preference`, `scoring_notes`.
-- Both files are gitignored. Copy from `*.example.json` to get started.
-- All three API keys can be overridden via env vars: `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `ANTHROPIC_API_KEY`. `DB_PATH` defaults to `./jobs.db`.
+- **`config.json`** — Adzuna credentials (`adzuna_app_id`, `adzuna_app_key`), search params (`country`, `what`, `where`, `distance`, `max_days_old`, `results_per_page`, `max_pages`), scoring threshold, and optional `prefilter` block (title include/exclude patterns, contract type/time).
+- **`keys.json`** — LLM provider API keys and model selection. Each provider entry has `api_key` and `model`. Dict insertion order defines fallback sequence; `preferred_provider` names the first-choice provider. Managed via the `/settings` UI. Gitignored — copy from `keys.example.json` to get started. If absent, `load_keys()` constructs a keys dict from env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`) for backward compatibility.
+- **`profile.json`** — Candidate skills and preferences injected verbatim into the scoring prompt. Fields: `primary_skills`, `anti_preferences`, `seniority`, `preferred_industries`, `location_preference`, `scoring_notes`.
+- All three files are gitignored. Copy from `*.example.json` to get started.
+- Adzuna credentials and `DB_PATH` can be overridden via env vars: `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`. `DB_PATH` defaults to `./jobs.db`.
 
 ### Database schema notes
 
@@ -75,3 +76,4 @@ Model and threshold are set in `config.json` under `scoring`. Token counts and e
 | HTMX, no JS framework | Zero build tooling for a read-mostly UI with two write actions |
 | Decouple ingest from serve | Ingest takes minutes (scraping + LLM); it cannot run inside a web request |
 | `profile.json` flat file | Edited manually as a whole unit; easier to version-control than a DB record |
+| `keys.json` separate from `config.json` | API keys change more often and are more sensitive than search params; separation allows tighter file ACLs on `keys.json` |
