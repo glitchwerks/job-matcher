@@ -3,19 +3,22 @@ providers/ — Pluggable LLM provider package for Job Matcher.
 
 Public API
 ----------
-* ``LLMProvider``       — abstract base class; import from here or ``providers.base``
-* ``AnthropicProvider`` — Anthropic Claude backend (default)
-* ``OpenAIProvider``    — OpenAI Chat Completions backend
-* ``GeminiProvider``    — Google Gemini GenerativeAI backend
-* ``make_provider()``   — factory that reads ``config`` and returns the right provider
+* ``LLMProvider``          — abstract base class; import from here or ``providers.base``
+* ``AnthropicProvider``    — Anthropic Claude backend (default)
+* ``OpenAIProvider``       — OpenAI Chat Completions backend
+* ``GeminiProvider``       — Google Gemini GenerativeAI backend
+* ``make_provider()``      — factory that reads ``config`` and returns the right provider
+* ``build_provider_chain`` — build an ordered fallback list from a parsed keys.json dict
 
 Usage
 -----
-    from providers import make_provider
+    from providers import make_provider, build_provider_chain
 
-    provider = make_provider(config)          # reads scoring.provider from config
-    result   = provider.complete(prompt)      # returns scored dict
+    provider = make_provider(config)              # reads scoring.provider from config
+    result   = provider.complete(prompt)          # returns scored dict
     cost_usd = tokens / 1e6 * provider.input_cost_per_mtok
+
+    chain = build_provider_chain(keys)            # ordered list from keys.json
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ __all__ = [
     "OpenAIProvider",
     "GeminiProvider",
     "make_provider",
+    "build_provider_chain",
 ]
 
 
@@ -82,3 +86,81 @@ def make_provider(config: dict) -> LLMProvider:
         f"Unknown provider: {provider_name!r}. "
         "Supported values: 'anthropic', 'openai', 'gemini'."
     )
+
+
+# ---------------------------------------------------------------------------
+# Provider name → class mapping used by build_provider_chain
+# ---------------------------------------------------------------------------
+
+_PROVIDER_CLASS_MAP: dict[str, type[LLMProvider]] = {
+    "anthropic": AnthropicProvider,
+    "openai":    OpenAIProvider,
+    "gemini":    GeminiProvider,
+}
+
+
+def build_provider_chain(keys: dict) -> list[LLMProvider]:
+    """Return an ordered list of initialised ``LLMProvider`` instances.
+
+    Reads ``keys["providers"]`` and ``keys.get("preferred_provider")`` to
+    determine ordering:
+
+    1. ``preferred_provider`` goes first if it has a non-empty ``api_key``.
+    2. The remaining providers follow in dict insertion order, skipping any
+       with an empty ``api_key``.
+    3. If ``preferred_provider`` is absent or empty the full list is used in
+       dict insertion order.
+
+    Args:
+        keys: Parsed contents of keys.json.
+
+    Returns:
+        List of ``LLMProvider`` instances in fallback order.  Providers with
+        empty ``api_key`` values are silently skipped.
+
+    Raises:
+        ValueError: If ``keys["providers"]`` is missing or all providers have
+            empty ``api_key`` values.
+    """
+    raw_providers: dict = keys.get("providers")
+    if not raw_providers:
+        raise ValueError("keys['providers'] is missing or empty.")
+
+    preferred: str = keys.get("preferred_provider", "") or ""
+
+    # Build a filtered list of (name, cfg) pairs that have a non-empty key.
+    valid: list[tuple[str, dict]] = [
+        (name, cfg)
+        for name, cfg in raw_providers.items()
+        if cfg.get("api_key", "")
+    ]
+
+    if not valid:
+        raise ValueError(
+            "No providers with a non-empty api_key found in keys['providers']."
+        )
+
+    # Reorder so that preferred_provider comes first, if it is among the valid ones.
+    if preferred and any(name == preferred for name, _ in valid):
+        ordered = [entry for entry in valid if entry[0] == preferred]
+        ordered += [entry for entry in valid if entry[0] != preferred]
+    else:
+        ordered = valid
+
+    chain: list[LLMProvider] = []
+    for name, cfg in ordered:
+        cls = _PROVIDER_CLASS_MAP.get(name)
+        if cls is None:
+            # Unknown provider names are silently skipped to allow forward
+            # compatibility as new providers are added to keys.json before
+            # they are implemented here.
+            continue
+        chain.append(cls(api_key=cfg["api_key"], model=cfg.get("model", "")))
+
+    if not chain:
+        raise ValueError(
+            "No supported providers found in keys['providers']. "
+            f"Supported names: {list(_PROVIDER_CLASS_MAP)}."
+        )
+
+    return chain

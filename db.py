@@ -75,7 +75,8 @@ def init_db(db_path: str = _DEFAULT_DB_PATH) -> None:
                 verdict             TEXT,
                 bookmarked          INTEGER DEFAULT 0,
                 dismissed           INTEGER DEFAULT 0,
-                seen                INTEGER DEFAULT 0
+                seen                INTEGER DEFAULT 0,
+                model_used          TEXT
             )
         """)
 
@@ -91,6 +92,7 @@ def init_db(db_path: str = _DEFAULT_DB_PATH) -> None:
             ("tokens_output", "INTEGER"),
             ("applied", "INTEGER DEFAULT 0"),
             ("job_type", "TEXT"),
+            ("model_used", "TEXT"),
         ):
             try:
                 conn.execute(
@@ -143,6 +145,7 @@ def insert_listing(listing: dict, db_path: str = _DEFAULT_DB_PATH) -> None:
     row.setdefault("tokens_output", None)
     row.setdefault("applied", 0)
     row.setdefault("job_type", None)
+    row.setdefault("model_used", None)
 
     conn = get_connection(db_path)
     try:
@@ -158,7 +161,8 @@ def insert_listing(listing: dict, db_path: str = _DEFAULT_DB_PATH) -> None:
                 bookmarked, dismissed, seen,
                 tokens_input, tokens_output,
                 applied,
-                job_type
+                job_type,
+                model_used
             ) VALUES (
                 :adzuna_id, :title, :company, :location,
                 :salary_min, :salary_max, :salary_is_predicted,
@@ -169,7 +173,8 @@ def insert_listing(listing: dict, db_path: str = _DEFAULT_DB_PATH) -> None:
                 :bookmarked, :dismissed, :seen,
                 :tokens_input, :tokens_output,
                 :applied,
-                :job_type
+                :job_type,
+                :model_used
             )
             """,
             row,
@@ -205,7 +210,8 @@ def update_score(adzuna_id: str, score_data: dict, db_path: str = _DEFAULT_DB_PA
                 verdict        = :verdict,
                 seen           = 1,
                 tokens_input   = :tokens_input,
-                tokens_output  = :tokens_output
+                tokens_output  = :tokens_output,
+                model_used     = :model_used
             WHERE adzuna_id = :adzuna_id
             """,
             {
@@ -213,6 +219,7 @@ def update_score(adzuna_id: str, score_data: dict, db_path: str = _DEFAULT_DB_PA
                 "adzuna_id": adzuna_id,
                 "tokens_input": data.get("tokens_input"),
                 "tokens_output": data.get("tokens_output"),
+                "model_used": data.get("model_used"),
             },
         )
         conn.commit()

@@ -42,6 +42,7 @@ def make_listing(
     seen: int = 1,
     applied: int = 0,
     job_type: str | None = None,
+    model_used: str | None = None,
 ) -> dict:
     """Return a complete listing dict suitable for db.insert_listing()."""
     return {
@@ -68,6 +69,7 @@ def make_listing(
         "seen": seen,
         "applied": applied,
         "job_type": job_type,
+        "model_used": model_used,
     }
 
 
@@ -396,3 +398,142 @@ class TestJsonColumns:
             feed = db.get_feed(threshold=7.0, db_path=path)
             row = next(r for r in feed if r["adzuna_id"] == "json-003")
             assert row["matched_skills"] == []
+
+
+# ---------------------------------------------------------------------------
+# model_used column
+# ---------------------------------------------------------------------------
+
+class TestModelUsed:
+    def test_model_used_stored_and_retrieved_via_insert(self):
+        """model_used set in the listing dict is persisted and readable."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(adzuna_id="mu-001", score=8.0, model_used="claude-haiku-4-5"),
+                db_path=path,
+            )
+            conn = db.get_connection(path)
+            try:
+                row = conn.execute(
+                    "SELECT model_used FROM listings WHERE adzuna_id = 'mu-001'"
+                ).fetchone()
+                assert row["model_used"] == "claude-haiku-4-5"
+            finally:
+                conn.close()
+
+    def test_model_used_defaults_to_null_when_absent(self):
+        """If model_used is not supplied to insert_listing(), it is stored as NULL."""
+        with TempDB() as path:
+            # make_listing() passes model_used=None by default.
+            db.insert_listing(make_listing(adzuna_id="mu-002", score=8.0), db_path=path)
+            conn = db.get_connection(path)
+            try:
+                row = conn.execute(
+                    "SELECT model_used FROM listings WHERE adzuna_id = 'mu-002'"
+                ).fetchone()
+                assert row["model_used"] is None
+            finally:
+                conn.close()
+
+    def test_update_score_writes_model_used(self):
+        """update_score() persists model_used from score_data."""
+        with TempDB() as path:
+            db.insert_listing(make_listing(adzuna_id="mu-003", score=None, seen=0), db_path=path)
+            db.update_score(
+                "mu-003",
+                {
+                    "score": 7.5,
+                    "matched_skills": ["Python"],
+                    "missing_skills": [],
+                    "concerns": [],
+                    "verdict": "Good fit.",
+                    "tokens_input": 100,
+                    "tokens_output": 50,
+                    "model_used": "claude-haiku-4-5",
+                },
+                db_path=path,
+            )
+            conn = db.get_connection(path)
+            try:
+                row = conn.execute(
+                    "SELECT model_used, seen FROM listings WHERE adzuna_id = 'mu-003'"
+                ).fetchone()
+                assert row["model_used"] == "claude-haiku-4-5"
+                assert row["seen"] == 1
+            finally:
+                conn.close()
+
+    def test_update_score_model_used_none_when_absent(self):
+        """update_score() stores NULL for model_used when not present in score_data."""
+        with TempDB() as path:
+            db.insert_listing(make_listing(adzuna_id="mu-004", score=None, seen=0), db_path=path)
+            db.update_score(
+                "mu-004",
+                {
+                    "score": 6.0,
+                    "matched_skills": [],
+                    "missing_skills": ["Go"],
+                    "concerns": ["contract only"],
+                    "verdict": "Weak fit.",
+                    "tokens_input": 80,
+                    "tokens_output": 40,
+                    # model_used intentionally omitted
+                },
+                db_path=path,
+            )
+            conn = db.get_connection(path)
+            try:
+                row = conn.execute(
+                    "SELECT model_used FROM listings WHERE adzuna_id = 'mu-004'"
+                ).fetchone()
+                assert row["model_used"] is None
+            finally:
+                conn.close()
+
+    def test_column_exists_in_schema(self):
+        """init_db() creates the model_used column (verifiable via PRAGMA)."""
+        with TempDB() as path:
+            conn = db.get_connection(path)
+            try:
+                cols = conn.execute("PRAGMA table_info(listings)").fetchall()
+                col_names = [c["name"] for c in cols]
+                assert "model_used" in col_names
+            finally:
+                conn.close()
+
+    def test_migration_on_existing_db_without_column(self):
+        """init_db() adds model_used to a database that was created without it."""
+        with TempDB() as path:
+            # Manually drop the column by recreating the table without it, then
+            # run init_db() again to trigger the migration path.
+            conn = db.get_connection(path)
+            try:
+                conn.execute("ALTER TABLE listings RENAME TO listings_old")
+                conn.execute("""
+                    CREATE TABLE listings (
+                        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                        adzuna_id           TEXT UNIQUE NOT NULL,
+                        title               TEXT,
+                        score               REAL,
+                        seen                INTEGER DEFAULT 0
+                    )
+                """)
+                conn.execute(
+                    "INSERT INTO listings (adzuna_id, title, score, seen) "
+                    "SELECT adzuna_id, title, score, seen FROM listings_old"
+                )
+                conn.execute("DROP TABLE listings_old")
+                conn.commit()
+            finally:
+                conn.close()
+
+            # Now run init_db() — the migration loop should add model_used.
+            db.init_db(path)
+
+            conn = db.get_connection(path)
+            try:
+                cols = conn.execute("PRAGMA table_info(listings)").fetchall()
+                col_names = [c["name"] for c in cols]
+                assert "model_used" in col_names
+            finally:
+                conn.close()
