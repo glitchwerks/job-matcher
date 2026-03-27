@@ -25,7 +25,7 @@ $ErrorActionPreference = 'Stop'
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-$ProjectRoot  = 'I:\Web Development\job_matcher'
+$ProjectRoot  = 'C:\Apps\job_matcher'
 $VenvScripts  = Join-Path -Path $ProjectRoot -ChildPath 'venv\Scripts'
 $ServiceName  = 'JobMatcher'
 $TaskName     = 'JobMatcherIngest'

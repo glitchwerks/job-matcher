@@ -174,7 +174,7 @@ To run ingestion nightly at 07:00:
 **Windows Task Scheduler**
 
 ```powershell
-schtasks /create /tn "JobMatcherIngest" /tr "python C:\path\to\job_aggregator\ingest.py" /sc daily /st 07:00
+schtasks /create /tn "JobMatcherIngest" /tr "python C:\Apps\job_matcher\ingest.py" /sc daily /st 07:00
 ```
 
 ---
@@ -240,9 +240,9 @@ Restart your terminal after setting machine-level variables for them to take eff
 Register gunicorn as a Windows service named `JobMatcher`:
 
 ```powershell
-nssm install JobMatcher "i:\Web Development\job_matcher\venv\Scripts\gunicorn.exe"
+nssm install JobMatcher "C:\Apps\job_matcher\venv\Scripts\gunicorn.exe"
 nssm set JobMatcher AppParameters "app:app --bind 0.0.0.0:5000 --workers 2"
-nssm set JobMatcher AppDirectory "i:\Web Development\job_matcher"
+nssm set JobMatcher AppDirectory "C:\Apps\job_matcher"
 nssm set JobMatcher Start SERVICE_AUTO_START
 nssm start JobMatcher
 ```
@@ -261,9 +261,9 @@ Create a daily ingest task running at 6am:
 
 ```powershell
 $action = New-ScheduledTaskAction `
-    -Execute "i:\Web Development\job_matcher\venv\Scripts\python.exe" `
+    -Execute "C:\Apps\job_matcher\venv\Scripts\python.exe" `
     -Argument "ingest.py --hours 25" `
-    -WorkingDirectory "i:\Web Development\job_matcher"
+    -WorkingDirectory "C:\Apps\job_matcher"
 
 $trigger = New-ScheduledTaskTrigger -Daily -At 6am
 
