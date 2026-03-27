@@ -24,7 +24,7 @@ jobs:
     if: github.event.workflow_run.conclusion == 'success'
 
     env:
-      DEPLOY_DIR: 'I:\Web Development\job_matcher'
+      DEPLOY_DIR: 'C:\Apps\job_matcher'
       SERVICE_NAME: JobMatcher
 
     defaults:
