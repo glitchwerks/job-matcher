@@ -210,13 +210,32 @@ Changes to `profile.json` take effect on the next ingestion run. Previously scor
 
 Use this approach if you want the web UI running as a Windows service and ingestion triggered by Task Scheduler.
 
+### Quick start
+
+`scripts/setup.ps1` automates all the manual steps described in this section. Run it once as Administrator from the project root:
+
+```powershell
+.\scripts\setup.ps1
+```
+
+What it does:
+
+- Prompts for your Adzuna credentials and the data directory path
+- Sets system environment variables (`DB_PATH`, `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `FLASK_DEBUG`)
+- Creates the data directory and a `logs/` subfolder
+- Copies `keys.example.json` → `keys.json` and restricts its ACL to the current user
+- Registers the `JobMatcher` Windows service (gunicorn via NSSM) set to auto-start
+- Registers the `JobMatcherIngest` daily Task Scheduler task
+
+After the script completes, start the service with `nssm start JobMatcher` and then navigate to `http://localhost:5000/settings` to enter your LLM provider API keys.
+
 ### Prerequisites
 
 - Python venv already set up and `pip install -r requirements.txt` run
 - `config.json` and `profile.json` present in the project root
 - [NSSM](https://nssm.cc/download) downloaded and either on `PATH` or referenced by full path
 
-### Environment variables
+### Environment variables (reference)
 
 Set Adzuna credentials and the database path as machine-level environment variables so both the service and the scheduled task pick them up automatically:
 
@@ -230,7 +249,7 @@ Restart your terminal after setting machine-level variables for them to take eff
 
 LLM provider API keys are managed separately through `keys.json` and the `/settings` UI — do not set them as environment variables.
 
-### Web service (NSSM)
+### Web service — NSSM (reference)
 
 Register gunicorn as a Windows service named `JobMatcher`:
 
@@ -250,7 +269,7 @@ nssm restart JobMatcher
 nssm status JobMatcher
 ```
 
-### Scheduled ingest (Windows Task Scheduler)
+### Scheduled ingest — Task Scheduler (reference)
 
 Create a daily ingest task running at 6am:
 
@@ -275,7 +294,7 @@ Run the task manually at any time:
 Start-ScheduledTask -TaskName "JobMatcherIngest"
 ```
 
-### Data directory
+### Data directory (reference)
 
 Create the directory that will hold the database and point `DB_PATH` at it:
 
@@ -288,6 +307,19 @@ The SQLite database (`jobs.db`) is created there automatically on the first run.
 ### API keys (LLM providers)
 
 LLM provider keys (Anthropic, OpenAI, Gemini, etc.) are stored in `keys.json` at the project root and managed through the `/settings` UI — they are not set as environment variables. `keys.json` is gitignored and never committed. After running `scripts/setup.ps1`, navigate to `http://localhost:5000/settings` to enter your API keys.
+
+### Ops commands
+
+```powershell
+# Show service status, last task run, and DB row count
+.\scripts\status.ps1
+
+# Remove the service and scheduled task cleanly
+.\scripts\teardown.ps1
+
+# Run ingest immediately without waiting for the scheduled trigger
+Start-ScheduledTask -TaskName "JobMatcherIngest"
+```
 
 ---
 

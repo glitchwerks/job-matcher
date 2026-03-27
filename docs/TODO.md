@@ -148,13 +148,13 @@
 
 ### Web service (gunicorn via NSSM)
 - [ ] Download and install NSSM on target server
-- [ ] Register `JobMatcher` service pointing to `gunicorn app:app`
-- [ ] Set `AppDirectory`, `AppEnvironmentExtra` (`DB_PATH`, `FLASK_DEBUG`)
+- [x] Register `JobMatcher` service pointing to `gunicorn app:app`
+- [x] Set `AppDirectory`, `AppEnvironmentExtra` (`DB_PATH`, `FLASK_DEBUG`)
 - [ ] Verify service starts and survives reboot
 
 ### Scheduled ingest (Windows Task Scheduler)
-- [ ] Create `JobMatcherIngest` scheduled task running `python ingest.py --hours 25` daily
-- [ ] Set `DB_PATH`, `ANTHROPIC_API_KEY`, `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` as system env vars
+- [x] Create `JobMatcherIngest` scheduled task running `python ingest.py --hours 25` daily
+- [x] Set `DB_PATH`, `ANTHROPIC_API_KEY`, `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` as system env vars
 - [ ] Verify task runs and writes to the correct DB path
 
 ### Scripts
@@ -164,7 +164,7 @@
 - [x] Create `scripts/deploy-remote.ps1` — copies project files to a remote server and invokes setup.ps1 via PowerShell Remoting (WinRM)
 
 ### Documentation
-- [ ] Add "Native Deployment" section to `README.md` (NSSM setup, Task Scheduler, env vars, ops commands)
+- [x] Add "Native Deployment" section to `README.md` (NSSM setup, Task Scheduler, env vars, ops commands)
 
 ## Feature: Component Version Display (#6)
 
