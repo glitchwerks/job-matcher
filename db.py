@@ -93,6 +93,8 @@ def init_db(db_path: str = _DEFAULT_DB_PATH) -> None:
             ("applied", "INTEGER DEFAULT 0"),
             ("job_type", "TEXT"),
             ("model_used", "TEXT"),
+            ("source", "TEXT"),
+            ("source_id", "TEXT"),
         ):
             try:
                 conn.execute(
@@ -100,6 +102,22 @@ def init_db(db_path: str = _DEFAULT_DB_PATH) -> None:
                 )
             except sqlite3.OperationalError:
                 pass  # Column already present; nothing to do.
+
+        # Backfill source and source_id for rows that were inserted before the
+        # multi-source migration.  The WHERE clause makes this idempotent —
+        # rows already backfilled are skipped on subsequent init_db() calls.
+        conn.execute(
+            "UPDATE listings SET source = 'adzuna', source_id = adzuna_id "
+            "WHERE source IS NULL"
+        )
+
+        # Unique index on (source, source_id) replaces the adzuna_id-only
+        # uniqueness guarantee for cross-source dedup.  IF NOT EXISTS makes
+        # this safe to run on every startup.
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_source_source_id "
+            "ON listings(source, source_id)"
+        )
 
         conn.commit()
     finally:
@@ -110,16 +128,40 @@ def init_db(db_path: str = _DEFAULT_DB_PATH) -> None:
 # Write helpers
 # ---------------------------------------------------------------------------
 
-def listing_exists(adzuna_id: str, db_path: str = _DEFAULT_DB_PATH) -> bool:
-    """Return True if a row with the given adzuna_id already exists."""
-    conn = get_connection(db_path)
-    try:
-        row = conn.execute(
-            "SELECT 1 FROM listings WHERE adzuna_id = ?", (adzuna_id,)
-        ).fetchone()
-        return row is not None
-    finally:
-        conn.close()
+def listing_exists(conn: sqlite3.Connection, source: str, source_id: str) -> bool:
+    """Return True if a row with the given (source, source_id) pair already exists.
+
+    The caller is responsible for opening and closing the connection.  This
+    avoids repeated open/close overhead when run() chains multiple dedup checks
+    for the same listing.
+
+    Args:
+        conn:      Open sqlite3 connection.
+        source:    Source identifier string, e.g. ``"adzuna"``.
+        source_id: Source-specific listing ID string.
+    """
+    row = conn.execute(
+        "SELECT 1 FROM listings WHERE source = ? AND source_id = ?",
+        (source, source_id),
+    ).fetchone()
+    return row is not None
+
+
+def listing_exists_by_url(conn: sqlite3.Connection, redirect_url: str) -> bool:
+    """Return True if a listing with this redirect_url already exists (cross-source dedup).
+
+    Used as a secondary dedup check after (source, source_id) to catch the same
+    job posted across multiple sources under different IDs.
+
+    Args:
+        conn:         Open sqlite3 connection.
+        redirect_url: The canonical job URL to check.
+    """
+    row = conn.execute(
+        "SELECT 1 FROM listings WHERE redirect_url = ?",
+        (redirect_url,)
+    ).fetchone()
+    return row is not None
 
 
 def insert_listing(listing: dict, db_path: str = _DEFAULT_DB_PATH) -> None:
@@ -146,6 +188,8 @@ def insert_listing(listing: dict, db_path: str = _DEFAULT_DB_PATH) -> None:
     row.setdefault("applied", 0)
     row.setdefault("job_type", None)
     row.setdefault("model_used", None)
+    row.setdefault("source", None)
+    row.setdefault("source_id", None)
 
     conn = get_connection(db_path)
     try:
@@ -162,7 +206,9 @@ def insert_listing(listing: dict, db_path: str = _DEFAULT_DB_PATH) -> None:
                 tokens_input, tokens_output,
                 applied,
                 job_type,
-                model_used
+                model_used,
+                source,
+                source_id
             ) VALUES (
                 :adzuna_id, :title, :company, :location,
                 :salary_min, :salary_max, :salary_is_predicted,
@@ -174,7 +220,9 @@ def insert_listing(listing: dict, db_path: str = _DEFAULT_DB_PATH) -> None:
                 :tokens_input, :tokens_output,
                 :applied,
                 :job_type,
-                :model_used
+                :model_used,
+                :source,
+                :source_id
             )
             """,
             row,
@@ -184,11 +232,24 @@ def insert_listing(listing: dict, db_path: str = _DEFAULT_DB_PATH) -> None:
         conn.close()
 
 
-def update_score(adzuna_id: str, score_data: dict, db_path: str = _DEFAULT_DB_PATH) -> None:
-    """Write Haiku scoring results back to an existing row and mark it seen.
+def update_score(
+    source: str,
+    source_id: str,
+    score_data: dict,
+    db_path: str = _DEFAULT_DB_PATH,
+) -> None:
+    """Write scoring results back to an existing row and mark it seen.
 
-    `score_data` must contain: score, matched_skills, missing_skills,
-    concerns, verdict. Array fields may be Python lists or JSON strings.
+    Addresses the target row by (source, source_id) rather than adzuna_id so
+    that listings from any source can be rescored without special-casing.
+
+    Args:
+        source:     Source identifier string, e.g. ``"adzuna"``.
+        source_id:  Source-specific listing ID string.
+        score_data: Dict with keys: score, matched_skills, missing_skills,
+                    concerns, verdict. Array fields may be Python lists or
+                    JSON strings.
+        db_path:    Path to the SQLite database file.
     """
     data = dict(score_data)
     for col in ("matched_skills", "missing_skills", "concerns"):
@@ -212,11 +273,12 @@ def update_score(adzuna_id: str, score_data: dict, db_path: str = _DEFAULT_DB_PA
                 tokens_input   = :tokens_input,
                 tokens_output  = :tokens_output,
                 model_used     = :model_used
-            WHERE adzuna_id = :adzuna_id
+            WHERE source = :source AND source_id = :source_id
             """,
             {
                 **data,
-                "adzuna_id": adzuna_id,
+                "source": source,
+                "source_id": source_id,
                 "tokens_input": data.get("tokens_input"),
                 "tokens_output": data.get("tokens_output"),
                 "model_used": data.get("model_used"),

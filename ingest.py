@@ -341,6 +341,8 @@ class AdzunaClient:
 
         return {
             "adzuna_id": raw.get("id", ""),
+            "source": "adzuna",
+            "source_id": str(raw.get("id", "")),
             "title": raw.get("title", ""),
             "company": company_obj.get("display_name", "") if isinstance(company_obj, dict) else "",
             "location": location_obj.get("display_name", "") if isinstance(location_obj, dict) else "",
@@ -798,7 +800,17 @@ def run(
                 continue
 
             # --- Dedup ---
-            if db.listing_exists(listing["adzuna_id"], db_path=_DB_PATH):
+            # Open one connection and reuse it for both dedup checks to avoid
+            # two open/close round-trips per listing.
+            with db.get_connection(_DB_PATH) as _dedup_conn:
+                _is_dupe = db.listing_exists(
+                    _dedup_conn, listing["source"], listing["source_id"]
+                )
+                if not _is_dupe:
+                    redirect_url = listing.get("redirect_url", "")
+                    if redirect_url:
+                        _is_dupe = db.listing_exists_by_url(_dedup_conn, redirect_url)
+            if _is_dupe:
                 deduped += 1
                 logger.info("DUPE      %s", title)
                 continue
@@ -951,7 +963,7 @@ def rescore(
         )
 
         if result is not None:
-            db.update_score(listing["adzuna_id"], result, db_path=_DB_PATH)
+            db.update_score(listing["source"], listing["source_id"], result, db_path=_DB_PATH)
             rescored += 1
             tok_in = result.get("tokens_input") or 0
             tok_out = result.get("tokens_output") or 0

@@ -43,10 +43,18 @@ def make_listing(
     applied: int = 0,
     job_type: str | None = None,
     model_used: str | None = None,
+    source: str = "adzuna",
+    source_id: str | None = None,
 ) -> dict:
-    """Return a complete listing dict suitable for db.insert_listing()."""
+    """Return a complete listing dict suitable for db.insert_listing().
+
+    source_id defaults to adzuna_id when not supplied so that all existing
+    call sites continue to work without modification.
+    """
     return {
         "adzuna_id": adzuna_id,
+        "source": source,
+        "source_id": source_id if source_id is not None else adzuna_id,
         "title": title,
         "company": company,
         "location": location,
@@ -121,19 +129,31 @@ class TestInitDb:
 class TestListingExists:
     def test_returns_false_for_unknown_id(self):
         with TempDB() as path:
-            assert db.listing_exists("nonexistent-id", db_path=path) is False
+            conn = db.get_connection(path)
+            try:
+                assert db.listing_exists(conn, "adzuna", "nonexistent-id") is False
+            finally:
+                conn.close()
 
     def test_returns_true_after_insert(self):
         with TempDB() as path:
             listing = make_listing(adzuna_id="exists-001")
             db.insert_listing(listing, db_path=path)
-            assert db.listing_exists("exists-001", db_path=path) is True
+            conn = db.get_connection(path)
+            try:
+                assert db.listing_exists(conn, "adzuna", "exists-001") is True
+            finally:
+                conn.close()
 
     def test_returns_false_for_different_id(self):
-        """Existence check is specific to the queried adzuna_id."""
+        """Existence check is specific to the queried (source, source_id) pair."""
         with TempDB() as path:
             db.insert_listing(make_listing(adzuna_id="abc"), db_path=path)
-            assert db.listing_exists("xyz", db_path=path) is False
+            conn = db.get_connection(path)
+            try:
+                assert db.listing_exists(conn, "adzuna", "xyz") is False
+            finally:
+                conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -440,6 +460,7 @@ class TestModelUsed:
         with TempDB() as path:
             db.insert_listing(make_listing(adzuna_id="mu-003", score=None, seen=0), db_path=path)
             db.update_score(
+                "adzuna",
                 "mu-003",
                 {
                     "score": 7.5,
@@ -468,6 +489,7 @@ class TestModelUsed:
         with TempDB() as path:
             db.insert_listing(make_listing(adzuna_id="mu-004", score=None, seen=0), db_path=path)
             db.update_score(
+                "adzuna",
                 "mu-004",
                 {
                     "score": 6.0,
@@ -535,5 +557,169 @@ class TestModelUsed:
                 cols = conn.execute("PRAGMA table_info(listings)").fetchall()
                 col_names = [c["name"] for c in cols]
                 assert "model_used" in col_names
+            finally:
+                conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Cross-source dedup
+# ---------------------------------------------------------------------------
+
+class TestCrossSourceDedup:
+    def test_listing_exists_by_source_and_id(self):
+        """listing_exists() returns True for the correct (source, source_id) pair
+        and False when the source differs (same source_id, different source is not a dupe)."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(adzuna_id="cs-001", source="adzuna", source_id="cs-001"),
+                db_path=path,
+            )
+            conn = db.get_connection(path)
+            try:
+                assert db.listing_exists(conn, "adzuna", "cs-001") is True
+                # Same source_id but a different source — not a dupe.
+                assert db.listing_exists(conn, "remotive", "cs-001") is False
+            finally:
+                conn.close()
+
+    def test_listing_exists_by_url(self):
+        """listing_exists_by_url() returns True for a URL that is already stored
+        and False for a URL that has not been seen."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(
+                    adzuna_id="url-001",
+                    redirect_url="https://example.com/job/unique-url",
+                ),
+                db_path=path,
+            )
+            conn = db.get_connection(path)
+            try:
+                assert db.listing_exists_by_url(conn, "https://example.com/job/unique-url") is True
+                assert db.listing_exists_by_url(conn, "https://example.com/job/other-url") is False
+            finally:
+                conn.close()
+
+    def test_cross_source_url_dedup(self):
+        """A listing stored under 'adzuna' is caught as a dupe by URL when a
+        second source posts the same redirect_url."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(
+                    adzuna_id="xsd-001",
+                    source="adzuna",
+                    source_id="xsd-001",
+                    redirect_url="https://example.com/job/shared-url",
+                ),
+                db_path=path,
+            )
+            conn = db.get_connection(path)
+            try:
+                # listing_exists() returns False for a different source ...
+                assert db.listing_exists(conn, "remotive", "rem-999") is False
+                # ... but listing_exists_by_url() catches the shared URL.
+                assert db.listing_exists_by_url(conn, "https://example.com/job/shared-url") is True
+            finally:
+                conn.close()
+
+    def test_source_id_unique_per_source(self):
+        """Two listings that share the same source_id but differ in source can
+        both be inserted without violating the unique index on (source, source_id)."""
+        import sqlite3 as _sqlite3
+
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(
+                    adzuna_id="dup-id-001",
+                    source="adzuna",
+                    source_id="job-42",
+                    redirect_url="https://adzuna.com/job/42",
+                ),
+                db_path=path,
+            )
+            # Different source, same source_id — should succeed without raising.
+            db.insert_listing(
+                make_listing(
+                    adzuna_id="dup-id-002",
+                    source="remotive",
+                    source_id="job-42",
+                    redirect_url="https://remotive.com/job/42",
+                ),
+                db_path=path,
+            )
+
+            conn = db.get_connection(path)
+            try:
+                count = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
+                assert count == 2
+            finally:
+                conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Migration backfill
+# ---------------------------------------------------------------------------
+
+class TestMigrationBackfill:
+    def test_backfill_sets_source_and_source_id_for_existing_rows(self):
+        """init_db() backfills source='adzuna' and source_id=adzuna_id for rows
+        that were inserted before the multi-source migration columns existed."""
+        with TempDB() as path:
+            # Simulate a pre-migration database: recreate the table without
+            # source/source_id columns, insert a row, then run init_db() to
+            # trigger the migration + backfill path.
+            conn = db.get_connection(path)
+            try:
+                conn.execute("ALTER TABLE listings RENAME TO listings_old")
+                conn.execute("""
+                    CREATE TABLE listings (
+                        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                        adzuna_id           TEXT UNIQUE NOT NULL,
+                        title               TEXT,
+                        score               REAL,
+                        seen                INTEGER DEFAULT 0,
+                        redirect_url        TEXT,
+                        fetched_at          TEXT,
+                        created_at          TEXT,
+                        company             TEXT,
+                        location            TEXT,
+                        salary_min          INTEGER,
+                        salary_max          INTEGER,
+                        salary_is_predicted INTEGER,
+                        contract_type       TEXT,
+                        contract_time       TEXT,
+                        description         TEXT,
+                        matched_skills      TEXT,
+                        missing_skills      TEXT,
+                        concerns            TEXT,
+                        verdict             TEXT,
+                        bookmarked          INTEGER DEFAULT 0,
+                        dismissed           INTEGER DEFAULT 0,
+                        applied             INTEGER DEFAULT 0,
+                        job_type            TEXT,
+                        model_used          TEXT,
+                        tokens_input        INTEGER,
+                        tokens_output       INTEGER
+                    )
+                """)
+                conn.execute(
+                    "INSERT INTO listings (adzuna_id, title, score, seen) "
+                    "VALUES ('legacy-001', 'Old Job', 7.0, 1)"
+                )
+                conn.execute("DROP TABLE listings_old")
+                conn.commit()
+            finally:
+                conn.close()
+
+            # Run init_db() — this adds source/source_id columns and backfills.
+            db.init_db(path)
+
+            conn = db.get_connection(path)
+            try:
+                row = conn.execute(
+                    "SELECT source, source_id FROM listings WHERE adzuna_id = 'legacy-001'"
+                ).fetchone()
+                assert row["source"] == "adzuna"
+                assert row["source_id"] == "legacy-001"
             finally:
                 conn.close()
