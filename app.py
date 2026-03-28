@@ -16,6 +16,7 @@ app = Flask(__name__)
 
 DB_PATH: str = os.environ.get("DB_PATH", "jobs.db")
 _KEYS_PATH: str = os.path.join(os.path.dirname(__file__), "keys.json")
+_CONFIG_PATH: str = os.path.join(os.path.dirname(__file__), "config.json")
 
 # Default structure mirrors keys.example.json — used when keys.json is absent.
 _KEYS_DEFAULTS: dict = {
@@ -78,8 +79,7 @@ def _config_warnings() -> list[str]:
     if not adzuna_id or not adzuna_key:
         warnings.append(
             "Adzuna credentials are not configured — ingest will not run. "
-            "Edit <code>config.json</code> in the project root to add your "
-            "<code>adzuna_app_id</code> and <code>adzuna_app_key</code>."
+            "Add your App ID and App Key on the <a href=\"/settings\">Settings page</a>."
         )
     return warnings
 
@@ -276,15 +276,16 @@ def _load_keys() -> dict:
 
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
-    """Settings page — manage API keys and preferred provider.
+    """Settings page — manage API keys, preferred provider, and Adzuna credentials.
 
-    GET:  Reads keys.json and passes only boolean has_key flags to the
-          template — raw key values are never sent to the browser.
-    POST: Merges submitted form values over the existing keys.json.
-          A blank key field means "keep existing"; a non-blank field
-          replaces the stored key. Model is always updated (not secret).
+    GET:  Reads keys.json and config.json and passes only boolean has_key/has_id
+          flags to the template — raw credential values are never sent to the browser.
+    POST: Merges submitted form values over the existing keys.json and config.json.
+          A blank field means "keep existing"; a non-blank field replaces the stored
+          value. Model is always updated (not secret). Adzuna fields update config.json.
     """
     saved = False
+    error = None
 
     if request.method == "POST":
         keys_data = _load_keys()
@@ -305,11 +306,32 @@ def settings():
         if preferred in ("anthropic", "openai", "gemini"):
             keys_data["preferred_provider"] = preferred
 
-        with open(_KEYS_PATH, "w", encoding="utf-8") as f:
-            json.dump(keys_data, f, indent=2)
+        try:
+            with open(_KEYS_PATH, "w", encoding="utf-8") as f:
+                json.dump(keys_data, f, indent=2)
+        except OSError:
+            error = "Could not save settings — check file permissions."
 
-        saved = True
-        # Re-load the just-written file so the template reflects current state.
+        if error is None:
+            # Handle Adzuna credentials — load current config, merge, write back.
+            adzuna_id = request.form.get("adzuna_app_id", "").strip()
+            adzuna_key = request.form.get("adzuna_app_key", "").strip()
+            if adzuna_id or adzuna_key:
+                cfg_data = load_config(_CONFIG_PATH)
+                if adzuna_id:
+                    cfg_data["adzuna_app_id"] = adzuna_id
+                if adzuna_key:
+                    cfg_data["adzuna_app_key"] = adzuna_key
+                try:
+                    with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
+                        json.dump(cfg_data, f, indent=2)
+                except OSError:
+                    error = "Could not save settings — check file permissions."
+
+        if error is None:
+            saved = True
+
+        # Re-load after write so the template reflects the current state.
         keys_data = _load_keys()
     else:
         keys_data = _load_keys()
@@ -323,12 +345,20 @@ def settings():
             "model": cfg.get("model", _KEYS_DEFAULTS["providers"][provider]["model"]),
         }
 
+    # Adzuna status flags — read from config.json (never pass raw values).
+    cfg_data = load_config(_CONFIG_PATH)
+    has_adzuna_id = bool(cfg_data.get("adzuna_app_id", "").strip())
+    has_adzuna_key = bool(cfg_data.get("adzuna_app_key", "").strip())
+
     return render_template(
         "settings.html",
         view="settings",
         providers=providers_ctx,
         preferred_provider=keys_data.get("preferred_provider", "anthropic"),
         saved=saved,
+        error=error,
+        has_adzuna_id=has_adzuna_id,
+        has_adzuna_key=has_adzuna_key,
     )
 
 

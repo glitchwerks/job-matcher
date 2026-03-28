@@ -37,8 +37,48 @@
     <p class="save-notice">Settings saved.</p>
   {% endif %}
 
+  {# ── Error notice ─────────────────────────────────────────────── #}
+  {% if error %}
+    <p class="save-error">{{ error }}</p>
+  {% endif %}
+
   {# ── Settings form ────────────────────────────────────────────── #}
   <form class="settings-form" method="post" action="/settings">
+
+    <h2 class="settings-section-title">Job Source Credentials</h2>
+
+    {# ── Adzuna ── #}
+    <div class="provider-row">
+      <div class="provider-header">
+        <span class="provider-name">Adzuna</span>
+        {% if has_adzuna_id %}
+          <span class="key-status configured">&#10003; App ID configured</span>
+        {% else %}
+          <span class="key-status not-set">&#9675; App ID not set</span>
+        {% endif %}
+        {% if has_adzuna_key %}
+          <span class="key-status configured">&#10003; App Key configured</span>
+        {% else %}
+          <span class="key-status not-set">&#9675; App Key not set</span>
+        {% endif %}
+      </div>
+      <label class="settings-label" for="adzuna_app_id">App ID</label>
+      <input
+        id="adzuna_app_id"
+        class="settings-input"
+        type="password"
+        name="adzuna_app_id"
+        autocomplete="off"
+        placeholder="Enter new App ID to update (leave blank to keep existing)">
+      <label class="settings-label" for="adzuna_app_key">App Key</label>
+      <input
+        id="adzuna_app_key"
+        class="settings-input"
+        type="password"
+        name="adzuna_app_key"
+        autocomplete="off"
+        placeholder="Enter new App Key to update (leave blank to keep existing)">
+    </div>
 
     <h2 class="settings-section-title">API Keys &amp; Models</h2>
 

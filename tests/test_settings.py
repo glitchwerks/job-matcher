@@ -45,11 +45,11 @@ class TestSettingsGetNoFile:
         resp = client.get("/settings")
         assert resp.status_code == 200
 
-    def test_shows_not_set_for_all_providers(self, client, tmp_keys_path):
+    def test_shows_not_set_for_all_providers(self, client, tmp_keys_path, tmp_config_path):
         resp = client.get("/settings")
         body = resp.data.decode()
-        # All three providers should show "not set"
-        assert body.count("not-set") == 3
+        # All three LLM providers + 2 Adzuna fields should show "not set"
+        assert body.count("not-set") == 5
 
     def test_never_exposes_key_values(self, client, tmp_keys_path):
         """GET must not render any actual API key string even if the file exists."""
@@ -107,12 +107,12 @@ class TestSettingsGetWithFile:
         body = resp.data.decode()
         assert "configured" in body
 
-    def test_not_set_badge_shown_for_empty_key(self, client, tmp_keys_path):
+    def test_not_set_badge_shown_for_empty_key(self, client, tmp_keys_path, tmp_config_path):
         self._write_keys(tmp_keys_path, openai_key="")
         resp = client.get("/settings")
         body = resp.data.decode()
-        # openai and gemini are both empty — two not-set badges
-        assert body.count("not-set") == 2
+        # openai and gemini LLM fields + 2 Adzuna fields (also empty by default) — four not-set badges
+        assert body.count("not-set") == 4
 
     def test_no_key_values_in_response(self, client, tmp_keys_path):
         self._write_keys(tmp_keys_path, anthropic_key="sk-real")
@@ -262,6 +262,128 @@ class TestSettingsPost:
         with open(tmp_keys_path) as f:
             saved = json.load(f)
         assert saved["providers"]["anthropic"]["api_key"] == "sk-brand-new"
+
+
+# ---------------------------------------------------------------------------
+# Adzuna credentials on /settings (#20)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def tmp_config_path(tmp_path, monkeypatch):
+    """Point _CONFIG_PATH at a temp file so tests don't touch the real config.json."""
+    path = str(tmp_path / "config.json")
+    monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+    return path
+
+
+class TestSettingsAdzuna:
+    """Tests for the Adzuna credentials section on /settings."""
+
+    def test_get_no_config_shows_not_set_badges(self, client, tmp_keys_path, tmp_config_path):
+        """When config.json is absent both Adzuna fields should show the not-set badge."""
+        resp = client.get("/settings")
+        body = resp.data.decode()
+        assert "App ID not set" in body
+        assert "App Key not set" in body
+
+    def test_get_with_credentials_shows_configured_badges(self, client, tmp_keys_path, tmp_config_path):
+        """When both Adzuna credentials are present both badges should read 'configured'."""
+        with open(tmp_config_path, "w") as f:
+            json.dump({"adzuna_app_id": "myid123", "adzuna_app_key": "mykey456"}, f)
+
+        resp = client.get("/settings")
+        body = resp.data.decode()
+        assert "App ID configured" in body
+        assert "App Key configured" in body
+
+    def test_get_never_exposes_raw_adzuna_values(self, client, tmp_keys_path, tmp_config_path):
+        """Raw Adzuna credential values must never appear in the HTML response."""
+        with open(tmp_config_path, "w") as f:
+            json.dump({"adzuna_app_id": "raw-id-secret", "adzuna_app_key": "raw-key-secret"}, f)
+
+        resp = client.get("/settings")
+        body = resp.data.decode()
+        assert "raw-id-secret" not in body
+        assert "raw-key-secret" not in body
+
+    def test_post_writes_adzuna_credentials_to_config(self, client, tmp_keys_path, tmp_config_path):
+        """Submitting non-blank Adzuna fields should write them to config.json."""
+        resp = client.post("/settings", data={
+            "anthropic_key": "", "anthropic_model": "claude-haiku-4-5-20251001",
+            "openai_key": "", "openai_model": "gpt-4o-mini",
+            "gemini_key": "", "gemini_model": "gemini-1.5-flash",
+            "preferred_provider": "anthropic",
+            "adzuna_app_id": "new-app-id",
+            "adzuna_app_key": "new-app-key",
+        })
+        assert resp.status_code == 200
+
+        with open(tmp_config_path) as f:
+            saved = json.load(f)
+        assert saved["adzuna_app_id"] == "new-app-id"
+        assert saved["adzuna_app_key"] == "new-app-key"
+
+    def test_post_blank_adzuna_fields_preserve_existing_values(self, client, tmp_keys_path, tmp_config_path):
+        """Submitting blank Adzuna fields must NOT overwrite existing values."""
+        with open(tmp_config_path, "w") as f:
+            json.dump({"adzuna_app_id": "existing-id", "adzuna_app_key": "existing-key"}, f)
+
+        client.post("/settings", data={
+            "anthropic_key": "", "anthropic_model": "claude-haiku-4-5-20251001",
+            "openai_key": "", "openai_model": "gpt-4o-mini",
+            "gemini_key": "", "gemini_model": "gemini-1.5-flash",
+            "preferred_provider": "anthropic",
+            "adzuna_app_id": "",
+            "adzuna_app_key": "",
+        })
+
+        with open(tmp_config_path) as f:
+            saved = json.load(f)
+        assert saved["adzuna_app_id"] == "existing-id"
+        assert saved["adzuna_app_key"] == "existing-key"
+
+    def test_post_saved_adzuna_values_not_echoed_in_response(self, client, tmp_keys_path, tmp_config_path):
+        """Even after a successful POST the raw Adzuna credentials must not appear in the HTML."""
+        resp = client.post("/settings", data={
+            "anthropic_key": "", "anthropic_model": "claude-haiku-4-5-20251001",
+            "openai_key": "", "openai_model": "gpt-4o-mini",
+            "gemini_key": "", "gemini_model": "gemini-1.5-flash",
+            "preferred_provider": "anthropic",
+            "adzuna_app_id": "super-secret-id",
+            "adzuna_app_key": "super-secret-key",
+        })
+        body = resp.data.decode()
+        assert "super-secret-id" not in body
+        assert "super-secret-key" not in body
+
+    def test_post_config_write_failure_returns_200_with_error_message(
+        self, client, tmp_keys_path, tmp_config_path, monkeypatch
+    ):
+        """If config.json cannot be written the response should be 200 with an error notice."""
+        original_open = open
+
+        def patched_open(file, mode="r", **kwargs):
+            # Raise OSError only when writing config.json.
+            if "w" in mode and str(file) == tmp_config_path:
+                raise OSError("Permission denied")
+            return original_open(file, mode, **kwargs)
+
+        monkeypatch.setattr("builtins.open", patched_open)
+
+        resp = client.post("/settings", data={
+            "anthropic_key": "", "anthropic_model": "claude-haiku-4-5-20251001",
+            "openai_key": "", "openai_model": "gpt-4o-mini",
+            "gemini_key": "", "gemini_model": "gemini-1.5-flash",
+            "preferred_provider": "anthropic",
+            "adzuna_app_id": "some-id",
+            "adzuna_app_key": "some-key",
+        })
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        assert "Could not save settings" in body
+        # Raw credential values must not leak even on error.
+        assert "some-id" not in body
+        assert "some-key" not in body
 
 
 # ---------------------------------------------------------------------------

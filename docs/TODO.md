@@ -241,6 +241,14 @@
 - [x] Create `.github/workflows/apply-fix.yml` — manual workflow_dispatch trigger to apply suggested fix to PR branch
 - [x] Document secrets and new workflows in `README.md`
 
+## Feature: Adzuna credentials on Settings page (#20)
+
+- [x] Extend `/settings` GET to read `adzuna_app_id` / `adzuna_app_key` from `config.json`; pass `has_adzuna_id` / `has_adzuna_key` booleans to template (never raw values)
+- [x] Extend `/settings` POST to update `adzuna_app_id` / `adzuna_app_key` in `config.json` when non-blank values are submitted (blank = keep existing)
+- [x] Add a "Job Source Credentials" section to `settings.html` with masked password inputs for both Adzuna fields
+- [x] Update `_config_warnings()` banner message to point to `/settings` instead of manual `config.json` edit
+- [x] Add tests for: GET shows has/not-set status, POST saves new credentials, blank POST preserves existing, raw values never appear in response
+
 ## Milestone: Dynamic Provider Key Management (#28–#36)
 
 - [x] **#28** — Create `keys.example.json`; strip API key fields from `config.example.json`; add `keys.json` to `.gitignore`
