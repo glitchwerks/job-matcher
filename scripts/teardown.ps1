@@ -3,7 +3,7 @@
 .SYNOPSIS
     Removes the Job Matcher NSSM service and Windows scheduled task.
 .DESCRIPTION
-    Stops and removes the JobMatcher gunicorn service registered by setup.ps1,
+    Stops and removes the JobMatcher waitress service registered by setup.ps1,
     and unregisters the JobMatcherIngest scheduled task.
 
     Optionally removes system environment variables. Does NOT delete the data

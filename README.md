@@ -225,7 +225,7 @@ What it does:
 - Creates the data directory and a `logs/` subfolder
 - Copies `keys.example.json` → `keys.json` and restricts its ACL to the current user
 - Copies `config.example.json` → `config.json` (if absent) — edit it to add Adzuna credentials
-- Registers the `JobMatcher` Windows service (gunicorn via NSSM) set to auto-start
+- Registers the `JobMatcher` Windows service (waitress via NSSM) set to auto-start
 - Registers the `JobMatcherIngest` daily Task Scheduler task
 
 After the script completes, navigate to `http://localhost:5000/settings` to enter your LLM provider API keys, then edit `config.json` in the project root to add your Adzuna App ID and App Key.
@@ -252,11 +252,11 @@ LLM provider API keys are managed separately through `keys.json` and the `/setti
 
 ### Web service — NSSM (reference)
 
-Register gunicorn as a Windows service named `JobMatcher`:
+Register waitress as a Windows service named `JobMatcher`:
 
 ```powershell
-nssm install JobMatcher "C:\Apps\job_matcher\venv\Scripts\gunicorn.exe"
-nssm set JobMatcher AppParameters "app:app --bind 0.0.0.0:5000 --workers 2"
+nssm install JobMatcher "C:\Apps\job_matcher\venv\Scripts\waitress-serve.exe"
+nssm set JobMatcher AppParameters "--host=0.0.0.0 --port=5000 app:app"
 nssm set JobMatcher AppDirectory "C:\Apps\job_matcher"
 nssm set JobMatcher Start SERVICE_AUTO_START
 nssm start JobMatcher

@@ -63,7 +63,7 @@ Results include a `model_used` field stored as `"provider/model"` per listing. S
 ## Deployment
 
 **Windows native (active deployment path):**
-- `scripts/setup.ps1` — Registers gunicorn as an NSSM Windows service and creates a Task Scheduler job for daily ingest.
+- `scripts/setup.ps1` — Registers waitress as an NSSM Windows service and creates a Task Scheduler job for daily ingest.
 - `scripts/status.ps1` / `scripts/teardown.ps1` — Ops helpers.
 
 ## Key design decisions

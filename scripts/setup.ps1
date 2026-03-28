@@ -3,10 +3,10 @@
 .SYNOPSIS
     Interactive setup script for the Job Matcher native deployment.
 .DESCRIPTION
-    Provisions the JobMatcher infrastructure: registers the gunicorn service
-    via NSSM, creates a daily Task Scheduler ingest task, copies config/keys
-    example files on first run, and hardens file ACLs. Must be run as
-    Administrator.
+    Provisions the JobMatcher infrastructure: registers the waitress-serve
+    service via NSSM, creates a daily Task Scheduler ingest task, copies
+    config/keys example files on first run, and hardens file ACLs. Must be
+    run as Administrator.
 
     This script does NOT prompt for Adzuna credentials or LLM API keys.
     After setup completes, open http://localhost:5000/settings to enter LLM
@@ -16,7 +16,7 @@
     .\setup.ps1
 .NOTES
     Requires NSSM (https://nssm.cc/download) on PATH.
-    Requires gunicorn installed in the project venv before running.
+    Requires waitress installed in the project venv before running.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -99,10 +99,10 @@ catch {
     exit 1
 }
 
-# gunicorn.exe in venv
-$gunicornExe = Join-Path -Path $VenvScripts -ChildPath 'gunicorn.exe'
-if (-not (Test-Path -Path $gunicornExe -PathType Leaf)) {
-    Write-Fail "gunicorn.exe not found at: $gunicornExe"
+# waitress-serve.exe in venv
+$waitressExe = Join-Path -Path $VenvScripts -ChildPath 'waitress-serve.exe'
+if (-not (Test-Path -Path $waitressExe -PathType Leaf)) {
+    Write-Fail "waitress-serve.exe not found at: $waitressExe"
     Write-Host ''
     Write-Host 'Create and populate the venv before running setup:' -ForegroundColor Yellow
     Write-Host "  cd `"$ProjectRoot`""
@@ -111,7 +111,7 @@ if (-not (Test-Path -Path $gunicornExe -PathType Leaf)) {
     Write-Host ''
     exit 1
 }
-Write-Ok "gunicorn.exe found at: $gunicornExe"
+Write-Ok "waitress-serve.exe found at: $waitressExe"
 
 # NSSM on PATH
 $nssm = Get-Command -Name 'nssm' -ErrorAction SilentlyContinue
@@ -261,8 +261,8 @@ $webLog   = Join-Path -Path $logsDir -ChildPath 'web.log'
 $errorLog = Join-Path -Path $logsDir -ChildPath 'web-error.log'
 
 try {
-    & nssm install $ServiceName $gunicornExe
-    & nssm set $ServiceName AppParameters   "app:app --bind 0.0.0.0:5000 --workers 2"
+    & nssm install $ServiceName $waitressExe
+    & nssm set $ServiceName AppParameters   "--host=0.0.0.0 --port=5000 app:app"
     & nssm set $ServiceName AppDirectory    $ProjectRoot
     & nssm set $ServiceName Start           SERVICE_AUTO_START
     & nssm set $ServiceName AppStdout       $webLog
