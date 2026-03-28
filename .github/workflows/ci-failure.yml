@@ -66,25 +66,21 @@ jobs:
           diff   = open('/tmp/pr_diff.json').read()
           claude = open('CLAUDE.md').read()[:2000] if os.path.exists('CLAUDE.md') else 'No CLAUDE.md found'
 
-          prompt = f"""You are a CI debugging assistant. A GitHub Actions CI run has failed on a pull request. Analyse the failure and suggest a minimal fix.
-
-PROJECT CONTEXT (CLAUDE.md):
-{claude}
-
-FAILED CI LOGS:
-{logs}
-
-PR DIFF (changed files):
-{diff}
-
-Respond with a JSON object with exactly these keys:
-- "summary": one sentence describing what failed
-- "root_cause": 2-3 sentences explaining why it failed
-- "fix_description": one sentence describing the fix
-- "fix_diff": a unified diff string showing the minimal code change needed (empty string if no code change needed)
-- "confidence": "high", "medium", or "low"
-
-Respond with raw JSON only, no markdown fences."""
+          prompt = (
+              "You are a CI debugging assistant. A GitHub Actions CI run has failed"
+              " on a pull request. Analyse the failure and suggest a minimal fix.\n\n"
+              "PROJECT CONTEXT (CLAUDE.md):\n" + claude + "\n\n"
+              "FAILED CI LOGS:\n" + logs + "\n\n"
+              "PR DIFF (changed files):\n" + diff + "\n\n"
+              "Respond with a JSON object with exactly these keys:\n"
+              '- "summary": one sentence describing what failed\n'
+              '- "root_cause": 2-3 sentences explaining why it failed\n'
+              '- "fix_description": one sentence describing the fix\n'
+              '- "fix_diff": a unified diff string showing the minimal code change'
+              " needed (empty string if no code change needed)\n"
+              '- "confidence": "high", "medium", or "low"\n\n'
+              "Respond with raw JSON only, no markdown fences."
+          )
 
           with open('/tmp/prompt.txt', 'w') as f:
               f.write(prompt)
@@ -102,13 +98,15 @@ Respond with raw JSON only, no markdown fences."""
 
           echo "$RESPONSE" > /tmp/claude_response.json
 
-          SUMMARY=$(echo "$RESPONSE" | python3 -c "
-import json, sys
-r = json.load(sys.stdin)
-text = r['content'][0]['text']
-data = json.loads(text)
-print(data.get('summary', 'CI failure detected'))
-" 2>/dev/null || echo "CI failure detected")
+          SUMMARY=$(python3 << 'PYEOF'
+          import json, sys
+          r = json.load(open('/tmp/claude_response.json'))
+          text = r['content'][0]['text']
+          data = json.loads(text)
+          print(data.get('summary', 'CI failure detected'))
+          PYEOF
+          )
+          SUMMARY=${SUMMARY:-"CI failure detected"}
 
           echo "summary=$SUMMARY" >> $GITHUB_OUTPUT
         env:
@@ -135,29 +133,27 @@ print(data.get('summary', 'CI failure detected'))
           pr_number = os.environ['PR_NUMBER']
           repo = os.environ['REPO']
 
-          fix_section = ''
           if fix_diff:
-              fix_section = f"""
-**Suggested fix:** {fix_description}
-```diff
-{fix_diff}
-```
-"""
+              fix_section = (
+                  "\n**Suggested fix:** " + fix_description + "\n"
+                  "```diff\n" + fix_diff + "\n```\n"
+              )
           else:
-              fix_section = f"\n**Suggested fix:** {fix_description}\n" if fix_description else ''
+              fix_section = ("\n**Suggested fix:** " + fix_description + "\n") if fix_description else ''
 
-          body = f"""## Claude CI Diagnosis
-
-**Summary:** {summary}
-
-**Root cause:** {root_cause}
-{fix_section}
-**Confidence:** {confidence} | [View full logs]({log_url})
-
----
-_This diagnosis was generated automatically by Claude. Review before applying any suggested fix._
-
-_To apply the suggested fix automatically, trigger the [apply-fix workflow](../../actions/workflows/apply-fix.yml) with this PR number and the diff above._"""
+          body = (
+              "## Claude CI Diagnosis\n\n"
+              "**Summary:** " + summary + "\n\n"
+              "**Root cause:** " + root_cause + "\n"
+              + fix_section +
+              "**Confidence:** " + confidence + " | [View full logs](" + log_url + ")\n\n"
+              "---\n"
+              "_This diagnosis was generated automatically by Claude."
+              " Review before applying any suggested fix._\n\n"
+              "_To apply the suggested fix automatically, trigger the"
+              " [apply-fix workflow](../../actions/workflows/apply-fix.yml)"
+              " with this PR number and the diff above._"
+          )
 
           cmd = ['gh', 'api', f'repos/{repo}/issues/{pr_number}/comments',
                  '-f', f'body={body}']
