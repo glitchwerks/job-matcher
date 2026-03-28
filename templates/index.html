@@ -35,6 +35,9 @@
       {%- if listings | length == 1 %} role{% else %} roles{% endif %}
       &nbsp;·&nbsp;
       scored {{ (min_score if min_score is not none else threshold) | round(1) }}+ &nbsp;·&nbsp; sorted by match
+      {%- if last_fetch_time is not none %}
+        &nbsp;·&nbsp; <span class="last-fetch">last updated {{ last_fetch_time | timeago }}</span>
+      {%- endif %}
     </div>
   {% elif view == "bookmarks" %}
     <div class="feed-meta">

@@ -7,6 +7,10 @@ Business logic lives in ingest.py; none of it belongs here.
 
 import json
 import os
+import subprocess
+import sys
+from datetime import datetime, timezone
+from importlib.metadata import version as pkg_version, PackageNotFoundError
 
 from flask import Flask, render_template, make_response, request
 
@@ -62,6 +66,61 @@ db.init_db(db_path=DB_PATH)
 
 
 # ---------------------------------------------------------------------------
+# Runtime version capture
+# ---------------------------------------------------------------------------
+
+def get_runtime_versions() -> list[dict]:
+    """Return a list of {component, version} dicts for key runtime components.
+
+    Called once at startup and cached in RUNTIME_VERSIONS. Each package lookup
+    is wrapped in a try/except so a missing optional package (e.g. gunicorn)
+    never crashes the server — it surfaces as 'n/a' instead.
+
+    App version resolution order:
+      1. VERSION file in the same directory as this module.
+      2. Latest git tag via ``git describe --tags --abbrev=0``.
+      3. Fallback string "dev".
+    """
+    def _pkg(name: str) -> str:
+        try:
+            return pkg_version(name)
+        except PackageNotFoundError:
+            return "n/a"
+
+    # Python version — use the compact x.y.z form from version_info.
+    python_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+
+    # App version: VERSION file → git tag → "dev".
+    version_file = os.path.join(os.path.dirname(__file__), "VERSION")
+    if os.path.exists(version_file):
+        with open(version_file, "r", encoding="utf-8") as fh:
+            app_ver = fh.read().strip() or "dev"
+    else:
+        try:
+            result = subprocess.run(
+                ["git", "describe", "--tags", "--abbrev=0"],
+                capture_output=True,
+                text=True,
+                cwd=os.path.dirname(__file__) or ".",
+            )
+            app_ver = result.stdout.strip() if result.returncode == 0 else "dev"
+        except OSError:
+            app_ver = "dev"
+
+    return [
+        {"component": "App",          "version": app_ver},
+        {"component": "Python",       "version": python_ver},
+        {"component": "Flask",        "version": _pkg("flask")},
+        {"component": "anthropic",    "version": _pkg("anthropic")},
+        {"component": "beautifulsoup4", "version": _pkg("beautifulsoup4")},
+        {"component": "waitress",     "version": _pkg("waitress")},
+    ]
+
+
+RUNTIME_VERSIONS: list[dict] = get_runtime_versions()
+
+
+# ---------------------------------------------------------------------------
 # Config warnings
 # ---------------------------------------------------------------------------
 
@@ -85,7 +144,7 @@ def _config_warnings() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Template filter
+# Template filters
 # ---------------------------------------------------------------------------
 
 @app.template_filter("salary_fmt")
@@ -116,6 +175,51 @@ def salary_fmt(listing: dict) -> str | None:
     if lo is not None:
         return f"{prefix}{fmt_k(lo)}+"
     return f"{prefix}{fmt_k(hi)}"
+
+
+@app.template_filter("timeago")
+def timeago(dt: datetime | None) -> str:
+    """Return a human-readable relative time string for a datetime, e.g. '3 hours ago'.
+
+    Uses UTC now as the reference point. The input datetime is treated as UTC
+    if it has no tzinfo. Falls back to the ISO 8601 string representation when
+    the input is None or not a datetime, so the template never raises.
+
+    Thresholds:
+      < 2 minutes  → 'just now'
+      < 60 minutes → 'N minutes ago'
+      < 24 hours   → 'N hours ago'
+      < 7 days     → 'N days ago'
+      otherwise    → formatted as 'YYYY-MM-DD HH:MM UTC'
+    """
+    if dt is None:
+        return "never"
+    if not isinstance(dt, datetime):
+        return str(dt)
+
+    # Treat naive datetimes as UTC to match how fetched_at is stored.
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(tz=timezone.utc)
+    delta = now - dt
+    total_seconds = int(delta.total_seconds())
+
+    if total_seconds < 0:
+        # Clock skew or future timestamp — just show absolute.
+        return dt.strftime("%Y-%m-%d %H:%M UTC")
+    if total_seconds < 120:
+        return "just now"
+    if total_seconds < 3600:
+        minutes = total_seconds // 60
+        return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+    if total_seconds < 86400:
+        hours = total_seconds // 3600
+        return f"{hours} hour{'s' if hours != 1 else ''} ago"
+    if total_seconds < 604800:
+        days = total_seconds // 86400
+        return f"{days} day{'s' if days != 1 else ''} ago"
+    return dt.strftime("%Y-%m-%d %H:%M UTC")
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +255,7 @@ def feed():
         db_path=DB_PATH,
     )
     job_types = db.get_job_types(db_path=DB_PATH)
+    last_fetch_time = db.get_last_fetch_time(db_path=DB_PATH)
     return render_template(
         "index.html",
         listings=listings,
@@ -161,6 +266,7 @@ def feed():
         search=search,
         job_type=job_type,
         job_types=job_types,
+        last_fetch_time=last_fetch_time,
         config_warnings=_config_warnings(),
     )
 
@@ -232,9 +338,15 @@ def applied():
 
 @app.route("/stats")
 def stats():
-    """API usage and cost statistics."""
+    """API usage and cost statistics, plus runtime version information."""
     data = db.get_usage_stats(db_path=DB_PATH)
-    return render_template("stats.html", stats=data, view="stats", config_warnings=_config_warnings())
+    return render_template(
+        "stats.html",
+        stats=data,
+        view="stats",
+        config_warnings=_config_warnings(),
+        runtime_versions=RUNTIME_VERSIONS,
+    )
 
 
 @app.route("/dismiss/<int:listing_id>", methods=["POST"])

@@ -427,6 +427,35 @@ def get_listing_by_id(listing_id: int, db_path: str = _DEFAULT_DB_PATH) -> dict 
         conn.close()
 
 
+def get_last_fetch_time(db_path: str = _DEFAULT_DB_PATH):
+    """Return the most recent fetched_at timestamp across all listings, or None.
+
+    Used by the web UI to display how fresh the data is (e.g. "Last updated
+    3 hours ago"). Returns a :class:`datetime.datetime` in UTC if any listings
+    exist, or ``None`` when the table is empty.
+
+    Args:
+        db_path: Path to the SQLite database file.
+    """
+    import datetime
+
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT MAX(fetched_at) AS last_fetch FROM listings"
+        ).fetchone()
+        raw = row["last_fetch"] if row else None
+        if raw is None:
+            return None
+        # fetched_at is stored as an ISO 8601 string (e.g. "2026-01-02T12:34:56Z"
+        # or "2026-01-02T12:34:56").  fromisoformat() handles both; strip the
+        # trailing "Z" which Python < 3.11 does not accept.
+        raw = raw.rstrip("Z")
+        return datetime.datetime.fromisoformat(raw)
+    finally:
+        conn.close()
+
+
 def get_usage_stats(
     db_path: str = _DEFAULT_DB_PATH,
     input_cost_per_mtok: float = _FALLBACK_INPUT_COST_PER_MTOK,

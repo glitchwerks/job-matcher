@@ -201,9 +201,9 @@
 
 ## Feature: Last Fetch Time in UI (#7)
 
-- [ ] Add `get_last_fetch_time()` helper to `db.py` — queries `MAX(fetched_at)` from listings
-- [ ] Pass last fetch time to feed template context in `app.py`
-- [ ] Display in feed header/filter bar (e.g. "Last updated 3 hours ago")
+- [x] Add `get_last_fetch_time()` helper to `db.py` — queries `MAX(fetched_at)` from listings
+- [x] Pass last fetch time to feed template context in `app.py`
+- [x] Display in feed header/filter bar (e.g. "Last updated 3 hours ago")
 
 ## Feature: Pluggable Model Provider (#8)
 

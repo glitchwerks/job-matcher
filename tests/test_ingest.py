@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from ingest import prefilter, score_listing_with_fallback
-from app import salary_fmt
+from app import salary_fmt, timeago
 
 
 # ---------------------------------------------------------------------------
@@ -325,3 +325,77 @@ class TestScoreListingWithFallback:
         # p1 must never have been called.
         p1.complete.assert_not_called()
         p2.complete.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# timeago filter
+# ---------------------------------------------------------------------------
+
+class TestTimeago:
+    """Tests for the timeago Jinja2 template filter registered in app.py."""
+
+    def _dt(self, seconds_ago: int):
+        """Return a naive UTC datetime that is `seconds_ago` seconds in the past."""
+        from datetime import datetime, timezone, timedelta
+        return datetime.now(tz=timezone.utc) - timedelta(seconds=seconds_ago)
+
+    def test_none_returns_never(self):
+        """timeago(None) returns 'never'."""
+        assert timeago(None) == "never"
+
+    def test_non_datetime_returns_str(self):
+        """timeago with a non-datetime value returns its string representation."""
+        result = timeago("not-a-datetime")  # type: ignore[arg-type]
+        assert result == "not-a-datetime"
+
+    def test_just_now_under_two_minutes(self):
+        """Timestamps less than 2 minutes ago return 'just now'."""
+        assert timeago(self._dt(30)) == "just now"
+        assert timeago(self._dt(119)) == "just now"
+
+    def test_minutes_ago(self):
+        """Timestamps 2–59 minutes ago return 'N minutes ago'."""
+        assert timeago(self._dt(120)) == "2 minutes ago"
+        assert timeago(self._dt(3599)) == "59 minutes ago"
+
+    def test_singular_minute(self):
+        """The minutes branch covers 120–3599 seconds; 30 minutes = 1800 seconds."""
+        result = timeago(self._dt(1800))
+        assert result == "30 minutes ago"
+
+    def test_hours_ago(self):
+        """Timestamps 1–23 hours ago return 'N hours ago'."""
+        assert timeago(self._dt(3600)) == "1 hour ago"
+        assert timeago(self._dt(7200)) == "2 hours ago"
+        assert timeago(self._dt(86399)) == "23 hours ago"
+
+    def test_singular_hour(self):
+        """Exactly 1 hour uses singular form 'hour'."""
+        assert timeago(self._dt(3600)) == "1 hour ago"
+
+    def test_days_ago(self):
+        """Timestamps 1–6 days ago return 'N days ago'."""
+        assert timeago(self._dt(86400)) == "1 day ago"
+        assert timeago(self._dt(172800)) == "2 days ago"
+
+    def test_absolute_beyond_seven_days(self):
+        """Timestamps older than 7 days return an absolute datetime string."""
+        from datetime import datetime, timezone, timedelta
+        old = datetime.now(tz=timezone.utc) - timedelta(days=8)
+        result = timeago(old)
+        assert "UTC" in result
+        assert str(old.year) in result
+
+    def test_naive_datetime_treated_as_utc(self):
+        """A naive datetime (no tzinfo) is treated as UTC and does not raise."""
+        from datetime import datetime, timedelta
+        naive = datetime.now() - timedelta(hours=2)
+        result = timeago(naive)
+        assert "hour" in result
+
+    def test_future_timestamp_returns_absolute(self):
+        """A future timestamp (clock skew) returns an absolute string, not a crash."""
+        from datetime import datetime, timezone, timedelta
+        future = datetime.now(tz=timezone.utc) + timedelta(hours=1)
+        result = timeago(future)
+        assert "UTC" in result

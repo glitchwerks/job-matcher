@@ -721,3 +721,64 @@ class TestMigrationBackfill:
                 assert row["source_id"] == "legacy-001"
             finally:
                 conn.close()
+
+
+# ---------------------------------------------------------------------------
+# get_last_fetch_time
+# ---------------------------------------------------------------------------
+
+class TestGetLastFetchTime:
+    def test_returns_none_when_table_is_empty(self):
+        """get_last_fetch_time() returns None when no listings exist."""
+        with TempDB() as path:
+            result = db.get_last_fetch_time(db_path=path)
+            assert result is None
+
+    def test_returns_datetime_for_single_listing(self):
+        """get_last_fetch_time() returns a datetime when one listing exists."""
+        import datetime
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(fetched_at="2026-01-15T10:00:00Z"),
+                db_path=path,
+            )
+            result = db.get_last_fetch_time(db_path=path)
+            assert isinstance(result, datetime.datetime)
+            assert result.year == 2026
+            assert result.month == 1
+            assert result.day == 15
+
+    def test_returns_most_recent_when_multiple_listings(self):
+        """get_last_fetch_time() returns the MAX fetched_at across all listings."""
+        import datetime
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(adzuna_id="a1", fetched_at="2026-01-10T08:00:00Z"),
+                db_path=path,
+            )
+            db.insert_listing(
+                make_listing(adzuna_id="a2", source_id="a2", fetched_at="2026-03-20T14:30:00Z"),
+                db_path=path,
+            )
+            db.insert_listing(
+                make_listing(adzuna_id="a3", source_id="a3", fetched_at="2026-02-05T00:00:00Z"),
+                db_path=path,
+            )
+            result = db.get_last_fetch_time(db_path=path)
+            assert isinstance(result, datetime.datetime)
+            # 2026-03-20 is the latest
+            assert result.month == 3
+            assert result.day == 20
+
+    def test_handles_fetched_at_without_trailing_z(self):
+        """get_last_fetch_time() parses ISO strings that lack a trailing 'Z'."""
+        import datetime
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(fetched_at="2026-06-01T12:00:00"),
+                db_path=path,
+            )
+            result = db.get_last_fetch_time(db_path=path)
+            assert isinstance(result, datetime.datetime)
+            assert result.year == 2026
+            assert result.month == 6
