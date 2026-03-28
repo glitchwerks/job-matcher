@@ -51,8 +51,7 @@ def _make_keys(
 _PATCHES = [
     patch("providers.anthropic_provider.anthropic.Anthropic"),
     patch("providers.openai_provider.openai.OpenAI"),
-    patch("providers.gemini_provider.genai.configure"),
-    patch("providers.gemini_provider.genai.GenerativeModel"),
+    patch("providers.gemini_provider.genai.Client"),
 ]
 
 

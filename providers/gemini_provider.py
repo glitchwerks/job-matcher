@@ -1,7 +1,7 @@
 """
 providers/gemini_provider.py — Google Gemini backend for LLM scoring.
 
-Wraps the ``google-generativeai`` SDK.  Uses the same JSON contract and
+Wraps the ``google-genai`` SDK.  Uses the same JSON contract and
 retry pattern as the other providers so that ``score_listing()`` in
 ``ingest.py`` is provider-agnostic.
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import time
 
-import google.generativeai as genai
+from google import genai
 
 from .base import LLMProvider
 from .anthropic_provider import _parse_json_response
@@ -61,7 +61,7 @@ class GeminiProvider(LLMProvider):
     """
 
     def __init__(self, api_key: str, model: str) -> None:
-        genai.configure(api_key=api_key)
+        self._client = genai.Client(api_key=api_key)
         self._model_name = model
         self._input_cost, self._output_cost = _pricing_for_model(model)
 
@@ -101,8 +101,10 @@ class GeminiProvider(LLMProvider):
                 time.sleep(2)
 
             try:
-                model = genai.GenerativeModel(self._model_name)
-                response = model.generate_content(prompt)
+                response = self._client.models.generate_content(
+                    model=self._model_name,
+                    contents=prompt,
+                )
             except Exception as exc:  # noqa: BLE001 — Gemini raises varied errors
                 logger.warning(
                     "Gemini API error (attempt %d/2): %s", attempt + 1, exc
