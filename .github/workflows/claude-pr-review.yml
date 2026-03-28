@@ -15,13 +15,13 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
-      id-token: write
     steps:
       - uses: actions/checkout@v4
 
       - uses: anthropics/claude-code-action@beta
         with:
-          claude_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           # Runs automatically on PR open/sync; responds to comments on PR threads
           direct_prompt: |
             Review this pull request. Post a comment with:
