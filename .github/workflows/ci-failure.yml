@@ -28,13 +28,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
 
-      - name: Skip if no PR found
-        if: steps.pr.outputs.number == ''
-        run: |
-          echo "No PR found for commit ${{ github.event.workflow_run.head_sha }}, skipping."
-          exit 0
-
       - name: Fetch failed job logs
+        if: steps.pr.outputs.number != ''
         id: logs
         run: |
           LOGS=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs \
@@ -52,6 +47,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Fetch PR diff
+        if: steps.pr.outputs.number != ''
         run: |
           gh api repos/${{ github.repository }}/pulls/${{ steps.pr.outputs.number }}/files \
             --jq '[.[] | {filename: .filename, patch: .patch}]' \
@@ -60,6 +56,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Call Claude for diagnosis
+        if: steps.pr.outputs.number != ''
         id: claude
         run: |
           # Build prompt via Python to avoid YAML indentation issues
@@ -118,6 +115,7 @@ print(data.get('summary', 'CI failure detected'))
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Post diagnosis comment
+        if: steps.pr.outputs.number != ''
         run: |
           python3 << 'PYEOF'
           import json, os, subprocess
