@@ -355,11 +355,10 @@ class TestOpenAIProvider:
 # ---------------------------------------------------------------------------
 
 class TestGeminiProvider:
-    """Tests for GeminiProvider.complete() — google.generativeai SDK is mocked."""
+    """Tests for GeminiProvider.complete() — google.genai SDK is mocked."""
 
     def _make_provider(self) -> GeminiProvider:
-        with patch("providers.gemini_provider.genai.configure"), \
-             patch("providers.gemini_provider.genai.GenerativeModel"):
+        with patch("providers.gemini_provider.genai.Client"):
             return GeminiProvider(api_key="test-key", model="gemini-1.5-flash")
 
     def test_happy_path_returns_parsed_dict(self):
@@ -367,9 +366,8 @@ class TestGeminiProvider:
         provider = self._make_provider()
         fake_resp = _make_gemini_response(json.dumps(_VALID_SCORE_DICT))
 
-        with patch("providers.gemini_provider.genai.GenerativeModel") as MockModel:
-            MockModel.return_value.generate_content.return_value = fake_resp
-            result = provider.complete("test prompt")
+        provider._client.models.generate_content.return_value = fake_resp
+        result = provider.complete("test prompt")
 
         assert result["score"] == 8
         assert result["tokens_input"] == 100
@@ -381,9 +379,8 @@ class TestGeminiProvider:
         fenced = f"```json\n{json.dumps(_VALID_SCORE_DICT)}\n```"
         fake_resp = _make_gemini_response(fenced)
 
-        with patch("providers.gemini_provider.genai.GenerativeModel") as MockModel:
-            MockModel.return_value.generate_content.return_value = fake_resp
-            result = provider.complete("test prompt")
+        provider._client.models.generate_content.return_value = fake_resp
+        result = provider.complete("test prompt")
 
         assert result["score"] == 8
 
@@ -392,9 +389,8 @@ class TestGeminiProvider:
         provider = self._make_provider()
         fake_resp = _make_gemini_response(json.dumps(_VALID_SCORE_DICT))
 
-        with patch("providers.gemini_provider.genai.GenerativeModel") as MockModel, \
-             patch("providers.gemini_provider.time.sleep"):
-            MockModel.return_value.generate_content.side_effect = [
+        with patch("providers.gemini_provider.time.sleep"):
+            provider._client.models.generate_content.side_effect = [
                 RuntimeError("connection reset"),
                 fake_resp,
             ]
@@ -406,9 +402,8 @@ class TestGeminiProvider:
         """complete() raises RuntimeError after two consecutive failures."""
         provider = self._make_provider()
 
-        with patch("providers.gemini_provider.genai.GenerativeModel") as MockModel, \
-             patch("providers.gemini_provider.time.sleep"):
-            MockModel.return_value.generate_content.side_effect = RuntimeError("quota exceeded")
+        with patch("providers.gemini_provider.time.sleep"):
+            provider._client.models.generate_content.side_effect = RuntimeError("quota exceeded")
             with pytest.raises(RuntimeError, match="2 attempts"):
                 provider.complete("test prompt")
 
@@ -456,8 +451,7 @@ class TestMakeProvider:
     def test_gemini_provider_selected(self):
         """make_provider() returns GeminiProvider when provider='gemini'."""
         config = self._base_config("gemini", "gemini-1.5-flash")
-        with patch("providers.gemini_provider.genai.configure"), \
-             patch("providers.gemini_provider.genai.GenerativeModel"):
+        with patch("providers.gemini_provider.genai.Client"):
             provider = make_provider(config)
         assert isinstance(provider, GeminiProvider)
 
@@ -504,7 +498,6 @@ class TestMakeProvider:
             "scoring": {"provider": "gemini", "model": "gemini-1.5-flash"},
         }
         with patch.dict(os.environ, {"GOOGLE_API_KEY": "google-env-key"}), \
-             patch("providers.gemini_provider.genai.configure") as mock_configure, \
-             patch("providers.gemini_provider.genai.GenerativeModel"):
+             patch("providers.gemini_provider.genai.Client") as mock_client:
             make_provider(config)
-        mock_configure.assert_called_once_with(api_key="google-env-key")
+        mock_client.assert_called_once_with(api_key="google-env-key")
