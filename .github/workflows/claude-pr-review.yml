@@ -3,10 +3,6 @@ name: Claude PR Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  issue_comment:
-    types: [created]
-  pull_request_review_comment:
-    types: [created]
 
 jobs:
   review:
@@ -20,7 +16,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          # Runs automatically on PR open/sync; responds to comments on PR threads
+          # Runs automatically on PR open/sync; posts a structured review comment
           direct_prompt: |
             Review this pull request. Post a comment with:
             1. A plain-language summary of what changed.
