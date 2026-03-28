@@ -202,26 +202,56 @@ if (-not (Test-Path -Path $configPath -PathType Leaf)) {
 }
 
 # ---------------------------------------------------------------------------
-# Step 7 - Harden keys.json ACL
+# Step 7 - Harden config file ACLs
 # ---------------------------------------------------------------------------
 Write-Host ''
-Write-Step 'Hardening keys.json permissions...'
+Write-Step 'Hardening config file permissions...'
 
-if (Test-Path -Path $keysPath -PathType Leaf) {
-    # Restrict keys.json to the current user only (removes inherited permissions)
-    $acl = Get-Acl $keysPath
-    $acl.SetAccessRuleProtection($true, $false)   # break inheritance, don't copy existing
+# Helper that applies a two-entry ACL to a file:
+#   - current interactive user: FullControl  (so the admin can edit files directly)
+#   - NT AUTHORITY\SYSTEM:      FullControl  (so the NSSM service can write via /settings)
+# Inheritance is broken so only these two explicit entries apply.
+function Set-ConfigFileAcl {
+    [CmdletBinding()]
+    param([string]$FilePath)
+
+    $acl = Get-Acl $FilePath
+    $acl.SetAccessRuleProtection($true, $false)   # break inheritance, don't copy existing rules
+
+    # Grant the admin who ran setup full control (direct file editing)
     $userRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
         [System.Security.Principal.WindowsIdentity]::GetCurrent().Name,
         'FullControl',
         'Allow'
     )
     $acl.SetAccessRule($userRule)
-    Set-Acl $keysPath $acl
-    Write-Ok 'keys.json permissions restricted to current user'
+
+    # Grant SYSTEM full control so the NSSM service process can write the file
+    # when Flask's /settings route saves updated keys/config
+    $systemRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+        'NT AUTHORITY\SYSTEM',
+        'FullControl',
+        'Allow'
+    )
+    $acl.SetAccessRule($systemRule)
+
+    Set-Acl $FilePath $acl
+}
+
+if (Test-Path -Path $keysPath -PathType Leaf) {
+    Set-ConfigFileAcl -FilePath $keysPath
+    Write-Ok 'keys.json ACL: current user + SYSTEM = FullControl'
 }
 else {
     Write-Host '  keys.json not found - skipping ACL step.' -ForegroundColor Yellow
+}
+
+if (Test-Path -Path $configPath -PathType Leaf) {
+    Set-ConfigFileAcl -FilePath $configPath
+    Write-Ok 'config.json ACL: current user + SYSTEM = FullControl'
+}
+else {
+    Write-Host '  config.json not found - skipping ACL step.' -ForegroundColor Yellow
 }
 
 # ---------------------------------------------------------------------------

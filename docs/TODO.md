@@ -1,5 +1,11 @@
 # Job Matcher — Implementation Plan
 
+## Bug: setup.ps1 ACL locks out SYSTEM service account (#54)
+
+- [x] In `setup.ps1` Step 7, add `NT AUTHORITY\SYSTEM` `FullControl` ACL entry on `keys.json` after the current-user rule
+- [x] Apply same SYSTEM grant to `config.json` in the same step
+- [x] Add explanatory comment in the ACL block
+
 ## Bug: setup.ps1 parse error due to em dashes (#53)
 
 - [x] Replace all em dash characters (`—`) in `setup.ps1` with ASCII ` - ` (PS 5.1 misreads UTF-8 em dash bytes as a closing `"` under non-UTF8 system locale)
