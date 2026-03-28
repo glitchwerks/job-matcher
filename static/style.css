@@ -984,6 +984,28 @@ body {
 }
 
 /* ------------------------------------------------------------
+   Stats page — runtime versions section
+   ------------------------------------------------------------ */
+.stats-section-heading {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin: 32px 0 12px;
+}
+
+.stats-runtime-table {
+  max-width: 360px;
+}
+
+.stats-runtime-table td.stats-version {
+  color: var(--text-accent);
+  font-family: var(--font-mono);
+}
+
+/* ------------------------------------------------------------
    Settings page
    ------------------------------------------------------------ */
 .settings-section-title {

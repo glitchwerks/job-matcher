@@ -195,9 +195,9 @@
 
 ## Feature: Component Version Display (#6)
 
-- [ ] Capture versions of key runtime components at startup (Python, Flask, anthropic, beautifulsoup4, gunicorn)
-- [ ] Expose version data via stats page or footer
-- [ ] Decide display location: stats page sidebar, footer, or dedicated info endpoint
+- [x] Capture versions of key runtime components at startup (Python, Flask, anthropic, beautifulsoup4, waitress)
+- [x] Expose version data via stats page — Runtime section with component/version table
+- [x] Decide display location: stats page (below per-day table and disclaimer)
 
 ## Feature: Last Fetch Time in UI (#7)
 
