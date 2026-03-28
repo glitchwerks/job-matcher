@@ -114,7 +114,15 @@ else {
 }
 
 # ---------------------------------------------------------------------------
-# Step 4 - Optionally remove environment variables
+# Step 4 - Remove Windows Firewall rule
+# ---------------------------------------------------------------------------
+Write-Host ''
+Write-Step "Removing firewall rule: Job Matcher Web UI"
+Remove-NetFirewallRule -DisplayName 'Job Matcher Web UI' -ErrorAction SilentlyContinue
+Write-Ok 'Firewall rule removed (or was not present)'
+
+# ---------------------------------------------------------------------------
+# Step 5 - Optionally remove environment variables
 # ---------------------------------------------------------------------------
 Write-Host ''
 $removeEnv = Read-Host -Prompt 'Remove system environment variables (DB_PATH, API keys, FLASK_DEBUG)? [y/N]'
@@ -137,7 +145,7 @@ else {
 }
 
 # ---------------------------------------------------------------------------
-# Step 5 - Note about data directory
+# Step 6 - Note about data directory
 # ---------------------------------------------------------------------------
 Write-Host ''
 $dbPath = [Environment]::GetEnvironmentVariable('DB_PATH', 'Machine')

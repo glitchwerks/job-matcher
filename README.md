@@ -227,6 +227,7 @@ What it does:
 - Copies `config.example.json` → `config.json` (if absent) — edit it to add Adzuna credentials
 - Registers the `JobMatcher` Windows service (waitress via NSSM) set to auto-start
 - Registers the `JobMatcherIngest` daily Task Scheduler task
+- Opens Windows Firewall inbound TCP port 5000 so the UI is reachable from the network
 
 After the script completes, navigate to `http://localhost:5000/settings` to enter your LLM provider API keys, then edit `config.json` in the project root to add your Adzuna App ID and App Key.
 
@@ -260,6 +261,9 @@ nssm set JobMatcher AppParameters "--host=0.0.0.0 --port=5000 app:app"
 nssm set JobMatcher AppDirectory "C:\Apps\job_matcher"
 nssm set JobMatcher Start SERVICE_AUTO_START
 nssm start JobMatcher
+
+# Allow inbound connections from the network (run as Administrator)
+New-NetFirewallRule -DisplayName "Job Matcher Web UI" -Direction Inbound -Protocol TCP -LocalPort 5000 -Action Allow
 ```
 
 Service management:

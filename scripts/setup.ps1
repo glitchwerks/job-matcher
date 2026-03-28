@@ -352,7 +352,34 @@ catch {
 }
 
 # ---------------------------------------------------------------------------
-# Step 11 - Footer
+# Step 11 - Open Windows Firewall port 5000
+# ---------------------------------------------------------------------------
+Write-Host ''
+Write-Step 'Opening Windows Firewall port 5000...'
+
+$fwRuleName = 'Job Matcher Web UI'
+$existingRule = Get-NetFirewallRule -DisplayName $fwRuleName -ErrorAction SilentlyContinue
+
+if ($existingRule) {
+    Write-Ok "Firewall rule '$fwRuleName' already exists — skipping"
+} else {
+    try {
+        New-NetFirewallRule `
+            -DisplayName $fwRuleName `
+            -Direction   Inbound `
+            -Protocol    TCP `
+            -LocalPort   5000 `
+            -Action      Allow | Out-Null
+        Write-Ok "Firewall rule added: allow inbound TCP 5000"
+    }
+    catch {
+        Write-Fail "Failed to add firewall rule: $_"
+        Write-Host '  Add it manually: New-NetFirewallRule -DisplayName "Job Matcher Web UI" -Direction Inbound -Protocol TCP -LocalPort 5000 -Action Allow' -ForegroundColor Yellow
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Step 12 - Footer
 # ---------------------------------------------------------------------------
 Write-Host ''
 Write-Banner 'Setup Complete'
