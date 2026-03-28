@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Matcher · Config Editor</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="page-wrap">
+
+  {# ── Header ─────────────────────────────────────────────────── #}
+  <header class="site-header">
+    <span class="site-logo">job<span>_</span>matcher</span>
+    <nav class="site-nav">
+      <a href="/"
+         class="nav-tab{% if view == 'feed' %} active{% endif %}">feed</a>
+      <a href="/bookmarks"
+         class="nav-tab{% if view == 'bookmarks' %} active{% endif %}">bookmarks</a>
+      <a href="/applied"
+         class="nav-tab{% if view == 'applied' %} active{% endif %}">applied</a>
+      <a href="/stats"
+         class="nav-tab{% if view == 'stats' %} active{% endif %}">stats</a>
+      <a href="/settings"
+         class="nav-tab{% if view == 'settings' %} active{% endif %}">settings</a>
+    </nav>
+  </header>
+
+  {# ── Breadcrumb ────────────────────────────────────────────── #}
+  <div class="feed-meta">
+    <a href="/settings">Settings</a> &rsaquo; Config Editor
+  </div>
+
+  {# ── Success notice ───────────────────────────────────────────── #}
+  {% if saved %}
+    <p class="save-notice">config.json saved.</p>
+  {% endif %}
+
+  {# ── Error notice ─────────────────────────────────────────────── #}
+  {% if error %}
+    <p class="save-error">{{ error }}</p>
+  {% endif %}
+
+  {# ── Editor form ──────────────────────────────────────────────── #}
+  <form class="settings-form" method="post" action="/settings/config">
+
+    <h2 class="settings-section-title">config.json</h2>
+
+    <p class="settings-label">
+      Edit the raw JSON below. Sensitive fields (app IDs, app keys, API keys) are
+      shown as <code>***</code> and will not be overwritten if left unchanged.
+    </p>
+
+    <textarea
+      id="config_json"
+      name="config_json"
+      class="settings-input"
+      rows="30"
+      spellcheck="false"
+      autocomplete="off"
+      style="font-family: var(--font-mono); resize: vertical; white-space: pre;">{{ config_json }}</textarea>
+
+    <button type="submit" class="btn btn-save">Save</button>
+
+  </form>
+
+</div>
+</body>
+</html>

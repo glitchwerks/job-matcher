@@ -387,6 +387,197 @@ class TestSettingsAdzuna:
 
 
 # ---------------------------------------------------------------------------
+# GET /settings/config (#21)
+# ---------------------------------------------------------------------------
+
+class TestSettingsConfigGet:
+    """Tests for the GET /settings/config route."""
+
+    def test_returns_200(self, client, tmp_config_path):
+        resp = client.get("/settings/config")
+        assert resp.status_code == 200
+
+    def test_renders_textarea_with_json(self, client, tmp_config_path):
+        with open(tmp_config_path, "w") as f:
+            json.dump({"scoring": {"threshold": 7.5}}, f)
+
+        resp = client.get("/settings/config")
+        body = resp.data.decode()
+        assert "<textarea" in body
+        assert "7.5" in body
+
+    def test_masks_app_id_field(self, client, tmp_config_path):
+        with open(tmp_config_path, "w") as f:
+            json.dump({"adzuna_app_id": "real-id-secret", "adzuna_app_key": "real-key-secret"}, f)
+
+        resp = client.get("/settings/config")
+        body = resp.data.decode()
+        assert "real-id-secret" not in body
+        assert "real-key-secret" not in body
+        assert "***" in body
+
+    def test_masks_api_key_field(self, client, tmp_config_path):
+        with open(tmp_config_path, "w") as f:
+            json.dump({"some_api_key": "super-secret-api-key"}, f)
+
+        resp = client.get("/settings/config")
+        body = resp.data.decode()
+        assert "super-secret-api-key" not in body
+        assert "***" in body
+
+    def test_non_sensitive_fields_are_visible(self, client, tmp_config_path):
+        with open(tmp_config_path, "w") as f:
+            json.dump({"scoring": {"threshold": 8.0}, "adzuna_app_id": "secret"}, f)
+
+        resp = client.get("/settings/config")
+        body = resp.data.decode()
+        assert "8.0" in body
+
+    def test_settings_config_link_on_settings_page(self, client, tmp_keys_path, tmp_config_path):
+        """The /settings page must contain a link to /settings/config."""
+        resp = client.get("/settings")
+        body = resp.data.decode()
+        assert "/settings/config" in body
+
+    def test_works_when_config_absent(self, client, tmp_config_path):
+        """GET should still return 200 even when config.json does not exist."""
+        assert not os.path.exists(tmp_config_path)
+        resp = client.get("/settings/config")
+        assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# POST /settings/config (#21)
+# ---------------------------------------------------------------------------
+
+class TestSettingsConfigPost:
+    """Tests for the POST /settings/config route."""
+
+    def test_valid_json_updates_file(self, client, tmp_config_path):
+        original = {"scoring": {"threshold": 7.0}, "adzuna_app_id": "orig-id"}
+        with open(tmp_config_path, "w") as f:
+            json.dump(original, f)
+
+        new_config = json.dumps({"scoring": {"threshold": 9.0}, "adzuna_app_id": "orig-id"})
+        resp = client.post("/settings/config", data={"config_json": new_config})
+        assert resp.status_code == 200
+
+        with open(tmp_config_path) as f:
+            saved = json.load(f)
+        assert saved["scoring"]["threshold"] == 9.0
+
+    def test_valid_save_shows_success_notice(self, client, tmp_config_path):
+        resp = client.post(
+            "/settings/config",
+            data={"config_json": json.dumps({"scoring": {"threshold": 7.0}})},
+        )
+        body = resp.data.decode()
+        assert "saved" in body.lower()
+
+    def test_invalid_json_returns_400(self, client, tmp_config_path):
+        resp = client.post("/settings/config", data={"config_json": "not valid json {{{"})
+        assert resp.status_code == 400
+
+    def test_invalid_json_shows_error_message(self, client, tmp_config_path):
+        resp = client.post("/settings/config", data={"config_json": "not valid json {{{"})
+        body = resp.data.decode()
+        assert "Invalid JSON" in body
+
+    def test_invalid_json_leaves_file_unchanged(self, client, tmp_config_path):
+        original = {"scoring": {"threshold": 7.0}}
+        with open(tmp_config_path, "w") as f:
+            json.dump(original, f)
+
+        client.post("/settings/config", data={"config_json": "not valid json {{{"})
+
+        with open(tmp_config_path) as f:
+            after = json.load(f)
+        assert after == original
+
+    def test_masked_sentinel_not_written_to_disk(self, client, tmp_config_path):
+        """If a sensitive field still contains '***', the original value is preserved."""
+        original = {"adzuna_app_id": "keep-this-id", "adzuna_app_key": "keep-this-key"}
+        with open(tmp_config_path, "w") as f:
+            json.dump(original, f)
+
+        # Submit with the masked sentinel values (as the browser would receive them).
+        masked_submission = json.dumps({"adzuna_app_id": "***", "adzuna_app_key": "***"})
+        resp = client.post("/settings/config", data={"config_json": masked_submission})
+        assert resp.status_code == 200
+
+        with open(tmp_config_path) as f:
+            saved = json.load(f)
+        assert saved["adzuna_app_id"] == "keep-this-id"
+        assert saved["adzuna_app_key"] == "keep-this-key"
+
+    def test_response_never_contains_real_sensitive_values(self, client, tmp_config_path):
+        """After a successful POST the response must not echo raw sensitive values."""
+        original = {"adzuna_app_id": "do-not-echo-me"}
+        with open(tmp_config_path, "w") as f:
+            json.dump(original, f)
+
+        resp = client.post(
+            "/settings/config",
+            data={"config_json": json.dumps({"adzuna_app_id": "do-not-echo-me"})},
+        )
+        body = resp.data.decode()
+        assert "do-not-echo-me" not in body
+
+
+# ---------------------------------------------------------------------------
+# _mask_config_keys helper — unit tests (#21)
+# ---------------------------------------------------------------------------
+
+class TestMaskConfigKeys:
+    """Unit tests for the _mask_config_keys helper."""
+
+    def test_masks_app_id(self):
+        data = {"adzuna_app_id": "real-id"}
+        result = app_module._mask_config_keys(data)
+        assert result["adzuna_app_id"] == "***"
+
+    def test_masks_app_key(self):
+        data = {"adzuna_app_key": "real-key"}
+        result = app_module._mask_config_keys(data)
+        assert result["adzuna_app_key"] == "***"
+
+    def test_masks_api_key(self):
+        data = {"some_api_key": "sk-secret"}
+        result = app_module._mask_config_keys(data)
+        assert result["some_api_key"] == "***"
+
+    def test_case_insensitive_matching(self):
+        data = {"ADZUNA_APP_ID": "id-value", "My_API_Key": "key-value"}
+        result = app_module._mask_config_keys(data)
+        assert result["ADZUNA_APP_ID"] == "***"
+        assert result["My_API_Key"] == "***"
+
+    def test_non_sensitive_keys_unchanged(self):
+        data = {"scoring": {"threshold": 7.0}, "country": "us"}
+        result = app_module._mask_config_keys(data)
+        assert result["scoring"]["threshold"] == 7.0
+        assert result["country"] == "us"
+
+    def test_recursive_masking_in_nested_dict(self):
+        data = {"providers": {"anthropic": {"anthropic_api_key": "sk-secret", "model": "claude"}}}
+        result = app_module._mask_config_keys(data)
+        assert result["providers"]["anthropic"]["anthropic_api_key"] == "***"
+        assert result["providers"]["anthropic"]["model"] == "claude"
+
+    def test_does_not_mutate_original(self):
+        data = {"adzuna_app_id": "original"}
+        result = app_module._mask_config_keys(data)
+        assert data["adzuna_app_id"] == "original"
+        assert result["adzuna_app_id"] == "***"
+
+    def test_list_values_preserved(self):
+        data = {"title_exclude": ["junior", "intern"], "adzuna_app_id": "secret"}
+        result = app_module._mask_config_keys(data)
+        assert result["title_exclude"] == ["junior", "intern"]
+        assert result["adzuna_app_id"] == "***"
+
+
+# ---------------------------------------------------------------------------
 # _load_keys helper — unit tests
 # ---------------------------------------------------------------------------
 

@@ -361,6 +361,36 @@ def dismiss(listing_id: int):
     return make_response("", 200)
 
 
+def _mask_config_keys(data: dict) -> dict:
+    """Return a deep copy of *data* with sensitive key values replaced by '***'.
+
+    Any key whose name (lowercased) ends in ``_api_key``, ``_app_key``, or
+    ``_app_id`` is considered sensitive.  The walk is recursive so nested dicts
+    (e.g. ``search`` or ``prefilter`` sub-objects) are handled too.
+
+    The original dict is never mutated — callers always receive a fresh copy.
+    This is display-only: the masked value is never written back to disk.
+    """
+    import copy
+
+    _SENSITIVE_SUFFIXES = ("_api_key", "_app_key", "_app_id")
+
+    def _walk(obj):
+        if isinstance(obj, dict):
+            result = {}
+            for k, v in obj.items():
+                if isinstance(k, str) and k.lower().endswith(_SENSITIVE_SUFFIXES):
+                    result[k] = "***"
+                else:
+                    result[k] = _walk(v)
+            return result
+        if isinstance(obj, list):
+            return [_walk(item) for item in obj]
+        return copy.deepcopy(obj)
+
+    return _walk(data)
+
+
 def _load_keys() -> dict:
     """Load keys.json if it exists, otherwise return a copy of the defaults.
 
@@ -472,6 +502,83 @@ def settings():
         has_adzuna_id=has_adzuna_id,
         has_adzuna_key=has_adzuna_key,
     )
+
+
+@app.route("/settings/config", methods=["GET", "POST"])
+def settings_config():
+    """Config editor page — view and edit config.json via the browser.
+
+    GET:  Reads config.json, masks any sensitive key fields (``*_api_key``,
+          ``*_app_key``, ``*_app_id``), pretty-prints the result as JSON, and
+          renders it in a ``<textarea>`` for editing.
+
+    POST: Validates the submitted JSON. If parsing fails, returns a 400 with an
+          inline error and leaves config.json untouched. If the JSON is valid,
+          overwrites config.json and shows a success notice. Masked values
+          (``"***"``) are never written back to disk — if the submitted JSON
+          still contains ``"***"`` for a sensitive field, the original value
+          from the current config is preserved.
+    """
+    saved = False
+    error = None
+    status_code = 200
+
+    if request.method == "POST":
+        raw = request.form.get("config_json", "")
+        try:
+            submitted = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            error = f"Invalid JSON: {exc}"
+            status_code = 400
+            submitted = None
+
+        if submitted is not None:
+            # Merge: if a sensitive field still holds the masked sentinel,
+            # preserve the original value so we never overwrite with "***".
+            existing = load_config(_CONFIG_PATH)
+            _SENSITIVE_SUFFIXES = ("_api_key", "_app_key", "_app_id")
+
+            def _restore_masked(new_obj, orig_obj):
+                """Recursively replace '***' sentinel values with originals."""
+                if not isinstance(new_obj, dict):
+                    return new_obj
+                result = {}
+                for k, v in new_obj.items():
+                    if (
+                        isinstance(k, str)
+                        and k.lower().endswith(_SENSITIVE_SUFFIXES)
+                        and v == "***"
+                        and isinstance(orig_obj, dict)
+                        and k in orig_obj
+                    ):
+                        result[k] = orig_obj[k]
+                    elif isinstance(v, dict):
+                        result[k] = _restore_masked(v, orig_obj.get(k, {}) if isinstance(orig_obj, dict) else {})
+                    else:
+                        result[k] = v
+                return result
+
+            to_write = _restore_masked(submitted, existing)
+
+            try:
+                with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
+                    json.dump(to_write, f, indent=2)
+                saved = True
+            except OSError:
+                error = "Could not save config — check file permissions."
+
+    # Always re-read from disk (after write or on GET) for the textarea.
+    cfg_display = load_config(_CONFIG_PATH)
+    masked = _mask_config_keys(cfg_display)
+    config_json_str = json.dumps(masked, indent=2)
+
+    return render_template(
+        "settings_config.html",
+        view="settings",
+        config_json=config_json_str,
+        saved=saved,
+        error=error,
+    ), status_code
 
 
 # ---------------------------------------------------------------------------
