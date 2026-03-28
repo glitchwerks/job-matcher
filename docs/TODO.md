@@ -1,5 +1,26 @@
 # Job Matcher — Implementation Plan
 
+## Bug: setup.ps1 parse error due to em dashes (#53)
+
+- [x] Replace all em dash characters (`—`) in `setup.ps1` with ASCII ` - ` (PS 5.1 misreads UTF-8 em dash bytes as a closing `"` under non-UTF8 system locale)
+- [x] Verify `ParseFile` reports 0 errors after fix
+
+## Bug: Open Windows Firewall port 5000 in setup.ps1 (#51)
+
+- [ ] Add inbound TCP allow rule for port 5000 to `setup.ps1` (idempotent — skip if rule already exists)
+- [ ] Add firewall rule removal to `teardown.ps1`
+- [ ] Update `README.md` native deployment section to mention the firewall rule
+
+## Bug: Replace gunicorn with Waitress (#49)
+
+- [ ] Swap `gunicorn` for `waitress` in `requirements.txt`
+- [ ] Update `scripts/setup.ps1` NSSM registration to invoke `waitress-serve` instead of `gunicorn.exe`
+- [ ] Update `scripts/status.ps1` — replace any gunicorn service/process references
+- [ ] Update `scripts/teardown.ps1` — replace any gunicorn references
+- [ ] Update `README.md` — replace gunicorn command examples with waitress-serve
+- [ ] Update `CLAUDE.md` — replace gunicorn references in deployment section
+- [ ] Check `.github/workflows/deploy.yml` for gunicorn references
+
 ## Phase 1: Foundation
 
 - [x] Create `requirements.txt` with `flask`, `requests`, `beautifulsoup4`, `anthropic`
@@ -187,6 +208,17 @@
 - [x] Implement Gemini adapter (gemini-1.5-flash / gemini-1.5-pro)
 - [x] Instantiate correct client in `run()` / `rescore()` based on config provider value
 - [x] Add provider-specific API key fields to `config.example.json`
+
+## Chore: Simplify setup.ps1 — defer config to Settings UI (#43)
+
+- [ ] Remove `Read-Host` prompts for `adzunaAppId` and `adzunaAppKey` from `setup.ps1`
+- [ ] Remove the `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` system env var set step from `setup.ps1` (no longer prompted)
+- [ ] Keep `dataDir` and `ingestTime` prompts (infrastructure, not credentials)
+- [ ] Write skeleton `config.json` from `config.example.json` if absent (so app starts without crashing)
+- [ ] Keep skeleton `keys.json` copy from `keys.example.json` + ACL hardening (already present)
+- [ ] Add setup completion banner to `app.py` / `index.html` — warn when Adzuna credentials are missing from `config.json`, linking to `/settings` and instructions to edit `config.json`
+- [ ] Update `setup.ps1` footer and inline comments to reflect new flow: run script → open browser → finish config
+- [ ] Update `README.md` native deployment section to match new flow
 
 ## Feature: Claude CI Auto-Diagnosis (#25)
 

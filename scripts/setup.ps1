@@ -170,15 +170,15 @@ $keysExamplePath = Join-Path -Path $ProjectRoot -ChildPath 'keys.example.json'
 if (-not (Test-Path -Path $keysPath -PathType Leaf)) {
     if (Test-Path -Path $keysExamplePath -PathType Leaf) {
         Copy-Item -Path $keysExamplePath -Destination $keysPath
-        Write-Ok 'keys.json created from example — configure API keys at http://localhost:5000/settings'
+        Write-Ok 'keys.json created from example - configure API keys at http://localhost:5000/settings'
     }
     else {
-        Write-Host '  keys.example.json not found — skipping keys.json creation.' -ForegroundColor Yellow
+        Write-Host '  keys.example.json not found - skipping keys.json creation.' -ForegroundColor Yellow
         Write-Host '  Create keys.json manually in the project root before starting the service.' -ForegroundColor Yellow
     }
 }
 else {
-    Write-Ok 'keys.json already present — skipping'
+    Write-Ok 'keys.json already present - skipping'
 }
 
 # ---------------------------------------------------------------------------
@@ -193,12 +193,12 @@ $configExamplePath = Join-Path -Path $ProjectRoot -ChildPath 'config.example.jso
 if (-not (Test-Path -Path $configPath -PathType Leaf)) {
     if (Test-Path -Path $configExamplePath -PathType Leaf) {
         Copy-Item -Path $configExamplePath -Destination $configPath
-        Write-Ok 'config.json created from example — edit it at http://localhost:5000/settings or directly in the project root'
+        Write-Ok 'config.json created from example - edit it at http://localhost:5000/settings or directly in the project root'
     } else {
-        Write-Host '  config.example.json not found — skipping config.json creation.' -ForegroundColor Yellow
+        Write-Host '  config.example.json not found - skipping config.json creation.' -ForegroundColor Yellow
     }
 } else {
-    Write-Ok 'config.json already present — skipping'
+    Write-Ok 'config.json already present - skipping'
 }
 
 # ---------------------------------------------------------------------------
@@ -221,7 +221,7 @@ if (Test-Path -Path $keysPath -PathType Leaf) {
     Write-Ok 'keys.json permissions restricted to current user'
 }
 else {
-    Write-Host '  keys.json not found — skipping ACL step.' -ForegroundColor Yellow
+    Write-Host '  keys.json not found - skipping ACL step.' -ForegroundColor Yellow
 }
 
 # ---------------------------------------------------------------------------
@@ -361,7 +361,7 @@ $fwRuleName = 'Job Matcher Web UI'
 $existingRule = Get-NetFirewallRule -DisplayName $fwRuleName -ErrorAction SilentlyContinue
 
 if ($existingRule) {
-    Write-Ok "Firewall rule '$fwRuleName' already exists — skipping"
+    Write-Ok "Firewall rule '$fwRuleName' already exists - skipping"
 } else {
     try {
         New-NetFirewallRule `
