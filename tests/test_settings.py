@@ -45,11 +45,11 @@ class TestSettingsGetNoFile:
         resp = client.get("/settings")
         assert resp.status_code == 200
 
-    def test_shows_not_set_for_all_providers(self, client, tmp_keys_path):
+    def test_shows_not_set_for_all_providers(self, client, tmp_keys_path, tmp_config_path):
         resp = client.get("/settings")
         body = resp.data.decode()
-        # All three providers should show "not set"
-        assert body.count("not-set") == 3
+        # All three LLM providers + 2 Adzuna fields should show "not set"
+        assert body.count("not-set") == 5
 
     def test_never_exposes_key_values(self, client, tmp_keys_path):
         """GET must not render any actual API key string even if the file exists."""
@@ -107,12 +107,12 @@ class TestSettingsGetWithFile:
         body = resp.data.decode()
         assert "configured" in body
 
-    def test_not_set_badge_shown_for_empty_key(self, client, tmp_keys_path):
+    def test_not_set_badge_shown_for_empty_key(self, client, tmp_keys_path, tmp_config_path):
         self._write_keys(tmp_keys_path, openai_key="")
         resp = client.get("/settings")
         body = resp.data.decode()
-        # openai and gemini are both empty — two not-set badges
-        assert body.count("not-set") == 2
+        # openai and gemini LLM fields + 2 Adzuna fields (also empty by default) — four not-set badges
+        assert body.count("not-set") == 4
 
     def test_no_key_values_in_response(self, client, tmp_keys_path):
         self._write_keys(tmp_keys_path, anthropic_key="sk-real")
