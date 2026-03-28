@@ -62,29 +62,36 @@ jobs:
       - name: Call Claude for diagnosis
         id: claude
         run: |
-          LOGS=$(cat /tmp/ci_logs.txt | head -c 4000)
-          DIFF=$(cat /tmp/pr_diff.json)
-          CLAUDE_MD=$(cat CLAUDE.md 2>/dev/null | head -c 2000 || echo "No CLAUDE.md found")
+          # Build prompt via Python to avoid YAML indentation issues
+          python3 << 'PYEOF'
+          import os, json
+          logs   = open('/tmp/ci_logs.txt').read()[:4000]
+          diff   = open('/tmp/pr_diff.json').read()
+          claude = open('CLAUDE.md').read()[:2000] if os.path.exists('CLAUDE.md') else 'No CLAUDE.md found'
 
-          PROMPT="You are a CI debugging assistant. A GitHub Actions CI run has failed on a pull request. Analyse the failure and suggest a minimal fix.
+          prompt = f"""You are a CI debugging assistant. A GitHub Actions CI run has failed on a pull request. Analyse the failure and suggest a minimal fix.
 
 PROJECT CONTEXT (CLAUDE.md):
-$CLAUDE_MD
+{claude}
 
 FAILED CI LOGS:
-$LOGS
+{logs}
 
 PR DIFF (changed files):
-$DIFF
+{diff}
 
 Respond with a JSON object with exactly these keys:
-- \"summary\": one sentence describing what failed
-- \"root_cause\": 2-3 sentences explaining why it failed
-- \"fix_description\": one sentence describing the fix
-- \"fix_diff\": a unified diff string showing the minimal code change needed (empty string if no code change needed)
-- \"confidence\": \"high\", \"medium\", or \"low\"
+- "summary": one sentence describing what failed
+- "root_cause": 2-3 sentences explaining why it failed
+- "fix_description": one sentence describing the fix
+- "fix_diff": a unified diff string showing the minimal code change needed (empty string if no code change needed)
+- "confidence": "high", "medium", or "low"
 
-Respond with raw JSON only, no markdown fences."
+Respond with raw JSON only, no markdown fences."""
+
+          with open('/tmp/prompt.txt', 'w') as f:
+              f.write(prompt)
+          PYEOF
 
           RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
             -H "x-api-key: $ANTHROPIC_API_KEY" \
@@ -93,7 +100,7 @@ Respond with raw JSON only, no markdown fences."
             -d "{
               \"model\": \"claude-haiku-4-5-20251001\",
               \"max_tokens\": 1024,
-              \"messages\": [{\"role\": \"user\", \"content\": $(echo "$PROMPT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}]
+              \"messages\": [{\"role\": \"user\", \"content\": $(python3 -c 'import json,sys; print(json.dumps(open("/tmp/prompt.txt").read()))')}]
             }")
 
           echo "$RESPONSE" > /tmp/claude_response.json
