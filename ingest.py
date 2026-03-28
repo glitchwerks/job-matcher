@@ -354,6 +354,7 @@ class AdzunaClient:
             "description": raw.get("description", "") or "",
             "redirect_url": raw.get("redirect_url", "") or "",
             "created_at": raw.get("created", "") or "",
+            "posted_at": raw.get("created") or None,
         }
 
     def pages(self) -> Iterator[list[dict]]:

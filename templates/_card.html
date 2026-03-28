@@ -114,6 +114,16 @@
       <p class="verdict">{{ listing.verdict }}</p>
     {% endif %}
 
+    {# ── Posted date ─────────────────────────────────────────────── #}
+    <p class="posted-date">
+      {%- set posted_dt = listing.posted_at | parse_iso -%}
+      {%- if posted_dt is not none -%}
+        Posted {{ posted_dt | timeago }}
+      {%- else -%}
+        Posted: Unknown
+      {%- endif -%}
+    </p>
+
     {# ── Action row ──────────────────────────────────────────────── #}
     <div class="card-divider"></div>
     {% include "_actions.html" %}

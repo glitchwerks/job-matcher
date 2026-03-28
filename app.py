@@ -177,6 +177,21 @@ def salary_fmt(listing: dict) -> str | None:
     return f"{prefix}{fmt_k(hi)}"
 
 
+@app.template_filter("parse_iso")
+def parse_iso(value: str | None) -> datetime | None:
+    """Parse an ISO 8601 string (with or without trailing 'Z') into a datetime.
+
+    Returns None when ``value`` is None, empty, or cannot be parsed so that
+    downstream filters (e.g. ``timeago``) can handle the None case gracefully.
+    """
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.rstrip("Z"))
+    except (ValueError, AttributeError):
+        return None
+
+
 @app.template_filter("timeago")
 def timeago(dt: datetime | None) -> str:
     """Return a human-readable relative time string for a datetime, e.g. '3 hours ago'.
@@ -245,6 +260,7 @@ def feed():
     remote_only = request.args.get("remote_only") == "1"
     search = request.args.get("search", "").strip() or None
     job_type = request.args.get("job_type", "").strip() or None
+    sort = request.args.get("sort", "").strip() or None
 
     listings = db.get_feed(
         threshold=threshold,
@@ -252,6 +268,7 @@ def feed():
         remote_only=remote_only,
         search=search,
         job_type=job_type,
+        sort=sort,
         db_path=DB_PATH,
     )
     job_types = db.get_job_types(db_path=DB_PATH)
@@ -266,6 +283,7 @@ def feed():
         search=search,
         job_type=job_type,
         job_types=job_types,
+        sort=sort,
         last_fetch_time=last_fetch_time,
         config_warnings=_config_warnings(),
     )

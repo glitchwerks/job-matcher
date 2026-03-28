@@ -45,6 +45,7 @@ def make_listing(
     model_used: str | None = None,
     source: str = "adzuna",
     source_id: str | None = None,
+    posted_at: str | None = None,
 ) -> dict:
     """Return a complete listing dict suitable for db.insert_listing().
 
@@ -78,6 +79,7 @@ def make_listing(
         "applied": applied,
         "job_type": job_type,
         "model_used": model_used,
+        "posted_at": posted_at,
     }
 
 
@@ -782,3 +784,142 @@ class TestGetLastFetchTime:
             assert isinstance(result, datetime.datetime)
             assert result.year == 2026
             assert result.month == 6
+
+
+# ---------------------------------------------------------------------------
+# posted_at column — migration, storage, and sort
+# ---------------------------------------------------------------------------
+
+class TestPostedAt:
+    def test_column_exists_in_schema(self):
+        """init_db() creates the posted_at column (verifiable via PRAGMA)."""
+        with TempDB() as path:
+            conn = db.get_connection(path)
+            try:
+                cols = conn.execute("PRAGMA table_info(listings)").fetchall()
+                col_names = [c["name"] for c in cols]
+                assert "posted_at" in col_names
+            finally:
+                conn.close()
+
+    def test_posted_at_stored_and_retrieved(self):
+        """posted_at set on insert is present in the row returned by get_feed()."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(adzuna_id="pa-001", score=8.0, posted_at="2026-03-01T09:00:00Z"),
+                db_path=path,
+            )
+            feed = db.get_feed(threshold=7.0, db_path=path)
+            row = next(r for r in feed if r["adzuna_id"] == "pa-001")
+            assert row["posted_at"] == "2026-03-01T09:00:00Z"
+
+    def test_posted_at_null_when_not_supplied(self):
+        """When posted_at is not in the listing dict, it is stored as NULL."""
+        with TempDB() as path:
+            listing = make_listing(adzuna_id="pa-002", score=8.0)
+            # Ensure the key is absent (not just None) to test the setdefault path.
+            listing.pop("posted_at", None)
+            db.insert_listing(listing, db_path=path)
+            conn = db.get_connection(path)
+            try:
+                row = conn.execute(
+                    "SELECT posted_at FROM listings WHERE adzuna_id = 'pa-002'"
+                ).fetchone()
+                assert row["posted_at"] is None
+            finally:
+                conn.close()
+
+    def test_sort_date_posted_orders_newest_first(self):
+        """get_feed(sort='date_posted') returns listings ordered by posted_at DESC."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(adzuna_id="pa-old", score=9.0, posted_at="2026-01-01T00:00:00Z"),
+                db_path=path,
+            )
+            db.insert_listing(
+                make_listing(adzuna_id="pa-new", score=7.0, source_id="pa-new",
+                             posted_at="2026-03-20T00:00:00Z"),
+                db_path=path,
+            )
+            db.insert_listing(
+                make_listing(adzuna_id="pa-mid", score=8.0, source_id="pa-mid",
+                             posted_at="2026-02-15T00:00:00Z"),
+                db_path=path,
+            )
+            results = db.get_feed(threshold=7.0, sort="date_posted", db_path=path)
+            ids = [r["adzuna_id"] for r in results]
+            assert ids == ["pa-new", "pa-mid", "pa-old"]
+
+    def test_sort_default_still_orders_by_score(self):
+        """get_feed() without sort param still orders by score DESC."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(adzuna_id="sc-low", score=7.5, posted_at="2026-03-25T00:00:00Z"),
+                db_path=path,
+            )
+            db.insert_listing(
+                make_listing(adzuna_id="sc-high", score=9.5, source_id="sc-high",
+                             posted_at="2026-01-01T00:00:00Z"),
+                db_path=path,
+            )
+            results = db.get_feed(threshold=7.0, db_path=path)
+            ids = [r["adzuna_id"] for r in results]
+            # sc-high has the higher score so should appear first despite older posted_at
+            assert ids[0] == "sc-high"
+
+    def test_migration_adds_posted_at_to_existing_db(self):
+        """init_db() adds posted_at to a database that was created without it."""
+        with TempDB() as path:
+            # Simulate a pre-migration database by dropping the column via table rename.
+            conn = db.get_connection(path)
+            try:
+                conn.execute("ALTER TABLE listings RENAME TO listings_old")
+                conn.execute("""
+                    CREATE TABLE listings (
+                        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                        adzuna_id TEXT UNIQUE NOT NULL,
+                        title     TEXT,
+                        score     REAL,
+                        seen      INTEGER DEFAULT 0
+                    )
+                """)
+                conn.execute(
+                    "INSERT INTO listings (adzuna_id, title, score, seen) "
+                    "SELECT adzuna_id, title, score, seen FROM listings_old"
+                )
+                conn.execute("DROP TABLE listings_old")
+                conn.commit()
+            finally:
+                conn.close()
+
+            db.init_db(path)
+
+            conn = db.get_connection(path)
+            try:
+                cols = conn.execute("PRAGMA table_info(listings)").fetchall()
+                col_names = [c["name"] for c in cols]
+                assert "posted_at" in col_names
+            finally:
+                conn.close()
+
+    def test_null_posted_at_does_not_crash_sort(self):
+        """get_feed(sort='date_posted') works even when some rows have NULL posted_at.
+
+        SQLite sorts NULLs before non-NULL values in ASC order (i.e. last in DESC).
+        The important thing is no exception is raised and non-NULL rows sort first.
+        """
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(adzuna_id="null-pa", score=8.0, posted_at=None),
+                db_path=path,
+            )
+            db.insert_listing(
+                make_listing(adzuna_id="real-pa", score=7.5, source_id="real-pa",
+                             posted_at="2026-03-01T00:00:00Z"),
+                db_path=path,
+            )
+            results = db.get_feed(threshold=7.0, sort="date_posted", db_path=path)
+            ids = [r["adzuna_id"] for r in results]
+            # real-pa has a non-NULL posted_at so should sort first (DESC puts NULLs last)
+            assert ids[0] == "real-pa"
+            assert "null-pa" in ids

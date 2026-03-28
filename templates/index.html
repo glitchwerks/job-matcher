@@ -34,7 +34,7 @@
       <strong>{{ listings | length }}</strong>
       {%- if listings | length == 1 %} role{% else %} roles{% endif %}
       &nbsp;·&nbsp;
-      scored {{ (min_score if min_score is not none else threshold) | round(1) }}+ &nbsp;·&nbsp; sorted by match
+      scored {{ (min_score if min_score is not none else threshold) | round(1) }}+ &nbsp;·&nbsp; sorted by {% if sort == 'date_posted' %}date posted{% else %}match{% endif %}
       {%- if last_fetch_time is not none %}
         &nbsp;·&nbsp; <span class="last-fetch">last updated {{ last_fetch_time | timeago }}</span>
       {%- endif %}
@@ -76,6 +76,11 @@
         <option value="9" {% if min_score == 9.0 %}selected{% endif %}>9+</option>
       </select>
 
+      <select name="sort" class="filter-select">
+        <option value="" {% if not sort %}selected{% endif %}>Sort: score</option>
+        <option value="date_posted" {% if sort == 'date_posted' %}selected{% endif %}>Sort: date posted</option>
+      </select>
+
       {% if job_types %}
       <select name="job_type" class="filter-select">
         <option value="">Role: all</option>
@@ -95,7 +100,7 @@
       </label>
 
       <button type="submit" class="btn filter-btn">Filter</button>
-      {% if search or min_score or remote_only or job_type %}
+      {% if search or min_score or remote_only or job_type or sort %}
         <a href="/" class="filter-clear">Clear</a>
       {% endif %}
     </form>

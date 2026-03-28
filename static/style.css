@@ -394,6 +394,13 @@ body {
   border-left: 2px solid var(--border-mid);
 }
 
+/* Posted date — muted metadata line below the verdict */
+.posted-date {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 4px 0 10px;
+}
+
 /* Divider above actions */
 .card-divider {
   height: 1px;
