@@ -218,6 +218,17 @@ def test_contract_time_null_config_skips_check():
     assert prefilter(listing, config) is None
 
 
+def test_contract_time_empty_passes_when_filter_set():
+    """Listing with empty contract_time passes even when require_contract_time is set.
+
+    Empty means the field is unknown (many job sources don't populate it); it
+    should never be rejected as a mismatch.
+    """
+    listing = make_listing(contract_time="")
+    config = make_config(require_contract_time="full_time")
+    assert prefilter(listing, config) is None
+
+
 # ---------------------------------------------------------------------------
 # All filters disabled
 # ---------------------------------------------------------------------------

@@ -289,7 +289,7 @@ def prefilter(listing: dict, config: dict) -> str | None:
     require_time: str | None = pf.get("require_contract_time")
     if require_time is not None:
         actual_time = listing.get("contract_time", "")
-        if actual_time.lower() != require_time.lower():
+        if actual_time and actual_time.lower() != require_time.lower():
             return f'contract_time: got "{actual_time}" expected "{require_time}"'
 
     # Contract type.
