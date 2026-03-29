@@ -1,4 +1,4 @@
-name: Claude PR Review
+name: PR Review
 
 on:
   pull_request:
@@ -6,22 +6,6 @@ on:
 
 jobs:
   review:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: anthropics/claude-code-action@beta
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          # Runs automatically on PR open/sync; posts a structured review comment
-          direct_prompt: |
-            Review this pull request. Post a comment with:
-            1. A plain-language summary of what changed.
-            2. Any bugs, edge cases, or regressions you spot.
-            3. Suggestions for improvement (style, performance, maintainability).
-            4. An overall verdict: approve, needs changes, or neutral.
-            Keep the tone constructive and concise.
+    uses: cbeaulieu-gt/github-actions/.github/workflows/claude-pr-review.yml@v1
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
