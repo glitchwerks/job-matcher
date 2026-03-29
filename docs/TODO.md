@@ -264,6 +264,10 @@
 - [x] Add `"job_source": "adzuna"` to `config.example.json`
 - [x] Update all tests for renamed column; add `tests/test_job_sources.py`
 
+## Feature: Persistent Ingest Logging (#85)
+- [x] Add RotatingFileHandler to ingest.py
+- [x] Update scripts/setup.ps1 footer to mention ingest.log
+
 ## Milestone: Dynamic Provider Key Management (#28–#36)
 
 - [x] **#28** — Create `keys.example.json`; strip API key fields from `config.example.json`; add `keys.json` to `.gitignore`

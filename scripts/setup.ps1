@@ -419,7 +419,8 @@ Write-Host "  2. Configure LLM keys:  http://localhost:5000/settings"
 Write-Host "  3. Edit config.json:    $ProjectRoot\config.json  (Adzuna credentials, search params)"
 Write-Host "  4. Check status:        .\scripts\status.ps1"
 Write-Host "  5. View web logs:       $logsDir\web.log"
-Write-Host "  6. Force ingest now:    $pythonExe ingest.py --hours 25"
+Write-Host "  6. View ingest logs:    $logsDir\ingest.log"
+Write-Host "  7. Force ingest now:    $pythonExe ingest.py --hours 25"
 Write-Host ''
 Write-Host 'To remove everything cleanly, run: .\scripts\teardown.ps1' -ForegroundColor Yellow
 Write-Host ''
