@@ -230,6 +230,11 @@
 
 - [x] Create `.github/workflows/claude-pr-review.yml` — triggers on PR opened/synchronize/reopened, posts automatic review comment via `direct_prompt`
 
+## Chore: Migrate Claude workflows to shared reusable workflows (#95)
+
+- [x] Replace `claude-pr-review.yml` with shared reusable workflow
+- [x] Replace `claude.yml` with `tag-claude.yml` pointing to shared `tag-claude` workflow
+
 ## Feature: Claude GitHub App workflow (#59)
 
 - [x] Create `.github/workflows/claude.yml` using `anthropics/claude-code-action@v1`, triggered on `issue_comment` (created)
