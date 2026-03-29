@@ -195,6 +195,29 @@ body {
   font-weight: normal;
 }
 
+.page-heading {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: normal;
+  color: var(--text-secondary);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0 0 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 24px;
+}
+.page-breadcrumb {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  padding: 0 0 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 24px;
+}
+.page-breadcrumb a { color: var(--text-secondary); text-decoration: none; }
+.page-breadcrumb a:hover { color: var(--text-accent); text-decoration: underline; }
+
 /* ------------------------------------------------------------
    Listing cards
    ------------------------------------------------------------ */
@@ -1134,6 +1157,11 @@ body {
   margin-top: 4px;
 }
 
+@keyframes notice-fade-out {
+  0%, 75% { opacity: 1; }
+  100%    { opacity: 0; pointer-events: none; }
+}
+
 .save-notice {
   font-family: var(--font-mono);
   font-size: 0.76rem;
@@ -1145,6 +1173,7 @@ body {
   padding: 7px 14px;
   margin-bottom: 20px;
   max-width: 600px;
+  animation: notice-fade-out 4s ease forwards;
 }
 
 /* ------------------------------------------------------------
