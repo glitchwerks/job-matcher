@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```powershell
 # Install dependencies
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 
 # Run ingestion pipeline (fetch → filter → scrape → score → store)
 python ingest.py

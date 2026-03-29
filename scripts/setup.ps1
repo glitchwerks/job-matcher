@@ -107,7 +107,7 @@ if (-not (Test-Path -Path $waitressExe -PathType Leaf)) {
     Write-Host 'Create and populate the venv before running setup:' -ForegroundColor Yellow
     Write-Host "  cd `"$ProjectRoot`""
     Write-Host '  python -m venv venv'
-    Write-Host '  venv\Scripts\pip install -r requirements.txt'
+    Write-Host '  uv pip install -r requirements.txt'
     Write-Host ''
     exit 1
 }
@@ -450,5 +450,5 @@ Write-Host ''
 # 5. Confirm outbound HTTPS to github.com is not blocked by firewall/proxy.
 #
 # Once registered, pushing to main will automatically:
-#   git pull -> pip install -r requirements.txt -> nssm restart JobMatcher
+#   git pull -> uv pip install -r requirements.txt -> nssm restart JobMatcher
 # ===========================================================================

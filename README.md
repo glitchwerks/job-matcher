@@ -25,18 +25,18 @@ cd job_aggregator
 
 ```bash
 # bash / macOS / Linux
-python -m venv .venv
+uv venv
 source .venv/bin/activate
 
-# PowerShell
-python -m venv .venv
+# PowerShell (or: uv run python ...)
+uv venv
 .venv\Scripts\Activate.ps1
 ```
 
 **3. Install dependencies**
 
 ```bash
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 ```
 
 **4. Copy the config files**
@@ -233,7 +233,7 @@ After the script completes, navigate to `http://localhost:5000/settings` to ente
 
 ### Prerequisites
 
-- Python venv already set up and `pip install -r requirements.txt` run
+- Python venv already set up and `uv pip install -r requirements.txt` run
 - `profile.json` present in the project root (`config.json` is created from the example by the script if absent)
 - [NSSM](https://nssm.cc/download) downloaded and either on `PATH` or referenced by full path
 
@@ -344,7 +344,7 @@ GitHub Actions CI runs (tests + linting)
 deploy.yml triggers on the self-hosted runner
         │
         ▼
-git pull → pip install → nssm restart JobMatcher
+git pull → uv pip install → nssm restart JobMatcher
 ```
 
 ### One-time runner setup
