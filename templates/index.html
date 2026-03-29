@@ -34,7 +34,7 @@
       <strong>{{ listings | length }}</strong>
       {%- if listings | length == 1 %} role{% else %} roles{% endif %}
       &nbsp;·&nbsp;
-      scored {{ (min_score if min_score is not none else threshold) | round(1) }}+ &nbsp;·&nbsp; sorted by {% if sort == 'date_posted' %}date posted{% else %}match{% endif %}
+      scored {{ (min_score if min_score is not none else threshold) | round(1) }}+ &nbsp;·&nbsp; sorted by {% if sort == 'date_posted' %}date posted{% else %}score{% endif %}
       {%- if last_fetch_time is not none %}
         &nbsp;·&nbsp; <span class="last-fetch">last updated {{ last_fetch_time | timeago }}</span>
       {%- endif %}
@@ -67,7 +67,7 @@
       <input type="text" name="search" placeholder="Search title or company"
              value="{{ search or '' }}" class="filter-input">
 
-      <select name="min_score" class="filter-select">
+      <select name="min_score" class="filter-select" onchange="this.form.submit()">
         <option value="">Score: any</option>
         <option value="5" {% if min_score == 5.0 %}selected{% endif %}>5+</option>
         <option value="6" {% if min_score == 6.0 %}selected{% endif %}>6+</option>
@@ -76,13 +76,13 @@
         <option value="9" {% if min_score == 9.0 %}selected{% endif %}>9+</option>
       </select>
 
-      <select name="sort" class="filter-select">
+      <select name="sort" class="filter-select" onchange="this.form.submit()">
         <option value="" {% if not sort %}selected{% endif %}>Sort: score</option>
         <option value="date_posted" {% if sort == 'date_posted' %}selected{% endif %}>Sort: date posted</option>
       </select>
 
       {% if job_types %}
-      <select name="job_type" class="filter-select">
+      <select name="job_type" class="filter-select" onchange="this.form.submit()">
         <option value="">Role: all</option>
         {% for jt in job_types %}
           <option value="{{ jt }}" {% if job_type == jt %}selected{% endif %}>
