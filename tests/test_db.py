@@ -526,7 +526,6 @@ class TestModelUsed:
         ``model_used`` column, then verifies that init_db() migrates the
         schema to include ``model_used`` (via the Path B table-copy migration).
         """
-        import sqlite3 as _sqlite3
         with TempDB() as path:
             # Drop the freshly created table and replace it with a minimal
             # legacy schema that has adzuna_id and no model_used.
