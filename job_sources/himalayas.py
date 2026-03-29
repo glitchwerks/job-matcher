@@ -1,0 +1,223 @@
+"""
+job_sources/himalayas.py — Himalayas API implementation of the JobSource protocol.
+
+Wraps the Himalayas Jobs REST API: offset-based pagination, HTML stripping,
+and normalisation to the canonical listing schema.
+
+API: GET https://himalayas.app/jobs/api?limit=<n>&offset=<n>
+Response: {"jobs": [...], "total": N}
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone, UTC
+from math import ceil
+from typing import Optional
+
+import requests
+from bs4 import BeautifulSoup
+
+from .base import JobSource
+
+logger = logging.getLogger("ingest.himalayas")
+
+_HIMALAYAS_URL = "https://himalayas.app/jobs/api"
+
+_JOB_TYPE_MAP: dict[str, str] = {
+    "FULL_TIME": "full_time",
+    "PART_TIME": "part_time",
+    "CONTRACT": "contract",
+    "FREELANCE": "freelance",
+    "INTERNSHIP": "internship",
+}
+
+
+def _strip_html(text: str) -> str:
+    """Strip HTML tags from *text* using BeautifulSoup.
+
+    If no HTML tags are detected the input is returned unchanged so that
+    plain-text and Markdown descriptions are not mangled.
+
+    Args:
+        text: Raw description string, possibly containing HTML markup.
+
+    Returns:
+        Plain-text string with HTML tags removed, or the original string
+        if no tags were present.
+    """
+    if "<" not in text:
+        return text
+    return BeautifulSoup(text, "html.parser").get_text(separator=" ", strip=True)
+
+
+def _parse_created_at(value: Optional[int | str]) -> Optional[str]:
+    """Convert a Himalayas ``createdAt`` value to an ISO 8601 string.
+
+    Himalayas may return either an ISO 8601 string or a Unix millisecond
+    timestamp (int). ``None`` is passed through as ``None``.
+
+    Args:
+        value: ISO 8601 string, Unix millisecond int, or ``None``.
+
+    Returns:
+        ISO 8601 string (e.g. ``"2026-01-02T12:34:56Z"``) or ``None``.
+    """
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return datetime.fromtimestamp(value / 1000, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Assume string — pass through unchanged.
+    return str(value)
+
+
+def _map_job_type(job_type: Optional[str]) -> Optional[str]:
+    """Map a Himalayas ``jobType`` value to the canonical ``contract_time`` string.
+
+    Known values are mapped via ``_JOB_TYPE_MAP``; anything else is lower-cased
+    and returned as-is so that future API values degrade gracefully rather than
+    silently disappearing.
+
+    Args:
+        job_type: Himalayas job type string, e.g. ``"FULL_TIME"``.
+
+    Returns:
+        Canonical contract-time string, or ``None`` if *job_type* is falsy.
+    """
+    if not job_type:
+        return None
+    return _JOB_TYPE_MAP.get(job_type, job_type.lower())
+
+
+class HimalayasClient(JobSource):
+    """JobSource implementation for the Himalayas Jobs REST API.
+
+    Handles offset-based pagination, HTML description stripping, and
+    normalisation of raw Himalayas response dicts to the canonical listing
+    schema.
+    """
+
+    SOURCE = "himalayas"
+
+    def __init__(self, config: dict) -> None:
+        """Store pagination settings from config.
+
+        Args:
+            config: Full config dict. Reads ``config["himalayas"]["limit"]``
+                    (default 100, max 100) to control page size.
+        """
+        himalayas_cfg = config.get("himalayas") or {}
+        self._limit: int = int(himalayas_cfg.get("limit", 100))
+        self._total: Optional[int] = None  # cached after first API call
+
+    # ------------------------------------------------------------------
+    # JobSource interface
+    # ------------------------------------------------------------------
+
+    def fetch_page(self, page: int) -> list[dict]:
+        """Fetch a single page of raw Himalayas listings.
+
+        Converts the 0-based *page* argument to an offset
+        (``offset = page * limit``) before calling the API.
+
+        Any non-200 HTTP response or network error is logged and returns an
+        empty list.  The ``total`` field in the response is cached so that
+        ``total_pages()`` can be called after the first ``fetch_page()``
+        without a separate request.
+
+        Args:
+            page: 0-based page number.
+
+        Returns:
+            List of normalised listing dicts (via ``normalise()``).
+        """
+        offset = page * self._limit
+        params: dict[str, int] = {"limit": self._limit, "offset": offset}
+
+        try:
+            response = requests.get(_HIMALAYAS_URL, params=params, timeout=15)
+        except requests.RequestException as exc:
+            logger.warning("Himalayas request failed: %s", exc)
+            return []
+
+        if response.status_code != 200:
+            logger.warning(
+                "Himalayas returned HTTP %d for page %d (offset %d); skipping",
+                response.status_code,
+                page,
+                offset,
+            )
+            return []
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            logger.warning("Himalayas response is not valid JSON: %s", exc)
+            return []
+
+        # Cache total so total_pages() can use it without a second request.
+        if "total" in data:
+            self._total = int(data["total"])
+
+        raw_jobs: list[dict] = data.get("jobs", [])
+        if not raw_jobs:
+            return []
+
+        return [self.normalise(r) for r in raw_jobs]
+
+    def total_pages(self) -> int:
+        """Return the total number of pages for the current search.
+
+        If the total has already been fetched (via a prior ``fetch_page()``
+        call), it is used directly.  Otherwise a lightweight request is made
+        to the API (offset=0, same limit) to obtain the ``total`` field.
+
+        Returns:
+            ``ceil(total / limit)``.
+        """
+        if self._total is not None:
+            return ceil(self._total / self._limit)
+
+        # Fetch the first page solely to read the total count.
+        params: dict[str, int] = {"limit": self._limit, "offset": 0}
+        try:
+            response = requests.get(_HIMALAYAS_URL, params=params, timeout=15)
+            response.raise_for_status()
+            data = response.json()
+            self._total = int(data.get("total", 0))
+        except (requests.RequestException, ValueError, KeyError) as exc:
+            logger.warning("Himalayas total_pages() request failed: %s", exc)
+            return 1
+
+        return ceil(self._total / self._limit) if self._total else 1
+
+    def normalise(self, raw: dict) -> dict:
+        """Map a Himalayas job dict to the canonical listing schema.
+
+        Args:
+            raw: A single entry from the Himalayas ``jobs`` array.
+
+        Returns:
+            Dict conforming to the canonical listing schema defined in
+            ``job_sources.base``.
+        """
+        location_restrictions: list[str] = raw.get("locationRestrictions") or []
+        location = ", ".join(location_restrictions) if location_restrictions else "Worldwide"
+
+        description_raw: str = raw.get("description") or ""
+        description = _strip_html(description_raw) if description_raw else ""
+
+        return {
+            "source": self.SOURCE,
+            "source_id": str(raw.get("id", "")),
+            "title": raw.get("title", "") or "",
+            "company": raw.get("companyName", "") or "",
+            "location": location,
+            "salary_min": raw.get("salaryMin"),
+            "salary_max": raw.get("salaryMax"),
+            "contract_type": None,
+            "contract_time": _map_job_type(raw.get("jobType")),
+            "description": description,
+            "redirect_url": raw.get("applicationUrl", "") or "",
+            "created_at": _parse_created_at(raw.get("createdAt")),
+        }

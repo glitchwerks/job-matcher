@@ -3,11 +3,12 @@ job_sources/ — Pluggable job source provider package for Job Matcher.
 
 Public API
 ----------
-* ``JobSource``      — abstract base class; import from here or ``job_sources.base``
-* ``AdzunaClient``   — Adzuna Jobs API backend
-* ``SOURCES``        — registry mapping source name strings to their classes
-* ``make_source()``  — factory that reads ``config["job_source"]`` and returns
-                       the right ``JobSource`` instance
+* ``JobSource``        — abstract base class; import from here or ``job_sources.base``
+* ``AdzunaClient``     — Adzuna Jobs API backend
+* ``HimalayasClient``  — Himalayas Jobs API backend
+* ``SOURCES``          — registry mapping source name strings to their classes
+* ``make_source()``    — factory that reads ``config["job_source"]`` and returns
+                         the right ``JobSource`` instance
 
 Usage
 -----
@@ -23,10 +24,12 @@ from __future__ import annotations
 
 from .base import JobSource
 from .adzuna import AdzunaClient
+from .himalayas import HimalayasClient
 
 __all__ = [
     "JobSource",
     "AdzunaClient",
+    "HimalayasClient",
     "SOURCES",
     "make_source",
 ]
@@ -37,6 +40,7 @@ __all__ = [
 
 SOURCES: dict[str, type[JobSource]] = {
     "adzuna": AdzunaClient,
+    "himalayas": HimalayasClient,
 }
 
 
