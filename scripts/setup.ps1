@@ -297,6 +297,7 @@ try {
     & nssm set $ServiceName Start           SERVICE_AUTO_START
     & nssm set $ServiceName AppStdout       $webLog
     & nssm set $ServiceName AppStderr       $errorLog
+    & nssm set $ServiceName AppEnvironmentExtra "DB_PATH=$dbPath"
     Write-Ok 'Service configured.'
 }
 catch {
