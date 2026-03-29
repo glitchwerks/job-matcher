@@ -296,7 +296,7 @@ def prefilter(listing: dict, config: dict) -> str | None:
     require_type: str | None = pf.get("require_contract_type")
     if require_type is not None:
         actual_type = listing.get("contract_type", "")
-        if actual_type.lower() != require_type.lower():
+        if actual_type and actual_type.lower() != require_type.lower():
             return f'contract_type: got "{actual_type}" expected "{require_type}"'
 
     return None
