@@ -69,6 +69,33 @@ class OpenAIProvider(LLMProvider):
     # LLMProvider interface
     # ------------------------------------------------------------------
 
+    @classmethod
+    def settings_schema(cls) -> dict:
+        """Return the settings schema for OpenAI.
+
+        Returns:
+            Schema dict with ``display_name`` and ``fields`` for the
+            OpenAI API key and model ID.
+        """
+        return {
+            "display_name": "OpenAI",
+            "fields": [
+                {
+                    "name": "api_key",
+                    "label": "API Key",
+                    "type": "password",
+                    "required": True,
+                },
+                {
+                    "name": "model",
+                    "label": "Model ID",
+                    "type": "text",
+                    "required": True,
+                    "default": "gpt-4o-mini",
+                },
+            ],
+        }
+
     @property
     def input_cost_per_mtok(self) -> float:
         """USD cost per million input tokens for the configured model."""

@@ -112,6 +112,20 @@ class RemotiveClient(JobSource):
     # JobSource interface
     # ------------------------------------------------------------------
 
+    @classmethod
+    def settings_schema(cls) -> dict:
+        """Return the settings schema for Remotive.
+
+        Remotive requires no credentials — the public API is key-free.
+
+        Returns:
+            Schema dict with ``display_name`` and an empty ``fields`` list.
+        """
+        return {
+            "display_name": "Remotive",
+            "fields": [],
+        }
+
     def fetch_page(self, page: int) -> list[dict]:
         """Fetch listings from the Remotive API.
 

@@ -216,6 +216,10 @@ class TestAbcDefaultPages:
             def normalise(self, raw):
                 return raw
 
+            @classmethod
+            def settings_schema(cls):
+                return {"display_name": "Minimal", "fields": []}
+
         src = MinimalSource()
         pages = list(src.pages())
         assert len(pages) == 1  # page 2 returns empty → stops early

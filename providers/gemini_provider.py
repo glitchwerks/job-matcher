@@ -69,6 +69,33 @@ class GeminiProvider(LLMProvider):
     # LLMProvider interface
     # ------------------------------------------------------------------
 
+    @classmethod
+    def settings_schema(cls) -> dict:
+        """Return the settings schema for Gemini.
+
+        Returns:
+            Schema dict with ``display_name`` and ``fields`` for the
+            Google API key and model ID.
+        """
+        return {
+            "display_name": "Gemini",
+            "fields": [
+                {
+                    "name": "api_key",
+                    "label": "API Key",
+                    "type": "password",
+                    "required": True,
+                },
+                {
+                    "name": "model",
+                    "label": "Model ID",
+                    "type": "text",
+                    "required": True,
+                    "default": "gemini-1.5-flash",
+                },
+            ],
+        }
+
     @property
     def input_cost_per_mtok(self) -> float:
         """USD cost per million input tokens for the configured model."""

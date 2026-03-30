@@ -73,6 +73,26 @@ class JobSource(ABC):
         """
         ...
 
+    @classmethod
+    @abstractmethod
+    def settings_schema(cls) -> dict:
+        """Return the settings schema for this job source.
+
+        The returned dict describes the credentials and configuration fields
+        that the Settings UI should render for this source.
+
+        Returns:
+            Dict with exactly two keys:
+
+            * ``display_name`` — str, human-readable name shown in the UI.
+            * ``fields``       — list of field dicts.  Each field dict must
+              have: ``name`` (str), ``label`` (str), ``type`` (``"text"``
+              or ``"password"``), ``required`` (bool).  Sources that
+              require no credentials return an empty list so the UI can
+              render them as a status-only card.
+        """
+        ...
+
     def pages(self) -> Iterator[list[dict]]:
         """Yield normalised listing lists, one per page.
 

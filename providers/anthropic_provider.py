@@ -75,6 +75,33 @@ class AnthropicProvider(LLMProvider):
     # LLMProvider interface
     # ------------------------------------------------------------------
 
+    @classmethod
+    def settings_schema(cls) -> dict:
+        """Return the settings schema for Anthropic.
+
+        Returns:
+            Schema dict with ``display_name`` and ``fields`` for the
+            Anthropic API key and model ID.
+        """
+        return {
+            "display_name": "Anthropic",
+            "fields": [
+                {
+                    "name": "api_key",
+                    "label": "API Key",
+                    "type": "password",
+                    "required": True,
+                },
+                {
+                    "name": "model",
+                    "label": "Model ID",
+                    "type": "text",
+                    "required": True,
+                    "default": "claude-haiku-4-5-20251001",
+                },
+            ],
+        }
+
     @property
     def input_cost_per_mtok(self) -> float:
         """USD cost per million input tokens for the configured model."""

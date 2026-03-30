@@ -62,3 +62,22 @@ class LLMProvider(ABC):
     def output_cost_per_mtok(self) -> float:
         """USD cost per million output tokens for the configured model."""
         ...
+
+    @classmethod
+    @abstractmethod
+    def settings_schema(cls) -> dict:
+        """Return the settings schema for this provider.
+
+        The returned dict describes the credentials and configuration fields
+        that the Settings UI should render for this provider.
+
+        Returns:
+            Dict with exactly two keys:
+
+            * ``display_name`` — str, human-readable name shown in the UI.
+            * ``fields``       — list of field dicts.  Each field dict must
+              have: ``name`` (str), ``label`` (str), ``type`` (``"text"``
+              or ``"password"``), ``required`` (bool).  Text fields may
+              also include a ``default`` (str) for pre-populated values.
+        """
+        ...
