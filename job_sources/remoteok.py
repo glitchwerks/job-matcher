@@ -13,6 +13,7 @@ header.  The default user-agent string can be overridden via
 from __future__ import annotations
 
 import logging
+from typing import Iterator
 
 import requests
 from bs4 import BeautifulSoup
@@ -126,6 +127,19 @@ class RemoteOKClient(JobSource):
             Always ``1``.
         """
         return 1
+
+    def pages(self) -> Iterator[list[dict]]:
+        """Yield the single page of RemoteOK listings.
+
+        RemoteOK returns all listings in one request, so this yields at most
+        one list.  Yields nothing if the fetch returns no results.
+
+        Yields:
+            A single list of normalised listing dicts.
+        """
+        results = self.fetch_page(1)
+        if results:
+            yield results
 
     def normalise(self, raw: dict) -> dict:
         """Map a RemoteOK raw listing dict to the canonical listing schema.

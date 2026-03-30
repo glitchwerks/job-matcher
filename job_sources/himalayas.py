@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, UTC
 from math import ceil
-from typing import Optional
+from typing import Iterator, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -190,6 +190,22 @@ class HimalayasClient(JobSource):
             return 1
 
         return ceil(self._total / self._limit) if self._total else 1
+
+    def pages(self) -> Iterator[list[dict]]:
+        """Yield normalised listing lists, one per page.
+
+        Iterates from page 1 up to ``total_pages()`` (inclusive).  Stops
+        early if a page returns zero results.
+
+        Yields:
+            Lists of normalised listing dicts.
+        """
+        for page in range(1, self.total_pages() + 1):
+            results = self.fetch_page(page)
+            if not results:
+                logger.info("Himalayas page %d returned 0 results; stopping early", page)
+                return
+            yield results
 
     def normalise(self, raw: dict) -> dict:
         """Map a Himalayas job dict to the canonical listing schema.

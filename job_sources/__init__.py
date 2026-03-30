@@ -91,12 +91,4 @@ def make_source(config: dict) -> JobSource:
             f"Registered sources: {list(SOURCES)}."
         )
 
-    if source_name == "adzuna":
-        return cls(
-            app_id=config["adzuna_app_id"],
-            app_key=config["adzuna_app_key"],
-            config=config,
-        )
-
-    # All other sources accept (config,) only.
-    return cls(config=config)  # type: ignore[call-arg]
+    return cls(config=config)

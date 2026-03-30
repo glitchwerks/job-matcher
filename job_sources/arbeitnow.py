@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Iterator
 
 import requests
 from bs4 import BeautifulSoup
@@ -154,6 +154,22 @@ class ArbeitnowClient(JobSource):
             self._cached_total_pages = 1
 
         return self._cached_total_pages
+
+    def pages(self) -> Iterator[list[dict]]:
+        """Yield normalised listing lists, one per page.
+
+        Iterates from page 1 up to ``total_pages()`` (inclusive).  Stops
+        early if a page returns zero results.
+
+        Yields:
+            Lists of normalised listing dicts (after ``normalise()``).
+        """
+        for page in range(1, self.total_pages() + 1):
+            results = self.fetch_page(page)
+            if not results:
+                logger.info("Arbeitnow page %d returned 0 results; stopping early", page)
+                return
+            yield [self.normalise(r) for r in results]
 
     def normalise(self, raw: dict) -> dict:
         """Map an Arbeitnow listing dict to the canonical listing schema.

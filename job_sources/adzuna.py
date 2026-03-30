@@ -29,17 +29,27 @@ class AdzunaClient(JobSource):
 
     SOURCE = "adzuna"
 
-    def __init__(self, app_id: str, app_key: str, config: dict) -> None:
-        """Store credentials and the search section of config.
+    def __init__(
+        self,
+        config: dict,
+        app_id: str | None = None,
+        app_key: str | None = None,
+    ) -> None:
+        """Extract credentials and search parameters from config.
+
+        Reads ``adzuna_app_id`` and ``adzuna_app_key`` from *config* so that
+        the factory can pass ``config=config`` uniformly for all sources.
+        The optional *app_id* and *app_key* parameters are accepted for
+        backward compatibility but config is the canonical source.
 
         Args:
-            app_id:  Adzuna application ID.
-            app_key: Adzuna application key.
-            config:  Full config dict; the ``search`` sub-dict is used for
-                     query parameters.
+            config:  Full config dict.  Must contain ``adzuna_app_id``,
+                     ``adzuna_app_key``, and a ``search`` sub-dict.
+            app_id:  Deprecated — pass credentials via config instead.
+            app_key: Deprecated — pass credentials via config instead.
         """
-        self._app_id = app_id
-        self._app_key = app_key
+        self._app_id: str = app_id if app_id is not None else config["adzuna_app_id"]
+        self._app_key: str = app_key if app_key is not None else config["adzuna_app_key"]
         self._search = config["search"]
 
     # ------------------------------------------------------------------

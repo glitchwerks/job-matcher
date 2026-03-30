@@ -26,6 +26,7 @@ Canonical listing schema
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Iterator
 
 
 class JobSource(ABC):
@@ -71,3 +72,23 @@ class JobSource(ABC):
             source fields are silently dropped.
         """
         ...
+
+    def pages(self) -> Iterator[list[dict]]:
+        """Yield normalised listing lists, one per page.
+
+        Default implementation iterates from page 1 up to ``total_pages()``
+        (inclusive) using ``fetch_page()`` and stops early when a page returns
+        zero results.  Subclasses may override this to apply source-specific
+        logic (e.g. 0-based page numbering, caching).
+
+        Yields:
+            Lists of normalised listing dicts (one list per page).
+        """
+        import logging as _logging
+        _log = _logging.getLogger(__name__)
+        for page in range(1, self.total_pages() + 1):
+            results = self.fetch_page(page)
+            if not results:
+                _log.info("Page %d returned 0 results; stopping early", page)
+                return
+            yield results

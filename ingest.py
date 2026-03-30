@@ -745,6 +745,13 @@ def run(
             listing["dismissed"] = 0
             listing["job_type"] = job_type or None
 
+            # Populate posted_at from created_at when the source's normalise()
+            # does not set it directly (non-Adzuna sources).  db.insert_listing()
+            # defaults posted_at to NULL via setdefault — setting it here ensures
+            # date-sort works correctly for all sources.
+            if not listing.get("posted_at"):
+                listing["posted_at"] = listing.get("created_at") or None
+
             try:
                 db.insert_listing(listing, db_path=_DB_PATH)
             except Exception as exc:  # noqa: BLE001
