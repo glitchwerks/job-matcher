@@ -117,6 +117,17 @@ class TestInitDb:
             db.init_db(path)  # second call
             # If we get here without exception, the test passes.
 
+    def test_redirect_url_index_exists(self):
+        """init_db() creates the idx_listings_redirect_url index on the listings table."""
+        with TempDB() as path:
+            conn = db.get_connection(path)
+            try:
+                indexes = conn.execute("PRAGMA index_list(listings)").fetchall()
+                index_names = [row["name"] for row in indexes]
+                assert "idx_listings_redirect_url" in index_names
+            finally:
+                conn.close()
+
 
 # ---------------------------------------------------------------------------
 # listing_exists

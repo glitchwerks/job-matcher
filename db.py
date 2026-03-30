@@ -324,6 +324,13 @@ def init_db(db_path: str = _DEFAULT_DB_PATH) -> None:
                 except sqlite3.OperationalError:
                     pass  # Column already present; nothing to do.
 
+        # Create index on redirect_url for fast cross-source deduplication.
+        # listing_exists_by_url() is called once per candidate listing during
+        # ingest; without this index every call is a full table scan.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_listings_redirect_url ON listings (redirect_url)"
+        )
+
         conn.commit()
     finally:
         conn.close()
