@@ -218,6 +218,62 @@ def test_contract_time_null_config_skips_check():
     assert prefilter(listing, config) is None
 
 
+def test_contract_time_empty_passes_when_filter_set():
+    """Listing with empty contract_time passes even when require_contract_time is set.
+
+    Empty means the field is unknown (many job sources don't populate it); it
+    should never be rejected as a mismatch.
+    """
+    listing = make_listing(contract_time="")
+    config = make_config(require_contract_time="full_time")
+    assert prefilter(listing, config) is None
+
+
+# ---------------------------------------------------------------------------
+# Contract type tests
+# ---------------------------------------------------------------------------
+
+def test_contract_type_match_passes():
+    """Listing passes when contract_type matches the required value."""
+    listing = make_listing(contract_type="permanent")
+    config = make_config(require_contract_type="permanent")
+    assert prefilter(listing, config) is None
+
+
+def test_contract_type_mismatch_rejected():
+    """Listing is rejected when contract_type doesn't match required value."""
+    listing = make_listing(contract_type="contract")
+    config = make_config(require_contract_type="permanent")
+    result = prefilter(listing, config)
+    assert result is not None
+    assert "contract_type" in result
+
+
+def test_contract_type_case_insensitive():
+    """contract_type comparison is case-insensitive."""
+    listing = make_listing(contract_type="Permanent")
+    config = make_config(require_contract_type="permanent")
+    assert prefilter(listing, config) is None
+
+
+def test_contract_type_null_config_skips_check():
+    """When require_contract_type is absent from config, any contract_type passes."""
+    listing = make_listing(contract_type="contract")
+    config = make_config()  # no require_contract_type key
+    assert prefilter(listing, config) is None
+
+
+def test_contract_type_empty_passes_when_filter_set():
+    """Listing with empty contract_type passes even when require_contract_type is set.
+
+    Empty means the field is unknown (many job sources don't populate it); it
+    should never be rejected as a mismatch.
+    """
+    listing = make_listing(contract_type="")
+    config = make_config(require_contract_type="permanent")
+    assert prefilter(listing, config) is None
+
+
 # ---------------------------------------------------------------------------
 # All filters disabled
 # ---------------------------------------------------------------------------
