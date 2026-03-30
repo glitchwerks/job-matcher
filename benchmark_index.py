@@ -6,7 +6,6 @@ Measures the time to check for duplicate listings via redirect_url
 with and without the index.
 """
 
-import sqlite3
 import tempfile
 import time
 import os
