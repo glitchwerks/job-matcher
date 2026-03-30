@@ -617,9 +617,9 @@ def settings():
     )
 
 
-@app.route("/settings/config", methods=["GET", "POST"])
-def settings_config():
-    """Config editor page — view and edit config.json via the browser.
+@app.route("/profile", methods=["GET", "POST"])
+def profile():
+    """Profile page — view and edit config.json via the browser.
 
     GET:  Reads config.json, masks any sensitive key fields (``*_api_key``,
           ``*_app_key``, ``*_app_id``), pretty-prints the result as JSON, and
@@ -686,12 +686,18 @@ def settings_config():
     config_json_str = json.dumps(masked, indent=2)
 
     return render_template(
-        "settings_config.html",
-        view="settings",
+        "profile.html",
+        view="profile",
         config_json=config_json_str,
         saved=saved,
         error=error,
     ), status_code
+
+
+@app.route("/settings/config")
+def settings_config_redirect():
+    from flask import redirect, url_for
+    return redirect(url_for("profile"), code=301)
 
 
 # ---------------------------------------------------------------------------

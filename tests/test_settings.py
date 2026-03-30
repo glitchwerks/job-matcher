@@ -387,21 +387,21 @@ class TestSettingsAdzuna:
 
 
 # ---------------------------------------------------------------------------
-# GET /settings/config (#21)
+# GET /profile (#21, updated #90)
 # ---------------------------------------------------------------------------
 
 class TestSettingsConfigGet:
-    """Tests for the GET /settings/config route."""
+    """Tests for the GET /profile route (config editor)."""
 
     def test_returns_200(self, client, tmp_config_path):
-        resp = client.get("/settings/config")
+        resp = client.get("/profile")
         assert resp.status_code == 200
 
     def test_renders_textarea_with_json(self, client, tmp_config_path):
         with open(tmp_config_path, "w") as f:
             json.dump({"scoring": {"threshold": 7.5}}, f)
 
-        resp = client.get("/settings/config")
+        resp = client.get("/profile")
         body = resp.data.decode()
         assert "<textarea" in body
         assert "7.5" in body
@@ -410,7 +410,7 @@ class TestSettingsConfigGet:
         with open(tmp_config_path, "w") as f:
             json.dump({"adzuna_app_id": "real-id-secret", "adzuna_app_key": "real-key-secret"}, f)
 
-        resp = client.get("/settings/config")
+        resp = client.get("/profile")
         body = resp.data.decode()
         assert "real-id-secret" not in body
         assert "real-key-secret" not in body
@@ -420,7 +420,7 @@ class TestSettingsConfigGet:
         with open(tmp_config_path, "w") as f:
             json.dump({"some_api_key": "super-secret-api-key"}, f)
 
-        resp = client.get("/settings/config")
+        resp = client.get("/profile")
         body = resp.data.decode()
         assert "super-secret-api-key" not in body
         assert "***" in body
@@ -429,29 +429,35 @@ class TestSettingsConfigGet:
         with open(tmp_config_path, "w") as f:
             json.dump({"scoring": {"threshold": 8.0}, "adzuna_app_id": "secret"}, f)
 
-        resp = client.get("/settings/config")
+        resp = client.get("/profile")
         body = resp.data.decode()
         assert "8.0" in body
 
-    def test_settings_config_link_on_settings_page(self, client, tmp_keys_path, tmp_config_path):
-        """The /settings page must contain a link to /settings/config."""
+    def test_profile_tab_on_settings_page(self, client, tmp_keys_path, tmp_config_path):
+        """The /settings page nav must contain a link to /profile."""
         resp = client.get("/settings")
         body = resp.data.decode()
-        assert "/settings/config" in body
+        assert "/profile" in body
+
+    def test_settings_config_redirects_to_profile(self, client, tmp_config_path):
+        """/settings/config must 301-redirect to /profile."""
+        resp = client.get("/settings/config")
+        assert resp.status_code == 301
+        assert resp.headers["Location"].endswith("/profile")
 
     def test_works_when_config_absent(self, client, tmp_config_path):
         """GET should still return 200 even when config.json does not exist."""
         assert not os.path.exists(tmp_config_path)
-        resp = client.get("/settings/config")
+        resp = client.get("/profile")
         assert resp.status_code == 200
 
 
 # ---------------------------------------------------------------------------
-# POST /settings/config (#21)
+# POST /profile (#21, updated #90)
 # ---------------------------------------------------------------------------
 
 class TestSettingsConfigPost:
-    """Tests for the POST /settings/config route."""
+    """Tests for the POST /profile route (config editor)."""
 
     def test_valid_json_updates_file(self, client, tmp_config_path):
         original = {"scoring": {"threshold": 7.0}, "adzuna_app_id": "orig-id"}
@@ -459,7 +465,7 @@ class TestSettingsConfigPost:
             json.dump(original, f)
 
         new_config = json.dumps({"scoring": {"threshold": 9.0}, "adzuna_app_id": "orig-id"})
-        resp = client.post("/settings/config", data={"config_json": new_config})
+        resp = client.post("/profile", data={"config_json": new_config})
         assert resp.status_code == 200
 
         with open(tmp_config_path) as f:
@@ -468,18 +474,18 @@ class TestSettingsConfigPost:
 
     def test_valid_save_shows_success_notice(self, client, tmp_config_path):
         resp = client.post(
-            "/settings/config",
+            "/profile",
             data={"config_json": json.dumps({"scoring": {"threshold": 7.0}})},
         )
         body = resp.data.decode()
         assert "saved" in body.lower()
 
     def test_invalid_json_returns_400(self, client, tmp_config_path):
-        resp = client.post("/settings/config", data={"config_json": "not valid json {{{"})
+        resp = client.post("/profile", data={"config_json": "not valid json {{{"})
         assert resp.status_code == 400
 
     def test_invalid_json_shows_error_message(self, client, tmp_config_path):
-        resp = client.post("/settings/config", data={"config_json": "not valid json {{{"})
+        resp = client.post("/profile", data={"config_json": "not valid json {{{"})
         body = resp.data.decode()
         assert "Invalid JSON" in body
 
@@ -488,7 +494,7 @@ class TestSettingsConfigPost:
         with open(tmp_config_path, "w") as f:
             json.dump(original, f)
 
-        client.post("/settings/config", data={"config_json": "not valid json {{{"})
+        client.post("/profile", data={"config_json": "not valid json {{{"})
 
         with open(tmp_config_path) as f:
             after = json.load(f)
@@ -502,7 +508,7 @@ class TestSettingsConfigPost:
 
         # Submit with the masked sentinel values (as the browser would receive them).
         masked_submission = json.dumps({"adzuna_app_id": "***", "adzuna_app_key": "***"})
-        resp = client.post("/settings/config", data={"config_json": masked_submission})
+        resp = client.post("/profile", data={"config_json": masked_submission})
         assert resp.status_code == 200
 
         with open(tmp_config_path) as f:
@@ -517,7 +523,7 @@ class TestSettingsConfigPost:
             json.dump(original, f)
 
         resp = client.post(
-            "/settings/config",
+            "/profile",
             data={"config_json": json.dumps({"adzuna_app_id": "do-not-echo-me"})},
         )
         body = resp.data.decode()

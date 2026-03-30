@@ -23,6 +23,8 @@
          class="nav-tab{% if view == 'applied' %} active{% endif %}">applied</a>
       <a href="/stats"
          class="nav-tab{% if view == 'stats' %} active{% endif %}">stats</a>
+      <a href="/profile"
+         class="nav-tab{% if view == 'profile' %} active{% endif %}">profile</a>
       <a href="/settings"
          class="nav-tab{% if view == 'settings' %} active{% endif %}">settings</a>
     </nav>
@@ -175,14 +177,6 @@
     <button type="submit" class="btn btn-save">Save</button>
 
   </form>
-
-  {# ── Advanced config link ─────────────────────────────────── #}
-  <div style="margin-top: 32px; max-width: 600px;">
-    <h2 class="settings-section-title">Advanced</h2>
-    <p class="settings-label">
-      <a href="/settings/config">Edit config.json directly</a> — search params, scoring threshold, prefilter rules.
-    </p>
-  </div>
 
   {# ── Validate API Keys ────────────────────────────────────────── #}
   <div class="validate-section">
