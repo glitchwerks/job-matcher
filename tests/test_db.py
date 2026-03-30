@@ -918,3 +918,111 @@ class TestPostedAt:
             # real-pa has a non-NULL posted_at so should sort first (DESC puts NULLs last)
             assert ids[0] == "real-pa"
             assert "null-pa" in ids
+
+
+# ---------------------------------------------------------------------------
+# Issue #132 — redirect_url index
+# ---------------------------------------------------------------------------
+
+class TestRedirectUrlIndex:
+    def test_index_exists_after_init_db(self):
+        """init_db() creates idx_listings_redirect_url on the listings table."""
+        with TempDB() as path:
+            conn = db.get_connection(path)
+            try:
+                row = conn.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='index' AND name='idx_listings_redirect_url'"
+                ).fetchone()
+                assert row is not None, "idx_listings_redirect_url index was not created"
+            finally:
+                conn.close()
+
+    def test_index_idempotent(self):
+        """Calling init_db() twice does not raise due to the redirect_url index."""
+        with TempDB() as path:
+            db.init_db(path)  # second call — IF NOT EXISTS makes this safe
+
+
+# ---------------------------------------------------------------------------
+# Issue #134 — atomic bookmark/apply toggles
+# ---------------------------------------------------------------------------
+
+class TestAtomicToggles:
+    def _get_listing_id(self, path: str, source_id: str) -> int:
+        conn = db.get_connection(path)
+        try:
+            row = conn.execute(
+                "SELECT id FROM listings WHERE source_id = ?", (source_id,)
+            ).fetchone()
+            return row["id"]
+        finally:
+            conn.close()
+
+    def test_toggle_bookmarked_flips_from_zero_to_one(self):
+        """toggle_bookmarked() sets bookmarked=1 when starting from 0."""
+        with TempDB() as path:
+            db.insert_listing(make_listing(source_id="tb-001", bookmarked=0), db_path=path)
+            lid = self._get_listing_id(path, "tb-001")
+            result = db.toggle_bookmarked(lid, db_path=path)
+            assert result is not None
+            assert result["bookmarked"] == 1
+
+    def test_toggle_bookmarked_flips_from_one_to_zero(self):
+        """toggle_bookmarked() sets bookmarked=0 when starting from 1."""
+        with TempDB() as path:
+            db.insert_listing(make_listing(source_id="tb-002", bookmarked=1), db_path=path)
+            lid = self._get_listing_id(path, "tb-002")
+            result = db.toggle_bookmarked(lid, db_path=path)
+            assert result is not None
+            assert result["bookmarked"] == 0
+
+    def test_toggle_bookmarked_twice_returns_to_original(self):
+        """Two rapid toggle_bookmarked() calls produce a net no-op (each flip is independent)."""
+        with TempDB() as path:
+            db.insert_listing(make_listing(source_id="tb-003", bookmarked=0), db_path=path)
+            lid = self._get_listing_id(path, "tb-003")
+            db.toggle_bookmarked(lid, db_path=path)   # 0 → 1
+            result = db.toggle_bookmarked(lid, db_path=path)  # 1 → 0
+            assert result is not None
+            assert result["bookmarked"] == 0
+
+    def test_toggle_bookmarked_returns_none_for_missing_id(self):
+        """toggle_bookmarked() returns None when the listing id does not exist."""
+        with TempDB() as path:
+            result = db.toggle_bookmarked(99999, db_path=path)
+            assert result is None
+
+    def test_toggle_applied_flips_from_zero_to_one(self):
+        """toggle_applied() sets applied=1 when starting from 0."""
+        with TempDB() as path:
+            db.insert_listing(make_listing(source_id="ta-001", applied=0), db_path=path)
+            lid = self._get_listing_id(path, "ta-001")
+            result = db.toggle_applied(lid, db_path=path)
+            assert result is not None
+            assert result["applied"] == 1
+
+    def test_toggle_applied_flips_from_one_to_zero(self):
+        """toggle_applied() sets applied=0 when starting from 1."""
+        with TempDB() as path:
+            db.insert_listing(make_listing(source_id="ta-002", applied=1), db_path=path)
+            lid = self._get_listing_id(path, "ta-002")
+            result = db.toggle_applied(lid, db_path=path)
+            assert result is not None
+            assert result["applied"] == 0
+
+    def test_toggle_applied_twice_returns_to_original(self):
+        """Two rapid toggle_applied() calls produce a net no-op (each flip is independent)."""
+        with TempDB() as path:
+            db.insert_listing(make_listing(source_id="ta-003", applied=0), db_path=path)
+            lid = self._get_listing_id(path, "ta-003")
+            db.toggle_applied(lid, db_path=path)   # 0 → 1
+            result = db.toggle_applied(lid, db_path=path)  # 1 → 0
+            assert result is not None
+            assert result["applied"] == 0
+
+    def test_toggle_applied_returns_none_for_missing_id(self):
+        """toggle_applied() returns None when the listing id does not exist."""
+        with TempDB() as path:
+            result = db.toggle_applied(99999, db_path=path)
+            assert result is None

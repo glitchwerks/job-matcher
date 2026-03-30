@@ -324,6 +324,13 @@ def init_db(db_path: str = _DEFAULT_DB_PATH) -> None:
                 except sqlite3.OperationalError:
                     pass  # Column already present; nothing to do.
 
+        # Index for cross-source dedup lookup used by listing_exists_by_url().
+        # CREATE INDEX IF NOT EXISTS is idempotent — safe on any existing DB.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_listings_redirect_url "
+            "ON listings (redirect_url)"
+        )
+
         conn.commit()
     finally:
         conn.close()
@@ -820,3 +827,41 @@ def get_applied(db_path: str = _DEFAULT_DB_PATH) -> list[dict]:
         return [_deserialise_row(r) for r in rows]
     finally:
         conn.close()
+
+
+def toggle_bookmarked(listing_id: int, db_path: str = _DEFAULT_DB_PATH) -> dict | None:
+    """Atomically flip the bookmarked flag and return the updated listing.
+
+    Uses a single ``UPDATE … SET bookmarked = 1 - bookmarked`` statement so
+    concurrent clicks cannot cancel each other the way a read-flip-write
+    sequence can.  Returns the refreshed row, or None if the id does not exist.
+    """
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            "UPDATE listings SET bookmarked = 1 - bookmarked WHERE id = ?",
+            (listing_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return get_listing_by_id(listing_id, db_path=db_path)
+
+
+def toggle_applied(listing_id: int, db_path: str = _DEFAULT_DB_PATH) -> dict | None:
+    """Atomically flip the applied flag and return the updated listing.
+
+    Uses a single ``UPDATE … SET applied = 1 - applied`` statement so
+    concurrent clicks cannot cancel each other the way a read-flip-write
+    sequence can.  Returns the refreshed row, or None if the id does not exist.
+    """
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            "UPDATE listings SET applied = 1 - applied WHERE id = ?",
+            (listing_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return get_listing_by_id(listing_id, db_path=db_path)
