@@ -56,6 +56,32 @@ class AdzunaClient(JobSource):
     # JobSource interface
     # ------------------------------------------------------------------
 
+    @classmethod
+    def settings_schema(cls) -> dict:
+        """Return the settings schema for Adzuna.
+
+        Returns:
+            Schema dict with ``display_name`` and credential ``fields``
+            for the Adzuna App ID and App Key.
+        """
+        return {
+            "display_name": "Adzuna",
+            "fields": [
+                {
+                    "name": "app_id",
+                    "label": "App ID",
+                    "type": "password",
+                    "required": True,
+                },
+                {
+                    "name": "app_key",
+                    "label": "App Key",
+                    "type": "password",
+                    "required": True,
+                },
+            ],
+        }
+
     def fetch_page(self, page: int) -> list[dict]:
         """Fetch a single page of raw Adzuna results.
 

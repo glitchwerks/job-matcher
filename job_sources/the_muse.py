@@ -125,6 +125,21 @@ class TheMuseClient(JobSource):
     # JobSource interface
     # ------------------------------------------------------------------
 
+    @classmethod
+    def settings_schema(cls) -> dict:
+        """Return the settings schema for The Muse.
+
+        The Muse's public API is key-free; an optional key exists for
+        higher rate limits but is not required for basic ingestion.
+
+        Returns:
+            Schema dict with ``display_name`` and an empty ``fields`` list.
+        """
+        return {
+            "display_name": "The Muse",
+            "fields": [],
+        }
+
     def fetch_page(self, page: int) -> list[dict]:
         """Fetch a single page of raw The Muse results.
 

@@ -78,6 +78,35 @@ class USAJobsClient(JobSource):
     # JobSource interface
     # ------------------------------------------------------------------
 
+    @classmethod
+    def settings_schema(cls) -> dict:
+        """Return the settings schema for USAJobs.
+
+        USAJobs requires an API key and a contact email (User-Agent) as
+        mandated by the USAJobs developer agreement.
+
+        Returns:
+            Schema dict with ``display_name`` and credential ``fields``
+            for the USAJobs API key and user-agent contact email.
+        """
+        return {
+            "display_name": "USAJobs",
+            "fields": [
+                {
+                    "name": "api_key",
+                    "label": "API Key",
+                    "type": "password",
+                    "required": True,
+                },
+                {
+                    "name": "user_agent",
+                    "label": "Contact Email (User-Agent)",
+                    "type": "text",
+                    "required": True,
+                },
+            ],
+        }
+
     def fetch_page(self, page: int) -> list[dict]:
         """Fetch a single page of raw USAJobs search results.
 

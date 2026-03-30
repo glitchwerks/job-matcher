@@ -108,6 +108,10 @@ class MockJobSource(JobSource):
         """Pass-through — the fixture data is already normalised."""
         return raw
 
+    @classmethod
+    def settings_schema(cls) -> dict:
+        return {"display_name": "Mock", "fields": []}
+
     def pages(self):
         """Yield a single page of normalised listings."""
         yield self._listings
