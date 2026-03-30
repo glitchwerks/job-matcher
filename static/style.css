@@ -847,7 +847,7 @@ body {
 /* Summary row — collapsed one-liner */
 .card-summary {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   padding: 13px 18px;
   cursor: pointer;
@@ -856,6 +856,15 @@ body {
 
 .card-summary:hover {
   background-color: var(--bg-hover);
+}
+
+/* Two-row column: title on top, meta below */
+.summary-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 /* Compact score badge used inside summary */
@@ -869,6 +878,7 @@ body {
   border-radius: 20px;
   border: 1px solid transparent;
   white-space: nowrap;
+  margin-top: 2px;
 }
 
 /* Reuse tier colour classes from the regular .score-badge */
@@ -904,11 +914,9 @@ body {
   font-size: 0.93rem;
   font-weight: 600;
   color: var(--text-primary);
-  flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  min-width: 0;
 }
 
 /* Company · location · salary in summary */
@@ -917,11 +925,10 @@ body {
   font-size: 0.72rem;
   color: var(--text-secondary);
   letter-spacing: 0.02em;
-  white-space: nowrap;
   display: flex;
   align-items: center;
   gap: 0 5px;
-  flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .summary-company,
@@ -970,6 +977,7 @@ body {
   border-radius: 20px;
   border: 1px solid transparent;
   white-space: nowrap;
+  margin-top: 2px;
 }
 
 .badge-remote {
@@ -997,6 +1005,7 @@ body {
   white-space: nowrap;
   background: var(--bg-raised);
   color: var(--text-muted);
+  margin-top: 2px;
 }
 
 /* Model used badge — monospace, dimmer than badge-jobtype, no uppercase */

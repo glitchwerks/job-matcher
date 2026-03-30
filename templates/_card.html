@@ -36,22 +36,24 @@
       {%- endif -%}
     </span>
 
-    <span class="summary-title">{{ listing.title }}</span>
+    <span class="summary-main">
+      <span class="summary-title">{{ listing.title }}</span>
 
-    <span class="summary-meta">
-      {%- if listing.company -%}
-        <span class="summary-company">{{ listing.company }}</span>
-      {%- endif -%}
-      {%- if listing.company and listing.location -%}
-        <span class="sep">·</span>
-      {%- endif -%}
-      {%- if listing.location -%}
-        <span class="summary-location">{{ listing.location }}</span>
-      {%- endif -%}
-      {%- if salary -%}
-        <span class="sep">·</span>
-        <span class="salary{% if listing.salary_is_predicted %} predicted{% endif %}">{{ salary }}</span>
-      {%- endif -%}
+      <span class="summary-meta">
+        {%- if listing.company -%}
+          <span class="summary-company">{{ listing.company }}</span>
+        {%- endif -%}
+        {%- if listing.company and listing.location -%}
+          <span class="sep">·</span>
+        {%- endif -%}
+        {%- if listing.location -%}
+          <span class="summary-location">{{ listing.location }}</span>
+        {%- endif -%}
+        {%- if salary -%}
+          <span class="sep">·</span>
+          <span class="salary{% if listing.salary_is_predicted %} predicted{% endif %}">{{ salary }}</span>
+        {%- endif -%}
+      </span>
     </span>
 
     {% if is_remote %}
@@ -62,10 +64,6 @@
 
     {% if listing.job_type %}
       <span class="badge-jobtype">{{ listing.job_type | title }}</span>
-    {% endif %}
-
-    {% if listing.model_used %}
-      <span class="model-badge">{{ listing.model_used.split('/')[-1] }}</span>
     {% endif %}
 
   </summary>
