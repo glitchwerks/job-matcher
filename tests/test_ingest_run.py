@@ -22,10 +22,7 @@ import json
 import os
 import re
 import sys
-import tempfile
-from unittest.mock import patch, MagicMock
-
-import pytest
+from unittest.mock import patch
 
 # Ensure the project root is on the path regardless of how pytest is invoked.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
