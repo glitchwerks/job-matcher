@@ -337,7 +337,6 @@ class TestMigrateFromLegacy:
         _write(tmp_path / "keys.json", _VALID_KEYS_JSON)
         _write(tmp_path / "config.json", _VALID_CONFIG_JSON)
         providers_path = str(tmp_path / "providers.json")
-        tmp_file = str(tmp_path / "providers.json.tmp")
 
         # Simulate a write failure by patching os.replace
         with patch("os.replace", side_effect=OSError("disk full")):
