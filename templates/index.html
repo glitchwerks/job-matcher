@@ -106,6 +106,14 @@
     </form>
   {% endif %}
 
+  {# ── Ingestion trigger (feed only) ──────────────────────────── #}
+  {% if view == "feed" %}
+    <div class="ingest-trigger-container"
+         hx-on:ingestComplete="window.location.reload()">
+      {% include "_ingest_trigger.html" %}
+    </div>
+  {% endif %}
+
   {# ── Listing cards ───────────────────────────────────────────── #}
   {% if listings %}
     <div class="card-list">

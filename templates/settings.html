@@ -41,12 +41,6 @@
     <p class="save-error">{{ error }}</p>
   {% endif %}
 
-  {# ── Ingestion trigger ────────────────────────────────────────── #}
-  <div class="settings-section">
-    <h2 class="settings-section-title">Ingestion</h2>
-    {% include "_ingest_trigger.html" %}
-  </div>
-
   {# ── Settings form ────────────────────────────────────────────── #}
   <form class="settings-form" method="post" action="/settings">
 

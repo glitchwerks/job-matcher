@@ -286,6 +286,7 @@ def feed():
         sort=sort,
         last_fetch_time=last_fetch_time,
         config_warnings=_config_warnings(),
+        running=_ingest_running(),
     )
 
 
