@@ -258,6 +258,32 @@ class TestIngestRunningHelper:
         assert result is False
         assert app_module._ingest_process is None
 
+    def test_sets_last_run_after_exit(self, monkeypatch):
+        """When process exits, _last_run should be populated from parsed stdout."""
+        proc = _make_mock_process(
+            exited=True,
+            stdout="Ingest complete: 5 new, 10 filtered, 0 errors",
+        )
+        monkeypatch.setattr(app_module, "_ingest_process", proc)
+        monkeypatch.setattr(app_module, "_last_run", None)
+        app_module._ingest_running()
+        assert app_module._last_run is not None
+        assert app_module._last_run["new"] == 5
+        assert app_module._last_run["filtered"] == 10
+        assert app_module._last_run["errors"] == 0
+
+    def test_communicate_exception_sets_last_run_to_zeros(self, monkeypatch):
+        """When communicate() raises TimeoutExpired, _last_run should default to zeros."""
+        proc = _make_mock_process(exited=True)
+        proc.communicate.side_effect = app_module.subprocess.TimeoutExpired("cmd", 2)
+        monkeypatch.setattr(app_module, "_ingest_process", proc)
+        monkeypatch.setattr(app_module, "_last_run", None)
+        app_module._ingest_running()
+        assert app_module._last_run is not None
+        assert app_module._last_run["new"] == 0
+        assert app_module._last_run["filtered"] == 0
+        assert app_module._last_run["errors"] == 0
+
 
 # ---------------------------------------------------------------------------
 # _parse_ingest_summary — unit tests

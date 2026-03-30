@@ -460,7 +460,7 @@ def _ingest_running() -> bool:
         # Process has finished — capture output and clear handle.
         try:
             output, _ = _ingest_process.communicate(timeout=2)
-        except Exception:
+        except (subprocess.TimeoutExpired, ValueError):
             output = ""
         _last_run = _parse_ingest_summary(output or "")
         _ingest_process = None
