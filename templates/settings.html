@@ -102,6 +102,23 @@
     }
     .sortable-ghost { opacity: 0.3; }
     .sortable-drag  { opacity: 0.9; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+
+    /* ── Source enabled toggle ──────────────────────────────────── */
+    .source-enabled-label {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.85rem;
+      color: var(--text-primary);
+      cursor: pointer;
+      margin-right: 0.75rem;
+    }
+    .source-enabled-label input[type="checkbox"] {
+      accent-color: var(--text-accent);
+      width: 1rem;
+      height: 1rem;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -239,9 +256,16 @@
     <form class="settings-form" method="post" action="/settings">
       <input type="hidden" name="tab" value="sources">
 
-      {% for source_key, schema, has_values in source_schemas %}
+      {% for source_key, schema, has_values, is_enabled in source_schemas %}
         <div class="provider-row">
           <div class="provider-header">
+            <label class="source-enabled-label">
+              <input
+                type="checkbox"
+                name="{{ source_key }}__enabled"
+                {% if is_enabled %}checked{% endif %}>
+              Enabled
+            </label>
             <span class="provider-name">{{ schema.display_name }}</span>
             {% if schema.fields %}
               {% if has_values %}

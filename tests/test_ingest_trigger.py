@@ -283,7 +283,7 @@ class TestIngestRunningHelper:
         """When process exits, _last_run should be populated from parsed log output."""
         # Use the real format that ingest.py produces.
         summary_line = (
-            "Run complete: 5 fetched | 10 pre-filtered | 2 dupes skipped | "
+            "Run complete: 1 source(s) | 5 fetched | 10 pre-filtered | 2 dupes skipped | "
             "3 scored (0 failed) | 0 scrape fallbacks | ~500 tok | ~$0.0001"
         )
         monkeypatch.setattr(app_module, "_ingest_process", _make_mock_process(exited=True))
@@ -317,7 +317,7 @@ class TestParseIngestSummary:
     def test_parse_ingest_summary_valid(self):
         """Correctly formed summary line should parse all three counts."""
         line = (
-            "Run complete: 5 fetched | 100 pre-filtered | 3 dupes skipped | "
+            "Run complete: 2 source(s) | 5 fetched | 100 pre-filtered | 3 dupes skipped | "
             "2 scored (2 failed) | 0 scrape fallbacks | ~800 tok | ~$0.0002"
         )
         result = _parse_ingest_summary(line)
@@ -344,7 +344,7 @@ class TestParseIngestSummary:
     def test_parse_ingest_summary_case_insensitive(self):
         """Regex match should be case-insensitive."""
         line = (
-            "RUN COMPLETE: 3 fetched | 50 pre-filtered | 1 dupes skipped | "
+            "RUN COMPLETE: 1 SOURCE(S) | 3 fetched | 50 pre-filtered | 1 dupes skipped | "
             "2 scored (1 failed) | 0 scrape fallbacks | ~400 tok | ~$0.0001"
         )
         result = _parse_ingest_summary(line)
@@ -357,7 +357,7 @@ class TestParseIngestSummary:
         output = (
             "Fetching page 1...\n"
             "Fetching page 2...\n"
-            "Run complete: 14 fetched | 203 pre-filtered | 7 dupes skipped | "
+            "Run complete: 3 source(s) | 14 fetched | 203 pre-filtered | 7 dupes skipped | "
             "0 scored (0 failed) | 0 scrape fallbacks | ~100 tok | ~$0.0000\n"
             "Done.\n"
         )

@@ -3,29 +3,39 @@ job_sources/ — Pluggable job source provider package for Job Matcher.
 
 Public API
 ----------
-* ``JobSource``        — abstract base class; import from here or ``job_sources.base``
-* ``AdzunaClient``     — Adzuna Jobs API backend
-* ``ArbeitnowClient``  — Arbeitnow job board API backend
-* ``HimalayasClient``  — Himalayas Jobs API backend
-* ``RemoteOKClient``   — RemoteOK jobs API backend
-* ``USAJobsClient``    — USAJobs API backend
-* ``TheMuseClient``    — The Muse API backend
-* ``RemotiveClient``   — Remotive remote-jobs API backend
-* ``SOURCES``          — registry mapping source name strings to their classes
-* ``make_source()``    — factory that reads ``config["job_source"]`` and returns
-                         the right ``JobSource`` instance
+* ``JobSource``             — abstract base class; import from here or ``job_sources.base``
+* ``AdzunaClient``          — Adzuna Jobs API backend
+* ``ArbeitnowClient``       — Arbeitnow job board API backend
+* ``HimalayasClient``       — Himalayas Jobs API backend
+* ``RemoteOKClient``        — RemoteOK jobs API backend
+* ``USAJobsClient``         — USAJobs API backend
+* ``TheMuseClient``         — The Muse API backend
+* ``RemotiveClient``        — Remotive remote-jobs API backend
+* ``SOURCES``               — registry mapping source name strings to their classes
+* ``make_source()``         — factory that reads ``config["job_source"]`` and returns
+                              the right ``JobSource`` instance
+* ``make_enabled_sources()``— factory that returns all enabled ``JobSource`` instances
+                              based on the ``enabled`` flag in providers_data
 
 Usage
 -----
-    from job_sources import make_source
+    from job_sources import make_source, make_enabled_sources
 
     source = make_source(config)          # reads config["job_source"], defaults to "adzuna"
     for page in source.pages():           # AdzunaClient.pages() iterator
         for raw in source.fetch_page(n):  # or fetch page-by-page
             listing = source.normalise(raw)
+
+    sources = make_enabled_sources(providers_data, config)  # all enabled sources
+    for source in sources:
+        for page in source.pages():
+            for listing in page:
+                ...
 """
 
 from __future__ import annotations
+
+import logging
 
 from .base import JobSource
 from .adzuna import AdzunaClient
@@ -47,6 +57,7 @@ __all__ = [
     "RemotiveClient",
     "SOURCES",
     "make_source",
+    "make_enabled_sources",
 ]
 
 # ---------------------------------------------------------------------------
@@ -92,3 +103,44 @@ def make_source(config: dict) -> JobSource:
         )
 
     return cls(config=config)
+
+
+def make_enabled_sources(providers_data: dict, config: dict) -> list[JobSource]:
+    """Return a list of instantiated ``JobSource`` objects for all enabled sources.
+
+    Reads ``providers_data["job_sources"][key]["enabled"]`` for each registered
+    source.  Sources without an entry default to disabled.  Keyed sources that
+    are enabled but missing required credentials are skipped with a warning.
+
+    Args:
+        providers_data: Dict as returned by ``credentials.load_providers()``.
+        config:         Full config dict (passed to each source constructor).
+
+    Returns:
+        List of instantiated ``JobSource`` objects, in ``SOURCES`` registry order.
+    """
+    _log = logging.getLogger("ingest.sources")
+
+    sources_cfg: dict = providers_data.get("job_sources") or {}
+    result: list[JobSource] = []
+
+    for key, cls in SOURCES.items():
+        src_cfg = sources_cfg.get(key) or {}
+        if not src_cfg.get("enabled", False):
+            continue
+
+        # For keyed sources, check required credentials are present.
+        schema = cls.settings_schema()
+        required = [f["name"] for f in schema.get("fields", []) if f.get("required")]
+        if required:
+            missing = [f for f in required if not str(src_cfg.get(f, "")).strip()]
+            if missing:
+                _log.warning(
+                    "Source '%s' is enabled but missing required credentials (%s) — skipping.",
+                    key, ", ".join(missing),
+                )
+                continue
+
+        result.append(cls(config=config))
+
+    return result

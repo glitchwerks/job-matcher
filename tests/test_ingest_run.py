@@ -38,9 +38,10 @@ from job_sources.base import JobSource
 # ---------------------------------------------------------------------------
 
 _INGEST_SUMMARY_RE = re.compile(
-    r"Run complete:\s*(\d+)\s*fetched\s*\|"   # group 1 = fetched
-    r".*?(\d+)\s*pre-filtered\s*\|"           # group 2 = pre-filtered
-    r".*?scored\s*\((\d+)\s*failed\)",         # group 3 = score-failed
+    r"Run complete:\s*\d+\s*source\(s\)\s*\|"  # source count prefix
+    r"\s*(\d+)\s*fetched\s*\|"                  # group 1 = fetched
+    r".*?(\d+)\s*pre-filtered\s*\|"             # group 2 = pre-filtered
+    r".*?scored\s*\((\d+)\s*failed\)",           # group 3 = score-failed
     re.IGNORECASE,
 )
 
@@ -93,6 +94,8 @@ class MockJobSource(JobSource):
     ``pages()`` yields a single page containing the fixture listings so no
     HTTP requests are made during the test.
     """
+
+    SOURCE = "mock"
 
     def __init__(self, listings: list[dict] | None = None, config: dict | None = None):
         self._listings = listings if listings is not None else [_LISTING_1, _LISTING_2]
@@ -211,7 +214,7 @@ class TestIngestRunHappyPath:
         mock_source = MockJobSource()
 
         with (
-            patch("ingest.make_source", return_value=mock_source),
+            patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
             patch.object(ingest, "_DB_PATH", db_path),
@@ -242,7 +245,7 @@ class TestIngestRunHappyPath:
         mock_source = MockJobSource()
 
         with (
-            patch("ingest.make_source", return_value=mock_source),
+            patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
             patch.object(ingest, "_DB_PATH", db_path),
@@ -273,7 +276,7 @@ class TestIngestRunHappyPath:
         mock_source = MockJobSource()
 
         with (
-            patch("ingest.make_source", return_value=mock_source),
+            patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
             patch.object(ingest, "_DB_PATH", db_path),
@@ -313,7 +316,7 @@ class TestIngestRunHappyPath:
         mock_source = MockJobSource()
 
         with (
-            patch("ingest.make_source", return_value=mock_source),
+            patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
             patch.object(ingest, "_DB_PATH", db_path),
@@ -356,7 +359,7 @@ class TestIngestRunScoringFailure:
         mock_source = MockJobSource(listings=[_LISTING_1])
 
         with (
-            patch("ingest.make_source", return_value=mock_source),
+            patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=None),
             patch.object(ingest, "_DB_PATH", db_path),
@@ -394,7 +397,7 @@ class TestIngestRunScoringFailure:
         mock_source = MockJobSource(listings=[_LISTING_1])
 
         with (
-            patch("ingest.make_source", return_value=mock_source),
+            patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=None),
             patch.object(ingest, "_DB_PATH", db_path),
@@ -420,7 +423,7 @@ class TestIngestRunScoringFailure:
         mock_source = MockJobSource(listings=[_LISTING_1])
 
         with (
-            patch("ingest.make_source", return_value=mock_source),
+            patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=None),
             patch.object(ingest, "_DB_PATH", db_path),
@@ -456,12 +459,12 @@ class TestIngestRunDedup:
 
         db.init_db(db_path=db_path)
 
-        # side_effect receives the same args as the patched function (config dict).
-        def _make_mock_source(_config=None):
-            return MockJobSource()
+        # side_effect receives (providers_data, config) — return a list.
+        def _make_mock_sources(_providers_data=None, _config=None):
+            return [MockJobSource()]
 
         with (
-            patch("ingest.make_source", side_effect=_make_mock_source),
+            patch("ingest.make_enabled_sources", side_effect=_make_mock_sources),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
             patch.object(ingest, "_DB_PATH", db_path),
@@ -487,17 +490,18 @@ class TestIngestRunDedup:
         db.init_db(db_path=db_path)
 
         _dupe_summary_re = re.compile(
-            r"Run complete:\s*(\d+)\s*fetched\s*\|"
+            r"Run complete:\s*\d+\s*source\(s\)\s*\|"
+            r"\s*(\d+)\s*fetched\s*\|"
             r".*?(\d+)\s*dupes skipped",
             re.IGNORECASE,
         )
 
-        # side_effect receives the same args as the patched function (config dict).
-        def _make_mock_source(_config=None):
-            return MockJobSource()
+        # side_effect receives (providers_data, config) — return a list.
+        def _make_mock_sources(_providers_data=None, _config=None):
+            return [MockJobSource()]
 
         with (
-            patch("ingest.make_source", side_effect=_make_mock_source),
+            patch("ingest.make_enabled_sources", side_effect=_make_mock_sources),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
             patch.object(ingest, "_DB_PATH", db_path),

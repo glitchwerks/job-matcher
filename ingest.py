@@ -31,7 +31,7 @@ import requests
 from bs4 import BeautifulSoup
 
 import db
-from job_sources import make_source, AdzunaClient  # noqa: F401 — AdzunaClient re-exported for backward compat
+from job_sources import make_source, AdzunaClient, make_enabled_sources  # noqa: F401 — AdzunaClient re-exported for backward compat
 from providers import build_provider_chain, LLMProvider
 from credentials import CredentialError, load_providers
 
@@ -524,8 +524,6 @@ def run(
 
     db.init_db(db_path=_DB_PATH)
 
-    client = make_source(config)
-
     try:
         providers = load_providers(
             providers_path=providers_path,
@@ -536,6 +534,14 @@ def run(
         logger.error("Credential error: %s", exc)
         import sys as _sys
         _sys.exit(1)
+
+    sources = make_enabled_sources(providers, config)
+    if not sources:
+        logger.warning(
+            "No job sources are enabled. Enable at least one source in Settings > Sources."
+        )
+        print("Run complete: 0 fetched | no sources enabled")
+        return
 
     chain = build_provider_chain(providers)
     dead_providers: set[str] = set()
@@ -559,145 +565,147 @@ def run(
         from datetime import timedelta
         hours_cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-    for page in client.pages():
-        for listing in page:
-            fetched += 1
-            title = listing.get("title", "(no title)")
+    for client in sources:
+        logger.info("Fetching from source: %s", client.SOURCE)
+        for page in client.pages():
+            for listing in page:
+                fetched += 1
+                title = listing.get("title", "(no title)")
 
-            # --- Hours filter (created_at) ---
-            if hours_cutoff is not None:
-                created_raw = listing.get("created_at", "")
-                if created_raw:
-                    try:
-                        created_dt = datetime.fromisoformat(
-                            created_raw.replace("Z", "+00:00")
-                        )
-                        if created_dt < hours_cutoff:
-                            prefiltered += 1
-                            logger.info(
-                                "FILTERED  %s — created_at older than %d hours", title, hours
+                # --- Hours filter (created_at) ---
+                if hours_cutoff is not None:
+                    created_raw = listing.get("created_at", "")
+                    if created_raw:
+                        try:
+                            created_dt = datetime.fromisoformat(
+                                created_raw.replace("Z", "+00:00")
                             )
-                            continue
-                    except (ValueError, TypeError):
-                        pass  # Unparseable date — let the listing through.
+                            if created_dt < hours_cutoff:
+                                prefiltered += 1
+                                logger.info(
+                                    "FILTERED  %s — created_at older than %d hours", title, hours
+                                )
+                                continue
+                        except (ValueError, TypeError):
+                            pass  # Unparseable date — let the listing through.
 
-            # --- Pre-filter ---
-            reason = prefilter(listing, config)
-            if reason is not None:
-                prefiltered += 1
-                logger.info("FILTERED  %s — %s", title, reason)
-                continue
+                # --- Pre-filter ---
+                reason = prefilter(listing, config)
+                if reason is not None:
+                    prefiltered += 1
+                    logger.info("FILTERED  %s — %s", title, reason)
+                    continue
 
-            # --- Dedup ---
-            # Open one connection and reuse it for both dedup checks to avoid
-            # two open/close round-trips per listing.
-            with db.get_connection(_DB_PATH) as _dedup_conn:
-                _is_dupe = db.listing_exists(
-                    _dedup_conn, listing["source"], listing["source_id"]
-                )
-                if not _is_dupe:
-                    redirect_url = listing.get("redirect_url", "")
-                    if redirect_url:
-                        _is_dupe = db.listing_exists_by_url(_dedup_conn, redirect_url)
-            if _is_dupe:
-                deduped += 1
-                logger.info("DUPE      %s", title)
-                continue
-
-            # --- Scrape ---
-            description, ok = scrape_description(
-                listing["redirect_url"],
-                fallback=listing["description"],
-            )
-            if ok:
-                scraped_ok += 1
-            else:
-                scraped_fallback += 1
-                logger.warning("SCRAPE FALLBACK  %s", title)
-
-            listing["description"] = description
-
-            # --- Score ---
-            score_result = score_listing_with_fallback(
-                listing=listing,
-                profile=profile,
-                chain=chain,
-                dead_providers=dead_providers,
-            )
-
-            if score_result is None:
-                score_failed += 1
-                logger.warning("SCORE FAILED  %s", title)
-                listing.update(
-                    {
-                        "score": None,
-                        "matched_skills": [],
-                        "missing_skills": [],
-                        "concerns": [],
-                        "verdict": None,
-                        "seen": 0,
-                    }
-                )
-            else:
-                scored += 1
-                logger.info(
-                    "SCORED %d/10  %s",
-                    score_result.get("score", 0),
-                    title,
-                )
-                tok_in = score_result.get("tokens_input") or 0
-                tok_out = score_result.get("tokens_output") or 0
-                total_tokens_input += tok_in
-                total_tokens_output += tok_out
-
-                # Accumulate per-provider cost for the run summary.
-                used_provider = score_result.get("model_used", "").split("/")[0] or "unknown"
-                if used_provider not in provider_costs:
-                    # Retrieve the matching provider to get its pricing rates.
-                    matched = next(
-                        (p for p in chain if _provider_name(p) == used_provider),
-                        None,
+                # --- Dedup ---
+                # Open one connection and reuse it for both dedup checks to avoid
+                # two open/close round-trips per listing.
+                with db.get_connection(_DB_PATH) as _dedup_conn:
+                    _is_dupe = db.listing_exists(
+                        _dedup_conn, listing["source"], listing["source_id"]
                     )
-                    provider_costs[used_provider] = {
-                        "input": 0,
-                        "output": 0,
-                        "cost": 0.0,
-                        "_in_rate": matched.input_cost_per_mtok if matched else 0.0,
-                        "_out_rate": matched.output_cost_per_mtok if matched else 0.0,
-                    }
-                bucket = provider_costs[used_provider]
-                bucket["input"] += tok_in
-                bucket["output"] += tok_out
-                bucket["cost"] += (
-                    tok_in  / 1_000_000 * bucket["_in_rate"]
-                    + tok_out / 1_000_000 * bucket["_out_rate"]
+                    if not _is_dupe:
+                        redirect_url = listing.get("redirect_url", "")
+                        if redirect_url:
+                            _is_dupe = db.listing_exists_by_url(_dedup_conn, redirect_url)
+                if _is_dupe:
+                    deduped += 1
+                    logger.info("DUPE      %s", title)
+                    continue
+
+                # --- Scrape ---
+                description, ok = scrape_description(
+                    listing["redirect_url"],
+                    fallback=listing["description"],
+                )
+                if ok:
+                    scraped_ok += 1
+                else:
+                    scraped_fallback += 1
+                    logger.warning("SCRAPE FALLBACK  %s", title)
+
+                listing["description"] = description
+
+                # --- Score ---
+                score_result = score_listing_with_fallback(
+                    listing=listing,
+                    profile=profile,
+                    chain=chain,
+                    dead_providers=dead_providers,
                 )
 
-                listing.update(score_result)
-                listing["seen"] = 1
+                if score_result is None:
+                    score_failed += 1
+                    logger.warning("SCORE FAILED  %s", title)
+                    listing.update(
+                        {
+                            "score": None,
+                            "matched_skills": [],
+                            "missing_skills": [],
+                            "concerns": [],
+                            "verdict": None,
+                            "seen": 0,
+                        }
+                    )
+                else:
+                    scored += 1
+                    logger.info(
+                        "SCORED %d/10  %s",
+                        score_result.get("score", 0),
+                        title,
+                    )
+                    tok_in = score_result.get("tokens_input") or 0
+                    tok_out = score_result.get("tokens_output") or 0
+                    total_tokens_input += tok_in
+                    total_tokens_output += tok_out
 
-            # --- Persist ---
-            listing["fetched_at"] = datetime.now(timezone.utc).isoformat()
-            listing["bookmarked"] = 0
-            listing["dismissed"] = 0
-            listing["job_type"] = job_type or None
+                    # Accumulate per-provider cost for the run summary.
+                    used_provider = score_result.get("model_used", "").split("/")[0] or "unknown"
+                    if used_provider not in provider_costs:
+                        # Retrieve the matching provider to get its pricing rates.
+                        matched = next(
+                            (p for p in chain if _provider_name(p) == used_provider),
+                            None,
+                        )
+                        provider_costs[used_provider] = {
+                            "input": 0,
+                            "output": 0,
+                            "cost": 0.0,
+                            "_in_rate": matched.input_cost_per_mtok if matched else 0.0,
+                            "_out_rate": matched.output_cost_per_mtok if matched else 0.0,
+                        }
+                    bucket = provider_costs[used_provider]
+                    bucket["input"] += tok_in
+                    bucket["output"] += tok_out
+                    bucket["cost"] += (
+                        tok_in  / 1_000_000 * bucket["_in_rate"]
+                        + tok_out / 1_000_000 * bucket["_out_rate"]
+                    )
 
-            # Populate posted_at from created_at when the source's normalise()
-            # does not set it directly (non-Adzuna sources).  db.insert_listing()
-            # defaults posted_at to NULL via setdefault — setting it here ensures
-            # date-sort works correctly for all sources.
-            if not listing.get("posted_at"):
-                listing["posted_at"] = listing.get("created_at") or None
+                    listing.update(score_result)
+                    listing["seen"] = 1
 
-            try:
-                db.insert_listing(listing, db_path=_DB_PATH)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("DB insert failed for %s: %s", title, exc)
+                # --- Persist ---
+                listing["fetched_at"] = datetime.now(timezone.utc).isoformat()
+                listing["bookmarked"] = 0
+                listing["dismissed"] = 0
+                listing["job_type"] = job_type or None
+
+                # Populate posted_at from created_at when the source's normalise()
+                # does not set it directly (non-Adzuna sources).  db.insert_listing()
+                # defaults posted_at to NULL via setdefault — setting it here ensures
+                # date-sort works correctly for all sources.
+                if not listing.get("posted_at"):
+                    listing["posted_at"] = listing.get("created_at") or None
+
+                try:
+                    db.insert_listing(listing, db_path=_DB_PATH)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("DB insert failed for %s: %s", title, exc)
 
     total_tokens = total_tokens_input + total_tokens_output
     run_cost = sum(b["cost"] for b in provider_costs.values())
     print(
-        f"Run complete: {fetched} fetched | {prefiltered} pre-filtered | "
+        f"Run complete: {len(sources)} source(s) | {fetched} fetched | {prefiltered} pre-filtered | "
         f"{deduped} dupes skipped | {scored} scored ({score_failed} failed) | "
         f"{scraped_fallback} scrape fallbacks | "
         f"~{total_tokens:,} tok | ~${run_cost:.4f}"

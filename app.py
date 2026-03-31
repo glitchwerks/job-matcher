@@ -424,12 +424,13 @@ _ingest_log_file: "tempfile.SpooledTemporaryFile | None" = None
 _last_run: dict | None = None
 
 # Matches the summary line that ingest.py prints at the end of each run:
-#   Run complete: 25 fetched | 10 pre-filtered | 5 dupes skipped |
+#   Run complete: 2 source(s) | 25 fetched | 10 pre-filtered | 5 dupes skipped |
 #                7 scored (3 failed) | 0 scrape fallbacks | ~1,234 tok | ~$0.0012
 _INGEST_SUMMARY_RE = re.compile(
-    r"Run complete:\s*(\d+)\s*fetched\s*\|"   # group 1 = fetched
-    r".*?(\d+)\s*pre-filtered\s*\|"           # group 2 = pre-filtered
-    r".*?scored\s*\((\d+)\s*failed\)",         # group 3 = score-failed
+    r"Run complete:\s*\d+\s*source\(s\)\s*\|"  # source count prefix
+    r"\s*(\d+)\s*fetched\s*\|"                  # group 1 = fetched
+    r".*?(\d+)\s*pre-filtered\s*\|"             # group 2 = pre-filtered
+    r".*?scored\s*\((\d+)\s*failed\)",           # group 3 = score-failed
     re.IGNORECASE,
 )
 
@@ -679,19 +680,22 @@ def settings():
             if provider_updates:
                 updates["llm"][provider_key] = provider_updates
 
-        # Job sources: same pattern.
+        # Job sources: save enabled flag for all; save credential fields for keyed sources.
         for source_key, cls in SOURCES.items():
             schema = cls.settings_schema()
-            if not schema["fields"]:
-                continue  # no-credential sources have nothing to save
             source_updates: dict = {}
+
+            # Checkbox: unchecked = not submitted = False
+            enabled = request.form.get(f"{source_key}__enabled") == "on"
+            source_updates["enabled"] = enabled
+
             for field in schema["fields"]:
                 field_name = field["name"]
                 form_key = f"{source_key}__{field_name}"
                 value = request.form.get(form_key, "").strip()
                 source_updates[field_name] = value
-            if source_updates:
-                updates["job_sources"][source_key] = source_updates
+
+            updates["job_sources"][source_key] = source_updates
 
         try:
             save_providers(updates, providers_path=_PROVIDERS_PATH)
@@ -711,7 +715,7 @@ def settings():
     provider_order: list[str] = providers_data.get("provider_order") or []
     llm_schemas = _build_llm_schemas(llm_section, provider_order)
 
-    source_schemas: list[tuple[str, dict, bool]] = []
+    source_schemas: list[tuple[str, dict, bool, bool]] = []
     for key, cls in SOURCES.items():
         schema = cls.settings_schema()
         cfg = sources_section.get(key) or {}
@@ -720,7 +724,8 @@ def settings():
             has_values = all(bool(cfg.get(fn, "").strip()) for fn in required_fields)
         else:
             has_values = False  # no-credential sources are never "configured"
-        source_schemas.append((key, schema, has_values))
+        is_enabled = bool(cfg.get("enabled", False))
+        source_schemas.append((key, schema, has_values, is_enabled))
 
     # POST-with-error: re-render the form (not a redirect) so the error is shown.
     saved = False  # POST always redirects on success; reaching here means error or GET
