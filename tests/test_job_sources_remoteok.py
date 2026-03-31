@@ -243,6 +243,7 @@ class TestNormalise:
         assert result["salary_max"] == 160000
         assert result["contract_type"] is None
         assert result["contract_time"] is None
+        assert result["salary_period"] is None  # RemoteOK API doesn't expose pay period
         assert result["redirect_url"] == "https://remoteok.com/remote-jobs/abc123"
         assert result["created_at"] == "2026-01-15T09:00:00Z"
 

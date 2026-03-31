@@ -164,6 +164,17 @@ def load_profile(path: str = _DEFAULT_PROFILE_PATH) -> dict:
 # Pre-filter
 # ---------------------------------------------------------------------------
 
+# Multipliers to convert a salary figure to an annual equivalent before
+# comparing against a configured annual floor. Unknown periods are treated
+# as pass-through (fail open) rather than dropping potentially good listings.
+_PERIOD_MULTIPLIERS: dict[str, float] = {
+    "hourly": 2080.0,   # 40 hrs/week × 52 weeks
+    "daily": 260.0,     # 5 days/week × 52 weeks
+    "annual": 1.0,
+    "yearly": 1.0,
+}
+
+
 def prefilter(listing: dict, config: dict) -> str | None:
     """Check whether a listing passes all configured heuristic filters.
 
@@ -203,14 +214,7 @@ def prefilter(listing: dict, config: dict) -> str | None:
 
     # Salary floor — only checked when listing has a salary_max value.
     # Normalize salary_max to an annual figure before comparing to the annual floor.
-    # Known multipliers: hourly → ×2080, daily → ×260, annual/yearly → ×1.
     # Unknown/absent period → skip the check (fail open rather than drop good listings).
-    _PERIOD_MULTIPLIERS: dict[str, float] = {
-        "hourly": 2080.0,
-        "daily": 260.0,
-        "annual": 1.0,
-        "yearly": 1.0,
-    }
     salary_max = listing.get("salary_max")
     configured_floor = (
         pf.get("salary_min")
