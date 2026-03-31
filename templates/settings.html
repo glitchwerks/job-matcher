@@ -39,6 +39,69 @@
     .tab-pane.active {
       display: block;
     }
+
+    /* ── Provider drag-to-reorder list ──────────────────────────── */
+    .order-section {
+      margin-bottom: 2rem;
+    }
+    .order-section-heading {
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      margin: 0 0 0.4rem;
+    }
+    .order-section-hint {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      margin: 0 0 0.75rem;
+    }
+    .provider-order-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .order-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.5rem 0.75rem;
+      margin-bottom: 0.3rem;
+      background: var(--card-bg, #1e1e2e);
+      border: 1px solid var(--border-mid);
+      border-radius: 6px;
+      cursor: grab;
+      user-select: none;
+    }
+    .order-item:active { cursor: grabbing; }
+    .order-item--unconfigured { opacity: 0.55; }
+    .drag-handle {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      cursor: grab;
+      flex-shrink: 0;
+    }
+    .order-position {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-accent);
+      min-width: 1.2rem;
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .order-provider-name {
+      flex: 1;
+      font-size: 0.9rem;
+      color: var(--text-primary);
+    }
+    .order-error {
+      margin-top: 0.5rem;
+      font-size: 0.85rem;
+      color: var(--danger, #f38ba8);
+    }
+    .sortable-ghost { opacity: 0.3; }
+    .sortable-drag  { opacity: 0.9; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
   </style>
 </head>
 <body>
@@ -99,6 +162,16 @@
     id="pane-llm"
     class="tab-pane{% if active_tab == 'llm' %} active{% endif %}"
     role="tabpanel">
+
+    {# ── Fallback Order ──────────────────────────────────────────── #}
+    <div class="order-section">
+      <p class="order-section-heading">Fallback Order</p>
+      <p class="order-section-hint">Drag to reorder — provider #1 is tried first. Unconfigured providers are skipped at runtime.</p>
+      <div id="provider-order-container">
+        {% include "_provider_order.html" %}
+      </div>
+      <p id="order-error" class="order-error" style="display:none"></p>
+    </div>
 
     <form class="settings-form" method="post" action="/settings">
       <input type="hidden" name="tab" value="llm">
@@ -241,6 +314,83 @@
   if (tabParam && document.getElementById('pane-' + tabParam)) {
     activateTab(tabParam);
   }
+}());
+</script>
+{# ── SortableJS drag-to-reorder ──────────────────────────────── #}
+<script src="/static/js/sortable.min.js"></script>
+<script>
+(function () {
+  var container  = document.getElementById('provider-order-container');
+  var errorEl    = document.getElementById('order-error');
+  if (!container) return;
+
+  var listEl     = container.querySelector('#provider-order-list');
+  var savedOrder = null;
+  var inFlight   = false;
+
+  function updatePositionBadges() {
+    var items = listEl.querySelectorAll('.order-item');
+    items.forEach(function (item, i) {
+      var badge = item.querySelector('.order-position');
+      if (badge) badge.textContent = i + 1;
+    });
+  }
+
+  var sortable = Sortable.create(listEl, {
+    animation: 150,
+    handle: '.drag-handle',
+    ghostClass: 'sortable-ghost',
+    dragClass:  'sortable-drag',
+
+    onStart: function () {
+      if (inFlight) { return false; }   /* block drag while save is pending */
+      savedOrder = sortable.toArray();
+    },
+
+    onEnd: function () {
+      var newOrder = sortable.toArray();
+      updatePositionBadges();          /* optimistic update */
+
+      inFlight = true;
+      fetch('/api/providers/reorder', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ order: newOrder }),
+      })
+      .then(function (resp) {
+        if (resp.ok) {
+          /* Replace container with server-confirmed fragment. */
+          resp.text().then(function (html) {
+            container.innerHTML = html;
+            listEl = container.querySelector('#provider-order-list');
+            var opts = sortable.options;
+            sortable.destroy();
+            sortable = Sortable.create(listEl, opts);
+            if (errorEl) errorEl.style.display = 'none';
+            inFlight = false;
+          });
+        } else {
+          /* Revert DOM to pre-drag order. */
+          if (savedOrder) sortable.sort(savedOrder);
+          updatePositionBadges();
+          if (errorEl) {
+            errorEl.textContent = 'Could not save order — check file permissions.';
+            errorEl.style.display = '';
+          }
+          inFlight = false;
+        }
+      })
+      .catch(function () {
+        if (savedOrder) sortable.sort(savedOrder);
+        updatePositionBadges();
+        if (errorEl) {
+          errorEl.textContent = 'Could not save order — network error.';
+          errorEl.style.display = '';
+        }
+        inFlight = false;
+      });
+    },
+  });
 }());
 </script>
 </body>

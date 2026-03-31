@@ -13,3 +13,4 @@ venv/
 *.egg-info/
 dist/
 build/
+.claude/worktrees/

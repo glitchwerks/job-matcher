@@ -583,6 +583,41 @@ def ingest_status():
     return resp
 
 
+def _build_llm_schemas(
+    llm_section: dict,
+    provider_order: list[str],
+) -> list[tuple[str, dict, bool]]:
+    """Build the ordered llm_schemas list for the settings template.
+
+    Returns a list of ``(provider_key, schema_dict, has_values)`` tuples.
+    Providers in *provider_order* come first (unknown/duplicate keys skipped),
+    followed by any registry providers not listed, in registry insertion order.
+
+    Args:
+        llm_section:    The ``"llm"`` sub-dict from ``providers.json``.
+        provider_order: The ``provider_order`` list from ``providers.json``.
+    """
+    seen: set[str] = set()
+    schemas: list[tuple[str, dict, bool]] = []
+    for key in provider_order:
+        if key in _PROVIDER_CLASS_MAP and key not in seen:
+            cls = _PROVIDER_CLASS_MAP[key]
+            schema = cls.settings_schema()
+            cfg = llm_section.get(key) or {}
+            has_values = bool(cfg.get("api_key", "").strip())
+            schemas.append((key, schema, has_values))
+            seen.add(key)
+    for key in _PROVIDER_CLASS_MAP:
+        if key not in seen:
+            cls = _PROVIDER_CLASS_MAP[key]
+            schema = cls.settings_schema()
+            cfg = llm_section.get(key) or {}
+            has_values = bool(cfg.get("api_key", "").strip())
+            schemas.append((key, schema, has_values))
+            seen.add(key)
+    return schemas
+
+
 def _load_providers_safe() -> dict:
     """Load providers.json and return the parsed dict, or an empty skeleton on error.
 
@@ -674,25 +709,7 @@ def settings():
 
     # provider_order from providers.json determines display sequence.
     provider_order: list[str] = providers_data.get("provider_order") or []
-    # Build ordered list: provider_order first, then any registry providers not listed.
-    seen: set[str] = set()
-    ordered_provider_keys: list[str] = []
-    for key in provider_order:
-        if key in _PROVIDER_CLASS_MAP and key not in seen:
-            ordered_provider_keys.append(key)
-            seen.add(key)
-    for key in _PROVIDER_CLASS_MAP:
-        if key not in seen:
-            ordered_provider_keys.append(key)
-            seen.add(key)
-
-    llm_schemas: list[tuple[str, dict, bool]] = []
-    for key in ordered_provider_keys:
-        cls = _PROVIDER_CLASS_MAP[key]
-        schema = cls.settings_schema()
-        cfg = llm_section.get(key) or {}
-        has_values = bool(cfg.get("api_key", "").strip())
-        llm_schemas.append((key, schema, has_values))
+    llm_schemas = _build_llm_schemas(llm_section, provider_order)
 
     source_schemas: list[tuple[str, dict, bool]] = []
     for key, cls in SOURCES.items():
@@ -921,6 +938,52 @@ def validate_keys():
             results[provider] = "unreachable"
 
     return render_template("_validation_results.html", results=results)
+
+
+@app.route("/api/providers/reorder", methods=["POST"])
+def api_providers_reorder():
+    """Persist a new LLM provider fallback order.
+
+    Expects JSON body: ``{"order": ["anthropic", "gemini", "openai"]}``
+
+    * All entries must be known keys in ``_PROVIDER_CLASS_MAP``; unknown keys → 400.
+    * ``order`` may be a subset of the registry (omitted providers are appended at
+      runtime by ``build_provider_chain()``).
+    * Writes only ``provider_order`` at the top level of ``providers.json``.
+    * Returns the rendered ``_provider_order.html`` fragment on success (200).
+    * Returns a plain-text error message on failure (400/500).
+    """
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return "Invalid request body — expected JSON object.", 400
+
+    order = body.get("order")
+    if not isinstance(order, list):
+        return "Missing or invalid 'order' field — expected a JSON array.", 400
+
+    if not all(isinstance(k, str) for k in order):
+        return "All entries in 'order' must be strings.", 400
+
+    unknown = [k for k in order if k not in _PROVIDER_CLASS_MAP]
+    if unknown:
+        return f"Unknown provider key(s): {', '.join(unknown)}", 400
+
+    if len(order) != len(set(order)):
+        return "Duplicate provider key(s) in order list.", 400
+
+    try:
+        save_providers({"provider_order": order}, providers_path=_PROVIDERS_PATH)
+    except OSError:
+        return "Could not save order — check file permissions.", 500
+
+    # Re-build llm_schemas in the new order for the response fragment.
+    # We re-read providers.json here (rather than using the in-memory `order`
+    # list alone) to pick up the has_values flags from the just-written file.
+    providers_data = _load_providers_safe()
+    llm_section: dict = providers_data.get("llm") or {}
+    llm_schemas = _build_llm_schemas(llm_section, order)
+
+    return render_template("_provider_order.html", llm_schemas=llm_schemas)
 
 
 # ---------------------------------------------------------------------------
