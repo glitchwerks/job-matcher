@@ -525,7 +525,7 @@ def run(
     db.init_db(db_path=_DB_PATH)
 
     try:
-        _providers_data = load_providers(
+        providers = load_providers(
             providers_path=providers_path,
             keys_path=keys_path,
             config_path=config_path,
@@ -535,15 +535,13 @@ def run(
         import sys as _sys
         _sys.exit(1)
 
-    sources = make_enabled_sources(_providers_data, config)
+    sources = make_enabled_sources(providers, config)
     if not sources:
         logger.warning(
             "No job sources are enabled. Enable at least one source in Settings > Sources."
         )
         print("Run complete: 0 fetched | no sources enabled")
         return
-
-    providers = _providers_data
 
     chain = build_provider_chain(providers)
     dead_providers: set[str] = set()

@@ -35,6 +35,8 @@ Usage
 
 from __future__ import annotations
 
+import logging
+
 from .base import JobSource
 from .adzuna import AdzunaClient
 from .arbeitnow import ArbeitnowClient
@@ -117,7 +119,6 @@ def make_enabled_sources(providers_data: dict, config: dict) -> list[JobSource]:
     Returns:
         List of instantiated ``JobSource`` objects, in ``SOURCES`` registry order.
     """
-    import logging
     _log = logging.getLogger("ingest.sources")
 
     sources_cfg: dict = providers_data.get("job_sources") or {}
