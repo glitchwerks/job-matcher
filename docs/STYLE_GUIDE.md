@@ -196,7 +196,7 @@ All buttons extend `.btn` (base). Add a modifier class for semantic variants.
 
 | Class | Element | Notes |
 |---|---|---|
-| `.settings-form` | `<form>` | Flex column gap 16px; max-width 600px |
+| `.settings-form` | `<form>` | Flex column gap 16px; max-width `var(--max-width)` |
 | `.provider-row` | `<div>` | `--bg-surface` card with `--border-subtle`, `--radius-md`, padding 16px 20px |
 | `.provider-header` | `<div>` | Flex row, align-items center, gap 10px |
 | `.provider-name` | `<span>` | `--font-ui` 0.95rem weight 600, `--text-primary` |
