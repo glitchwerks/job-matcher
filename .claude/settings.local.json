@@ -14,7 +14,11 @@
       "Bash(Select-Object Name)",
       "Bash(Sort-Object Name)",
       "Bash(uv pip:*)",
-      "Bash(pytest --tb=short -q)"
+      "Bash(pytest --tb=short -q)",
+      "mcp__plugin_github_github__update_pull_request",
+      "PowerShell(git:*)",
+      "Bash(pytest:*)",
+      "Bash(gh run:*)"
     ]
   }
 }
