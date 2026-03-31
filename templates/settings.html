@@ -320,11 +320,12 @@
 <script src="/static/js/sortable.min.js"></script>
 <script>
 (function () {
-  var container  = document.getElementById('provider-order-container');
-  var errorEl    = document.getElementById('order-error');
+  var container = document.getElementById('provider-order-container');
+  var errorEl   = document.getElementById('order-error');
   if (!container) return;
 
   var listEl     = container.querySelector('#provider-order-list');
+  if (!listEl) return;
   var savedOrder = null;
   var inFlight   = false;
 
@@ -336,61 +337,77 @@
     });
   }
 
-  var sortable = Sortable.create(listEl, {
-    animation: 150,
-    handle: '.drag-handle',
-    ghostClass: 'sortable-ghost',
-    dragClass:  'sortable-drag',
+  /* Factory: always builds a fresh plain config so we never pass stale
+     SortableJS internal state (e.g. the `el` property on sortable.options)
+     back into Sortable.create() after a DOM swap. */
+  function initSortable(el) {
+    return Sortable.create(el, {
+      animation:  150,
+      handle:     '.drag-handle',
+      ghostClass: 'sortable-ghost',
+      dragClass:  'sortable-drag',
 
-    onStart: function () {
-      if (inFlight) { return false; }   /* block drag while save is pending */
-      savedOrder = sortable.toArray();
-    },
+      onStart: function () {
+        /* SortableJS ignores return values — disable via the API instead. */
+        if (inFlight) {
+          sortable.option('disabled', true);
+          return;
+        }
+        savedOrder = sortable.toArray();
+      },
 
-    onEnd: function () {
-      var newOrder = sortable.toArray();
-      updatePositionBadges();          /* optimistic update */
+      onEnd: function () {
+        if (inFlight) { return; }
 
-      inFlight = true;
-      fetch('/api/providers/reorder', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ order: newOrder }),
-      })
-      .then(function (resp) {
-        if (resp.ok) {
-          /* Replace container with server-confirmed fragment. */
-          resp.text().then(function (html) {
-            container.innerHTML = html;
-            listEl = container.querySelector('#provider-order-list');
-            var opts = sortable.options;
-            sortable.destroy();
-            sortable = Sortable.create(listEl, opts);
-            if (errorEl) errorEl.style.display = 'none';
+        var newOrder = sortable.toArray();
+        updatePositionBadges();   /* optimistic update */
+
+        inFlight = true;
+        sortable.option('disabled', true);   /* block new drags while saving */
+
+        fetch('/api/providers/reorder', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ order: newOrder }),
+        })
+        .then(function (resp) {
+          if (resp.ok) {
+            resp.text().then(function (html) {
+              container.innerHTML = html;
+              listEl = container.querySelector('#provider-order-list');
+              sortable.destroy();
+              /* Fresh config — never reuse sortable.options */
+              sortable = initSortable(listEl);
+              if (errorEl) errorEl.style.display = 'none';
+              inFlight = false;
+              /* New sortable starts enabled; no need to re-enable old one */
+            });
+          } else {
+            if (savedOrder) sortable.sort(savedOrder);
+            updatePositionBadges();
+            if (errorEl) {
+              errorEl.textContent = 'Could not save order — check file permissions.';
+              errorEl.style.display = '';
+            }
+            sortable.option('disabled', false);
             inFlight = false;
-          });
-        } else {
-          /* Revert DOM to pre-drag order. */
+          }
+        })
+        .catch(function () {
           if (savedOrder) sortable.sort(savedOrder);
           updatePositionBadges();
           if (errorEl) {
-            errorEl.textContent = 'Could not save order — check file permissions.';
+            errorEl.textContent = 'Could not save order — network error.';
             errorEl.style.display = '';
           }
+          sortable.option('disabled', false);
           inFlight = false;
-        }
-      })
-      .catch(function () {
-        if (savedOrder) sortable.sort(savedOrder);
-        updatePositionBadges();
-        if (errorEl) {
-          errorEl.textContent = 'Could not save order — network error.';
-          errorEl.style.display = '';
-        }
-        inFlight = false;
-      });
-    },
-  });
+        });
+      },
+    });
+  }
+
+  var sortable = initSortable(listEl);
 }());
 </script>
 </body>
