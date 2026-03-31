@@ -223,7 +223,7 @@ class TestArbeitnowClientNormalise:
         """normalise() output contains all required canonical schema keys."""
         required_keys = {
             "source", "source_id", "title", "company", "location",
-            "salary_min", "salary_max", "contract_type", "contract_time",
+            "salary_min", "salary_max", "salary_period", "contract_type", "contract_time",
             "description", "redirect_url", "created_at",
         }
         client = _client()

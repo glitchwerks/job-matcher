@@ -245,6 +245,7 @@ class HimalayasClient(JobSource):
             "location": location,
             "salary_min": raw.get("salaryMin"),
             "salary_max": raw.get("salaryMax"),
+            "salary_period": None,  # Himalayas API does not expose a pay-period field
             "contract_type": None,
             "contract_time": _map_job_type(raw.get("jobType")),
             "description": description,

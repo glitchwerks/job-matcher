@@ -202,6 +202,15 @@ def prefilter(listing: dict, config: dict) -> str | None:
                 return f'title_exclude: "{pat}" matched "{title}"'
 
     # Salary floor — only checked when listing has a salary_max value.
+    # Normalize salary_max to an annual figure before comparing to the annual floor.
+    # Known multipliers: hourly → ×2080, daily → ×260, annual/yearly → ×1.
+    # Unknown/absent period → skip the check (fail open rather than drop good listings).
+    _PERIOD_MULTIPLIERS: dict[str, float] = {
+        "hourly": 2080.0,
+        "daily": 260.0,
+        "annual": 1.0,
+        "yearly": 1.0,
+    }
     salary_max = listing.get("salary_max")
     configured_floor = (
         pf.get("salary_min")
@@ -209,11 +218,18 @@ def prefilter(listing: dict, config: dict) -> str | None:
         or 0
     )
     if configured_floor and salary_max is not None:
-        try:
-            if float(salary_max) < float(configured_floor):
-                return f"salary: max {salary_max} below floor {configured_floor}"
-        except (TypeError, ValueError):
-            pass  # If we can't compare, let it through.
+        salary_period = (listing.get("salary_period") or "").lower().strip()
+        multiplier = _PERIOD_MULTIPLIERS.get(salary_period)
+        if multiplier is None:
+            # Unknown period — cannot safely compare to an annual floor; let it through.
+            pass
+        else:
+            try:
+                annual_max = float(salary_max) * multiplier
+                if annual_max < float(configured_floor):
+                    return f"salary: max {salary_max} ({salary_period or 'unknown period'}) below floor {configured_floor}"
+            except (TypeError, ValueError):
+                pass  # If we can't compare, let it through.
 
     # Contract time.
     require_time: str | None = pf.get("require_contract_time")

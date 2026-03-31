@@ -140,7 +140,7 @@ class TestTheMuseClientNormalise:
         """normalise() output contains every key in the canonical schema."""
         expected_keys = {
             "source", "source_id", "title", "company", "location",
-            "salary_min", "salary_max", "contract_type", "contract_time",
+            "salary_min", "salary_max", "salary_period", "contract_type", "contract_time",
             "description", "redirect_url", "created_at",
         }
         client = _make_client()

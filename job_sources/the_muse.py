@@ -224,6 +224,7 @@ class TheMuseClient(JobSource):
             "location": location,
             "salary_min": None,
             "salary_max": None,
+            "salary_period": None,  # The Muse does not expose salary data
             "contract_type": None,
             "contract_time": raw.get("type") or None,
             "description": self._strip_html(raw.get("contents")),

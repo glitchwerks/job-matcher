@@ -22,6 +22,7 @@ def make_listing(
     title: str = "Software Engineer",
     salary_min: float | None = None,
     salary_max: float | None = None,
+    salary_period: str | None = None,
     contract_time: str = "",
     contract_type: str = "",
 ) -> dict:
@@ -30,6 +31,7 @@ def make_listing(
         "title": title,
         "salary_min": salary_min,
         "salary_max": salary_max,
+        "salary_period": salary_period,
         "contract_time": contract_time,
         "contract_type": contract_type,
     }
@@ -139,22 +141,22 @@ def test_title_exclude_case_insensitive():
 # ---------------------------------------------------------------------------
 
 def test_salary_floor_pass():
-    """Listing passes when salary_max is at or above the configured floor."""
-    listing = make_listing(salary_max=100_000)
+    """Annual listing passes when salary_max is at or above the configured floor."""
+    listing = make_listing(salary_max=100_000, salary_period="annual")
     config = make_config(salary_min=80_000)
     assert prefilter(listing, config) is None
 
 
 def test_salary_floor_exact_boundary_passes():
-    """Listing passes when salary_max exactly equals the floor."""
-    listing = make_listing(salary_max=80_000)
+    """Annual listing passes when salary_max exactly equals the floor."""
+    listing = make_listing(salary_max=80_000, salary_period="annual")
     config = make_config(salary_min=80_000)
     assert prefilter(listing, config) is None
 
 
 def test_salary_floor_fail():
-    """Listing is rejected when salary_max is below the configured floor."""
-    listing = make_listing(salary_max=50_000)
+    """Annual listing is rejected when salary_max is below the configured floor."""
+    listing = make_listing(salary_max=50_000, salary_period="annual")
     config = make_config(salary_min=80_000)
     result = prefilter(listing, config)
     assert result is not None
@@ -174,7 +176,7 @@ def test_salary_missing_passes_regardless_of_floor():
 
 def test_salary_floor_from_search_section():
     """Floor is also read from config.search.salary_min when prefilter.salary_min absent."""
-    listing = make_listing(salary_max=50_000)
+    listing = make_listing(salary_max=50_000, salary_period="annual")
     config = {
         "search": {"salary_min": 80_000},
         "prefilter": {},
@@ -182,6 +184,94 @@ def test_salary_floor_from_search_section():
     result = prefilter(listing, config)
     assert result is not None
     assert "salary" in result
+
+
+# ---------------------------------------------------------------------------
+# Salary period normalisation tests
+# ---------------------------------------------------------------------------
+
+def test_salary_hourly_above_floor_passes():
+    """$150/hr is well above a $120,000/yr floor after normalisation (150 × 2080 = 312,000)."""
+    listing = make_listing(salary_max=150, salary_period="hourly")
+    config = make_config(salary_min=120_000)
+    assert prefilter(listing, config) is None
+
+
+def test_salary_hourly_below_floor_fails():
+    """$50/hr is below a $120,000/yr floor after normalisation (50 × 2080 = 104,000)."""
+    listing = make_listing(salary_max=50, salary_period="hourly")
+    config = make_config(salary_min=120_000)
+    result = prefilter(listing, config)
+    assert result is not None
+    assert "salary" in result
+
+
+def test_salary_daily_above_floor_passes():
+    """$600/day is above a $120,000/yr floor after normalisation (600 × 260 = 156,000)."""
+    listing = make_listing(salary_max=600, salary_period="daily")
+    config = make_config(salary_min=120_000)
+    assert prefilter(listing, config) is None
+
+
+def test_salary_daily_below_floor_fails():
+    """$400/day is below a $120,000/yr floor after normalisation (400 × 260 = 104,000)."""
+    listing = make_listing(salary_max=400, salary_period="daily")
+    config = make_config(salary_min=120_000)
+    result = prefilter(listing, config)
+    assert result is not None
+    assert "salary" in result
+
+
+def test_salary_annual_unchanged_passes():
+    """An explicitly annual salary is used as-is and passes when above the floor."""
+    listing = make_listing(salary_max=150_000, salary_period="annual")
+    config = make_config(salary_min=120_000)
+    assert prefilter(listing, config) is None
+
+
+def test_salary_annual_unchanged_fails():
+    """An explicitly annual salary is used as-is and fails when below the floor."""
+    listing = make_listing(salary_max=80_000, salary_period="annual")
+    config = make_config(salary_min=120_000)
+    result = prefilter(listing, config)
+    assert result is not None
+    assert "salary" in result
+
+
+def test_salary_yearly_alias_passes():
+    """'yearly' is treated as an alias for 'annual'."""
+    listing = make_listing(salary_max=150_000, salary_period="yearly")
+    config = make_config(salary_min=120_000)
+    assert prefilter(listing, config) is None
+
+
+def test_salary_unknown_period_passes_regardless():
+    """A listing with an unrecognised salary_period is always let through (fail open).
+
+    Without knowing the period we cannot safely compare to an annual floor.
+    It is better to let a borderline listing reach scoring than to drop a
+    good one silently.
+    """
+    listing = make_listing(salary_max=50, salary_period="weekly")
+    config = make_config(salary_min=120_000)
+    assert prefilter(listing, config) is None
+
+
+def test_salary_none_period_passes_regardless():
+    """A listing with salary_period=None is always let through (fail open).
+
+    Most sources do not expose a pay-period field; None means 'unknown'.
+    """
+    listing = make_listing(salary_max=50, salary_period=None)
+    config = make_config(salary_min=120_000)
+    assert prefilter(listing, config) is None
+
+
+def test_salary_period_case_insensitive():
+    """salary_period matching is case-insensitive ('Hourly' == 'hourly')."""
+    listing = make_listing(salary_max=150, salary_period="Hourly")
+    config = make_config(salary_min=120_000)
+    assert prefilter(listing, config) is None
 
 
 # ---------------------------------------------------------------------------
