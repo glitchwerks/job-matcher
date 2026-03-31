@@ -216,6 +216,7 @@ class AdzunaClient(JobSource):
             "location": location_obj.get("display_name", "") if isinstance(location_obj, dict) else "",
             "salary_min": raw.get("salary_min"),
             "salary_max": raw.get("salary_max"),
+            "salary_period": None,  # Adzuna does not expose a pay-period field
             "salary_is_predicted": salary_is_predicted,
             "contract_type": raw.get("contract_type", "") or "",
             "contract_time": raw.get("contract_time", "") or "",

@@ -202,7 +202,7 @@ class TestPrefilterReturnType:
         assert isinstance(result, str) and len(result) > 0
 
     def test_salary_reject_returns_nonempty_string(self):
-        listing = self._make_listing(salary_max=30_000)
+        listing = self._make_listing(salary_max=30_000, salary_period="annual")
         config = {"prefilter": {"salary_min": 80_000}}
         result = prefilter(listing, config)
         assert isinstance(result, str) and len(result) > 0

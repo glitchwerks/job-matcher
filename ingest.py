@@ -164,6 +164,17 @@ def load_profile(path: str = _DEFAULT_PROFILE_PATH) -> dict:
 # Pre-filter
 # ---------------------------------------------------------------------------
 
+# Multipliers to convert a salary figure to an annual equivalent before
+# comparing against a configured annual floor. Unknown periods are treated
+# as pass-through (fail open) rather than dropping potentially good listings.
+_PERIOD_MULTIPLIERS: dict[str, float] = {
+    "hourly": 2080.0,   # 40 hrs/week × 52 weeks
+    "daily": 260.0,     # 5 days/week × 52 weeks
+    "annual": 1.0,
+    "yearly": 1.0,
+}
+
+
 def prefilter(listing: dict, config: dict) -> str | None:
     """Check whether a listing passes all configured heuristic filters.
 
@@ -202,6 +213,8 @@ def prefilter(listing: dict, config: dict) -> str | None:
                 return f'title_exclude: "{pat}" matched "{title}"'
 
     # Salary floor — only checked when listing has a salary_max value.
+    # Normalize salary_max to an annual figure before comparing to the annual floor.
+    # Unknown/absent period → skip the check (fail open rather than drop good listings).
     salary_max = listing.get("salary_max")
     configured_floor = (
         pf.get("salary_min")
@@ -209,11 +222,18 @@ def prefilter(listing: dict, config: dict) -> str | None:
         or 0
     )
     if configured_floor and salary_max is not None:
-        try:
-            if float(salary_max) < float(configured_floor):
-                return f"salary: max {salary_max} below floor {configured_floor}"
-        except (TypeError, ValueError):
-            pass  # If we can't compare, let it through.
+        salary_period = (listing.get("salary_period") or "").lower().strip()
+        multiplier = _PERIOD_MULTIPLIERS.get(salary_period)
+        if multiplier is None:
+            # Unknown period — cannot safely compare to an annual floor; let it through.
+            pass
+        else:
+            try:
+                annual_max = float(salary_max) * multiplier
+                if annual_max < float(configured_floor):
+                    return f"salary: max {salary_max} ({salary_period or 'unknown period'}) below floor {configured_floor}"
+            except (TypeError, ValueError):
+                pass  # If we can't compare, let it through.
 
     # Contract time.
     require_time: str | None = pf.get("require_contract_time")

@@ -257,6 +257,7 @@ class USAJobsClient(JobSource):
             "location": descriptor.get("PositionLocationDisplay", "") or "",
             "salary_min": salary_min,
             "salary_max": salary_max,
+            "salary_period": "annual" if salary_max is not None else None,
             "contract_type": contract_type,
             "contract_time": contract_time,
             "description": descriptor.get("QualificationSummary", "") or "",

@@ -450,7 +450,7 @@ class TestUSAJobsClientNormalise:
         """normalise() always returns exactly the canonical schema keys."""
         canonical_keys = {
             "source", "source_id", "title", "company", "location",
-            "salary_min", "salary_max", "contract_type", "contract_time",
+            "salary_min", "salary_max", "salary_period", "contract_type", "contract_time",
             "description", "redirect_url", "created_at",
         }
         client = self._client()

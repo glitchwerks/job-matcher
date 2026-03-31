@@ -162,6 +162,7 @@ class TestRemotiveNormalise:
         assert result["salary_max"] == 120000.0
         assert result["contract_type"] is None
         assert result["contract_time"] == "full_time"
+        assert result["salary_period"] is None  # Remotive API doesn't expose pay period
         assert result["redirect_url"] == "https://remotive.com/job/99001"
         assert result["created_at"] == "2026-03-01T10:00:00"
 

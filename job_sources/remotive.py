@@ -210,6 +210,7 @@ class RemotiveClient(JobSource):
             "location": raw.get("candidate_required_location", "") or "",
             "salary_min": salary_min,
             "salary_max": salary_max,
+            "salary_period": None,  # Remotive salary is free-text; period cannot be reliably inferred
             "contract_type": None,
             "contract_time": raw.get("job_type", "") or "",
             "description": _strip_html(raw.get("description", "") or ""),

@@ -232,6 +232,7 @@ class ArbeitnowClient(JobSource):
             "location": location,
             "salary_min": None,
             "salary_max": None,
+            "salary_period": None,  # Arbeitnow does not expose salary data
             "contract_type": None,
             "contract_time": contract_time,
             "description": description,

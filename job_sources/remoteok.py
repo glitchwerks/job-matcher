@@ -199,6 +199,7 @@ class RemoteOKClient(JobSource):
             "location": location,
             "salary_min": salary_min,
             "salary_max": salary_max,
+            "salary_period": None,  # RemoteOK does not expose a pay-period field
             "contract_type": None,
             "contract_time": None,
             "description": description,

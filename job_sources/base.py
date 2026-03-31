@@ -16,6 +16,7 @@ Canonical listing schema
     location        str
     salary_min      float|None
     salary_max      float|None
+    salary_period   str|None     — pay period: "annual", "daily", "hourly", or None (unknown)
     contract_type   str|None
     contract_time   str|None
     description     str|None     — snippet or None; full JD scraped later
