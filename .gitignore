@@ -1,17 +1,31 @@
-config/profile.json
-.vscode/
+# Runtime config & secrets
 config/config.json
 config/keys.json
+config/profile.json
 config/providers.json
+
+# Database
 jobs.db
+
+# Python artifacts
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
+
+# Virtual environments
 .env
 .venv/
 venv/
-*.egg-info/
+
+# Build artifacts
 dist/
 build/
+
+# IDE
+.vscode/
+
+# Tooling directories
 .claude/worktrees/
 .worktrees/
+.superpowers/

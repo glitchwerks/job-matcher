@@ -1,14 +1,14 @@
 # Job Matcher
 
-A locally-run job search tool that pulls listings from the Adzuna API, scores each one against your personal skills profile using Claude Haiku, and surfaces ranked results in a browser-based feed. Run the ingestion script on demand or on a schedule, then open the UI to review, bookmark, or dismiss listings.
+A locally-run job search tool that aggregates listings from multiple sources (Adzuna, Remotive, RemoteOK, Arbeitnow, Himalayas, The Muse, USAJobs), scores each one against your personal skills profile using an LLM, and surfaces ranked results in a browser-based feed. Run the ingestion script on demand or on a schedule, then open the UI to review, bookmark, or dismiss listings.
 
 ---
 
 ## Prerequisites
 
 - Python 3.11+
-- An [Adzuna API account](https://developer.adzuna.com/) (free tier is sufficient)
-- An [Anthropic API key](https://console.anthropic.com/)
+- An LLM provider API key — [Anthropic](https://console.anthropic.com/), [OpenAI](https://platform.openai.com/), or [Google Gemini](https://aistudio.google.com/)
+- An [Adzuna API account](https://developer.adzuna.com/) (optional — only needed if you want to use the Adzuna source)
 
 ---
 
@@ -57,18 +57,27 @@ Copy-Item config\profile.example.json config\profile.json
 
 **5. Fill in `config/config.json`**
 
-Open `config/config.json` and set the following. Both Adzuna keys are required — the script will exit immediately if either is missing or empty. LLM provider keys (Anthropic etc.) are configured separately via `config/keys.json` and the `/settings` UI.
+`config/config.json` holds Adzuna-specific search settings and global scoring/filter options. Which sources are enabled and any source-specific credentials (other than Adzuna) are configured via the `/settings` UI after starting the web server.
+
+LLM provider keys (Anthropic, OpenAI, Gemini) are configured separately via `config/keys.json` and the `/settings` UI.
+
+**Adzuna source settings (optional — only needed if you want to use the Adzuna source)**
 
 | Key | Required | Notes |
 |---|---|---|
-| `adzuna_app_id` | Yes | From your Adzuna developer dashboard |
-| `adzuna_app_key` | Yes | From your Adzuna developer dashboard |
-| `search.country` | Yes | Adzuna country code: `us`, `gb`, `au`, etc. |
-| `search.what` | Yes | Keyword query sent to Adzuna, e.g. `"software engineer"` |
-| `search.where` | No | Location filter, e.g. `"miami"`. Omit or leave empty for nationwide. |
+| `adzuna_app_id` | If using Adzuna | From your Adzuna developer dashboard |
+| `adzuna_app_key` | If using Adzuna | From your Adzuna developer dashboard |
+| `search.country` | If using Adzuna | Adzuna country code: `us`, `gb`, `au`, etc. (Adzuna-specific) |
+| `search.what` | If using Adzuna | Keyword query sent to Adzuna, e.g. `"software engineer"` (Adzuna-specific; other sources use their own query logic) |
+| `search.where` | No | Location filter for Adzuna, e.g. `"miami"`. Omit or leave empty for nationwide. (Adzuna-specific) |
 | `search.salary_min` | No | Minimum salary in local currency (USD for `us`). Listings with no salary data are allowed through regardless. |
-| `search.results_per_page` | Yes | Max 50 (Adzuna API limit) |
-| `search.max_pages` | Yes | Number of pages to fetch per run. 5 pages at 50 results = up to 250 raw listings. |
+| `search.results_per_page` | If using Adzuna | Max 50 (Adzuna API limit) |
+| `search.max_pages` | If using Adzuna | Number of pages to fetch per run. 5 pages at 50 results = up to 250 raw listings. |
+
+**Global settings**
+
+| Key | Required | Notes |
+|---|---|---|
 | `scoring.threshold` | Yes | Minimum score (0–10) for a listing to appear in the feed |
 | `prefilter.title_include` | No | Listing title must match at least one of these (case-insensitive substring). Omit to allow all titles. |
 | `prefilter.title_exclude` | No | Listing title must match none of these. |
@@ -89,11 +98,11 @@ python ingest.py
 
 The pipeline runs in five stages:
 
-1. **Fetch** — pages through Adzuna results up to `search.max_pages`
+1. **Fetch** — fetches from enabled sources (Adzuna up to `search.max_pages`; other sources use their own pagination)
 2. **Pre-filter** — drops listings that fail title keyword, salary, or contract type checks
 3. **Dedup** — skips any listing already present in `jobs.db` (safe to re-run repeatedly)
-4. **Scrape** — follows each listing's redirect URL to retrieve the full job description; falls back to the Adzuna snippet if scraping fails
-5. **Score** — sends each description plus your profile to Claude Haiku and stores the structured result
+4. **Scrape** — follows each listing's redirect URL to retrieve the full job description; falls back to the source snippet if scraping fails
+5. **Score** — sends each description plus your profile to your configured LLM (Anthropic, OpenAI, or Google Gemini) and stores the structured result
 
 ### Re-scoring existing listings
 
@@ -149,7 +158,7 @@ Then open `http://localhost:5000` in your browser.
 - **Applied** (`/applied`) — listings you have marked as applied; excluded from the main feed
 - **Stats** (`/stats`) — cumulative token usage and estimated API cost, broken down by day
 
-Each listing card shows the score, matched and missing skills, concerns, and Haiku's one-sentence verdict alongside the job title, company, location, salary, and a link to the original posting. Bookmark and dismiss actions update instantly without a page reload.
+Each listing card shows the score, matched and missing skills, concerns, and the LLM's one-sentence verdict alongside the job title, company, location, salary, and a link to the original posting. Bookmark and dismiss actions update instantly without a page reload.
 
 The web server and ingestion script are fully decoupled — `app.py` does not need to be running when you run `ingest.py`, and vice versa.
 
@@ -179,8 +188,8 @@ The keys you are most likely to tune after initial setup:
 
 | Key | What it controls |
 |---|---|
-| `search.what` | The keyword query sent to Adzuna. Keep it broad — pre-filtering and scoring do the narrowing. |
-| `search.where` | Location. Use a city name or leave empty for nationwide results. |
+| `search.what` | The keyword query sent to Adzuna (Adzuna-specific; other sources use their own query logic). Keep it broad — pre-filtering and scoring do the narrowing. |
+| `search.where` | Location filter for Adzuna (Adzuna-specific). Use a city name or leave empty for nationwide results. |
 | `search.salary_min` | Listings below this salary max are dropped (only when the listing has salary data). |
 | `scoring.threshold` | Raise to see only strong matches; lower to see more listings in the feed. |
 | `prefilter.title_include` | Whitelist — at least one pattern must appear in the title. |
@@ -188,19 +197,21 @@ The keys you are most likely to tune after initial setup:
 
 Title patterns are case-insensitive substring matches, not regex.
 
+Which sources are enabled, and any source-specific API keys or settings, are configured in the `/settings` UI — not in `config.json`.
+
 ---
 
 ## Customising your profile
 
-`config/profile.json` is injected verbatim into the Claude Haiku scoring prompt. Edit it to reflect your actual experience — the more accurate it is, the more useful the scores will be.
+`config/profile.json` is injected verbatim into the LLM scoring prompt. Edit it to reflect your actual experience — the more accurate it is, the more useful the scores will be.
 
 | Field | Format | Purpose |
 |---|---|---|
-| `primary_skills` | Array of strings: `"<skill>, <years>yr, <active\|dormant>"` | Skills Haiku uses to find matches and flag gaps. Years and recency help it weight recent experience more heavily. |
+| `primary_skills` | Array of strings: `"<skill>, <years>yr, <active\|dormant>"` | Skills the LLM uses to find matches and flag gaps. Years and recency help it weight recent experience more heavily. |
 | `anti_preferences` | Array of strings | Roles or technologies you want flagged as concerns even if you technically have the skills. |
 | `seniority` | String | e.g. `"Senior / Staff"`. Used to flag seniority mismatches. |
-| `preferred_industries` | Array of strings | Optional. Haiku uses this to note industry fit. |
-| `location_preference` | String | e.g. `"remote or Miami, FL"`. Haiku uses this to flag location concerns. |
+| `preferred_industries` | Array of strings | Optional. Used to note industry fit. |
+| `location_preference` | String | e.g. `"remote or Miami, FL"`. Used to flag location concerns. |
 
 Changes to `config/profile.json` take effect on the next ingestion run. Previously scored listings are not rescored automatically.
 
@@ -224,7 +235,7 @@ What it does:
 - Sets system environment variables (`DB_PATH`, `FLASK_DEBUG`)
 - Creates the data directory and a `logs/` subfolder
 - Copies `config/keys.example.json` → `config/keys.json` and restricts its ACL to the current user
-- Copies `config/config.example.json` → `config/config.json` (if absent) — edit it to add Adzuna credentials
+- Copies `config/config.example.json` → `config/config.json` (if absent) — edit it to add Adzuna credentials (optional — only needed for the Adzuna source)
 - Registers the `JobMatcher` Windows service (waitress via NSSM) set to auto-start
 - Registers the `JobMatcherIngest` daily Task Scheduler task
 - Opens Windows Firewall inbound TCP port 5000 so the UI is reachable from the network
@@ -239,17 +250,19 @@ After the script completes, navigate to `http://localhost:5000/settings` to ente
 
 ### Environment variables (reference)
 
-Set Adzuna credentials and the database path as machine-level environment variables so both the service and the scheduled task pick them up automatically:
+Set the database path as a machine-level environment variable so both the service and the scheduled task pick it up automatically. Adzuna credentials are optional — only set them if you are using the Adzuna source:
 
 ```powershell
 [System.Environment]::SetEnvironmentVariable("DB_PATH", "C:\path\to\data\jobs.db", "Machine")
+
+# Optional — only needed if using the Adzuna source
 [System.Environment]::SetEnvironmentVariable("ADZUNA_APP_ID", "your_id", "Machine")
 [System.Environment]::SetEnvironmentVariable("ADZUNA_APP_KEY", "your_key", "Machine")
 ```
 
 Restart your terminal after setting machine-level variables for them to take effect.
 
-LLM provider API keys are managed separately through `config/keys.json` and the `/settings` UI — do not set them as environment variables.
+LLM provider API keys (Anthropic, OpenAI, Gemini) are managed through `config/keys.json` and the `/settings` UI — do not set them as environment variables.
 
 ### Web service — NSSM (reference)
 
@@ -311,7 +324,7 @@ The SQLite database (`jobs.db`) is created there automatically on the first run.
 
 ### API keys (LLM providers)
 
-LLM provider keys (Anthropic, OpenAI, Gemini, etc.) are stored in `keys.json` at the project root and managed through the `/settings` UI — they are not set as environment variables. `keys.json` is gitignored and never committed. After running `scripts/setup.ps1`, navigate to `http://localhost:5000/settings` to enter your API keys.
+LLM provider keys (Anthropic, OpenAI, Gemini, etc.) are stored in `config/keys.json` and managed through the `/settings` UI — they are not set as environment variables. `config/keys.json` is gitignored and never committed. After running `scripts/setup.ps1`, navigate to `http://localhost:5000/settings` to enter your API keys.
 
 ### Ops commands
 
