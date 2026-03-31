@@ -25,9 +25,10 @@ from job_sources import SOURCES
 app = Flask(__name__)
 
 DB_PATH: str = os.environ.get("DB_PATH", "jobs.db")
-_KEYS_PATH: str = os.path.join(os.path.dirname(__file__), "config", "keys.json")
-_CONFIG_PATH: str = os.path.join(os.path.dirname(__file__), "config", "config.json")
-_PROVIDERS_PATH: str = os.path.join(os.path.dirname(__file__), "config", "providers.json")
+_CONFIG_DIR: str = os.path.join(os.path.dirname(__file__), "config")
+_KEYS_PATH: str = os.path.join(_CONFIG_DIR, "keys.json")
+_CONFIG_PATH: str = os.path.join(_CONFIG_DIR, "config.json")
+_PROVIDERS_PATH: str = os.path.join(_CONFIG_DIR, "providers.json")
 
 # Default structure mirrors keys.example.json — used when keys.json is absent.
 _KEYS_DEFAULTS: dict = {

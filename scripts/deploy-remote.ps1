@@ -5,7 +5,11 @@
 
 .DESCRIPTION
     Copies the project source tree to a remote machine, excluding runtime artifacts
-    (venv, jobs.db, config.json, profile.json, __pycache__, .git, data).
+    (venv, jobs.db, __pycache__, .git, data).
+
+    The config/ directory is handled specially: only *.example.json files are copied;
+    runtime files (config.json, keys.json, profile.json, providers.json) are never
+    copied to the server so production credentials are never overwritten.
 
     After copying, ensures a Python virtual environment exists on the remote machine
     and installs requirements if the venv is new.
@@ -228,10 +232,13 @@ $excludedNames = @(
     'venv',
     'jobs.db',
     'config.json',
+    'keys.json',
     'profile.json',
+    'providers.json',
     '__pycache__',
     '.git',
-    'data'
+    'data',
+    'config'   # handled specially below -- only *.example.json files are copied
 )
 
 $excludedExtensions = @('.pyc')
@@ -273,6 +280,29 @@ try {
             if ($excludedExtensions -notcontains $item.Extension) {
                 $filesCopied++
             }
+        }
+    }
+
+    # Copy config/ selectively: only *.example.json files.
+    # Runtime files (config.json, keys.json, profile.json, providers.json) are
+    # excluded so production credentials on the server are never overwritten.
+    $localConfigDir  = Join-Path -Path $LocalProjectRoot -ChildPath 'config'
+    $remoteConfigDir = Join-Path -Path $RemoteProjectRoot -ChildPath 'config'
+
+    if (Test-Path -Path $localConfigDir) {
+        # Ensure the remote config/ directory exists
+        $null = Invoke-Command -Session $session -ScriptBlock {
+            param($dir)
+            if (-not (Test-Path -Path $dir)) {
+                $null = New-Item -Path $dir -ItemType Directory -Force
+            }
+        } -ArgumentList $remoteConfigDir
+
+        $exampleFiles = Get-ChildItem -Path $localConfigDir -Filter '*.example.json' -File
+        foreach ($exFile in $exampleFiles) {
+            Copy-Item -Path $exFile.FullName -Destination $remoteConfigDir `
+                      -ToSession $session -Force -ErrorAction Stop
+            $filesCopied++
         }
     }
 
