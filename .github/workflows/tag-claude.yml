@@ -8,7 +8,7 @@ on:
 
 jobs:
   respond:
-    uses: cbeaulieu-gt/github-actions/.github/workflows/claude-tag-respond.yml@v1.4.1
+    uses: cbeaulieu-gt/github-actions/.github/workflows/claude-tag-respond.yml@v1.4.2
     permissions:
       contents: write
       issues: write
