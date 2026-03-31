@@ -948,12 +948,17 @@ def api_providers_reorder():
     if unknown:
         return f"Unknown provider key(s): {', '.join(unknown)}", 400
 
+    if len(order) != len(set(order)):
+        return "Duplicate provider key(s) in order list.", 400
+
     try:
         save_providers({"provider_order": order}, providers_path=_PROVIDERS_PATH)
     except OSError:
         return "Could not save order — check file permissions.", 500
 
     # Re-build llm_schemas in the new order for the response fragment.
+    # We re-read providers.json here (rather than using the in-memory `order`
+    # list alone) to pick up the has_values flags from the just-written file.
     providers_data = _load_providers_safe()
     llm_section: dict = providers_data.get("llm") or {}
     seen: set[str] = set()

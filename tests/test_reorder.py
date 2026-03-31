@@ -155,3 +155,27 @@ class TestReorderEndpoint:
             content_type="application/json",
         )
         assert resp.status_code == 500
+
+    def test_duplicate_keys_in_order_returns_400(self, client, tmp_providers_path):
+        resp = client.post(
+            "/api/providers/reorder",
+            data=json.dumps({"order": ["anthropic", "anthropic", "gemini"]}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+
+    def test_duplicate_keys_do_not_write_to_file(self, client, tmp_providers_path):
+        client.post(
+            "/api/providers/reorder",
+            data=json.dumps({"order": ["anthropic", "anthropic"]}),
+            content_type="application/json",
+        )
+        assert not os.path.exists(tmp_providers_path)
+
+    def test_non_list_order_value_returns_400(self, client, tmp_providers_path):
+        resp = client.post(
+            "/api/providers/reorder",
+            data=json.dumps({"order": "anthropic"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
