@@ -23,6 +23,17 @@ logger = logging.getLogger("ingest.arbeitnow")
 
 _BASE_URL = "https://www.arbeitnow.com/api/job-board-api"
 
+# Arbeitnow uses inconsistent strings for full-time employment — some in English,
+# some in German.  This map normalises them to the canonical "full_time" value so
+# the prefilter's contract_time check can match them.  Lookup is case-insensitive.
+# Unmapped values are passed through unchanged so genuinely part-time or contract
+# roles are still rejected by the prefilter.
+_CONTRACT_TIME_MAP: dict[str, str] = {
+    "full-time permanent": "full_time",
+    "berufserfahren": "full_time",        # German: "experienced professional"
+    "professional / experienced": "full_time",
+}
+
 
 def _strip_html(html: str) -> str:
     """Remove HTML tags and return plain text.
@@ -217,8 +228,15 @@ class ArbeitnowClient(JobSource):
             location = location_raw
 
         # contract_time: first element of job_types list, or None.
+        # Normalise non-standard Arbeitnow strings to the canonical value so that
+        # the prefilter's contract_time check can match full-time roles reliably.
         job_types: list = raw.get("job_types") or []
-        contract_time: str | None = job_types[0] if job_types else None
+        raw_contract_time: str | None = job_types[0] if job_types else None
+        contract_time: str | None = (
+            _CONTRACT_TIME_MAP.get(raw_contract_time.lower(), raw_contract_time)
+            if raw_contract_time is not None
+            else None
+        )
 
         # Strip HTML from description.
         raw_description: str = raw.get("description", "") or ""

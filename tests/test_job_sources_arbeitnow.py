@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from job_sources import SOURCES, ArbeitnowClient, JobSource
-from job_sources.arbeitnow import _strip_html, _unix_to_iso
+from job_sources.arbeitnow import _CONTRACT_TIME_MAP, _strip_html, _unix_to_iso
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +230,68 @@ class TestArbeitnowClientNormalise:
         result = client.normalise(_RAW_LISTING)
 
         assert required_keys.issubset(result.keys())
+
+    # contract_time normalisation (issue #174)
+    def test_full_time_permanent_normalised(self):
+        """'Full-time permanent' is normalised to 'full_time'."""
+        client = _client()
+        raw = {**_RAW_LISTING, "job_types": ["Full-time permanent"]}
+        assert client.normalise(raw)["contract_time"] == "full_time"
+
+    def test_berufserfahren_normalised(self):
+        """German 'berufserfahren' is normalised to 'full_time'."""
+        client = _client()
+        raw = {**_RAW_LISTING, "job_types": ["berufserfahren"]}
+        assert client.normalise(raw)["contract_time"] == "full_time"
+
+    def test_professional_experienced_normalised(self):
+        """'professional / experienced' is normalised to 'full_time'."""
+        client = _client()
+        raw = {**_RAW_LISTING, "job_types": ["professional / experienced"]}
+        assert client.normalise(raw)["contract_time"] == "full_time"
+
+    def test_normalisation_is_case_insensitive(self):
+        """Mapping lookup is case-insensitive (e.g. 'BERUFSERFAHREN' still maps)."""
+        client = _client()
+        raw = {**_RAW_LISTING, "job_types": ["BERUFSERFAHREN"]}
+        assert client.normalise(raw)["contract_time"] == "full_time"
+
+    def test_canonical_full_time_passes_through_unchanged(self):
+        """An already-canonical 'full_time' value is not altered."""
+        client = _client()
+        raw = {**_RAW_LISTING, "job_types": ["full_time"]}
+        assert client.normalise(raw)["contract_time"] == "full_time"
+
+    def test_unmapped_value_passes_through_unchanged(self):
+        """A value not in the map (e.g. 'part_time') is returned as-is."""
+        client = _client()
+        raw = {**_RAW_LISTING, "job_types": ["part_time"]}
+        assert client.normalise(raw)["contract_time"] == "part_time"
+
+    def test_none_contract_time_unaffected_by_normalisation(self):
+        """None contract_time (empty job_types) is preserved as None."""
+        client = _client()
+        raw = {**_RAW_LISTING, "job_types": []}
+        assert client.normalise(raw)["contract_time"] is None
+
+
+# ---------------------------------------------------------------------------
+# _CONTRACT_TIME_MAP constant
+# ---------------------------------------------------------------------------
+
+class TestContractTimeMap:
+    def test_map_contains_all_known_nonstandard_values(self):
+        """All documented non-standard Arbeitnow strings are in the map."""
+        expected_keys = {
+            "full-time permanent",
+            "berufserfahren",
+            "professional / experienced",
+        }
+        assert expected_keys == set(_CONTRACT_TIME_MAP.keys())
+
+    def test_all_map_values_are_full_time(self):
+        """Every entry in the map normalises to 'full_time'."""
+        assert all(v == "full_time" for v in _CONTRACT_TIME_MAP.values())
 
 
 # ---------------------------------------------------------------------------
