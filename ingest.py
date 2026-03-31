@@ -653,7 +653,7 @@ def run(
                                 prefiltered += 1
                                 logger.info(
                                     "FILTERED  [%s] %s — created_at older than %d hours",
-                                    listing.get("source", "?"), title, hours,
+                                    src_name, title, hours,
                                 )
                                 continue
                         except (ValueError, TypeError):
@@ -663,7 +663,7 @@ def run(
                 reason = prefilter(listing, config)
                 if reason is not None:
                     prefiltered += 1
-                    logger.info("FILTERED  [%s] %s — %s", listing.get("source", "?"), title, reason)
+                    logger.info("FILTERED  [%s] %s — %s", src_name, title, reason)
                     continue
 
                 # --- Dedup ---
@@ -679,7 +679,7 @@ def run(
                             _is_dupe = db.listing_exists_by_url(_dedup_conn, redirect_url)
                 if _is_dupe:
                     deduped += 1
-                    logger.info("DUPE      [%s] %s", listing.get("source", "?"), title)
+                    logger.info("DUPE      [%s] %s", src_name, title)
                     continue
 
                 # --- Scrape ---
@@ -691,7 +691,7 @@ def run(
                     scraped_ok += 1
                 else:
                     scraped_fallback += 1
-                    logger.info("SCRAPE FALLBACK  [%s] %s", listing.get("source", "?"), title)
+                    logger.info("SCRAPE FALLBACK  [%s] %s", src_name, title)
 
                 listing["description"] = description
 
@@ -705,7 +705,7 @@ def run(
 
                 if score_result is None:
                     score_failed += 1
-                    logger.warning("SCORE FAILED  [%s] %s", listing.get("source", "?"), title)
+                    logger.warning("SCORE FAILED  [%s] %s", src_name, title)
                     listing.update(
                         {
                             "score": None,
@@ -721,7 +721,7 @@ def run(
                     logger.info(
                         "SCORED %d/10  [%s] %s",
                         score_result.get("score", 0),
-                        listing.get("source", "?"),
+                        src_name,
                         title,
                     )
                     logger.debug(
@@ -777,7 +777,7 @@ def run(
                 try:
                     db.insert_listing(listing, db_path=_DB_PATH)
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("DB insert failed  [%s] %s: %s", listing.get("source", "?"), title, exc)
+                    logger.warning("DB insert failed  [%s] %s: %s", src_name, title, exc)
 
         source_count = source_fetch_counts.get(client.SOURCE, 0)
         logger.info("Fetched %d listing(s) from %s", source_count, client.SOURCE)
