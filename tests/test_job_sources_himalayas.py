@@ -582,6 +582,13 @@ class TestHimalayasMissingRedirectUrl:
         result = client.normalise(raw)
         assert result["redirect_url"] == ""
 
+    def test_normalise_redirect_url_empty_when_slug_is_empty_string(self):
+        """normalise() yields empty redirect_url when slug is an empty string (falsy)."""
+        client = self._client()
+        raw = {**_RAW_JOB, "applicationUrl": None, "slug": ""}
+        result = client.normalise(raw)
+        assert result["redirect_url"] == ""
+
     def test_fetch_page_skips_listing_with_empty_redirect_url(self):
         """fetch_page() does not yield a listing whose redirect_url is empty."""
         client = self._client()

@@ -181,9 +181,14 @@ class HimalayasClient(JobSource):
         for raw in raw_jobs:
             listing = self.normalise(raw)
             if not listing.get("redirect_url"):
-                title = listing.get("title") or raw.get("id", "<unknown>")
+                title = listing.get("title") or ""
+                source_id = raw.get("id") or ""
+                identifier = (
+                    f"{title} (ID: {source_id})" if title and source_id
+                    else title or source_id or "<unknown>"
+                )
                 logger.warning(
-                    "Himalayas: skipping listing with no redirect_url — %s", title
+                    "Himalayas: skipping listing with no redirect_url — %s", identifier
                 )
                 continue
             results.append(listing)
@@ -261,7 +266,7 @@ class HimalayasClient(JobSource):
             "redirect_url": (
                 raw.get("applicationUrl")
                 or (
-                    f"https://himalayas.app/jobs/{raw['slug']}"
+                    f"https://himalayas.app/jobs/{raw.get('slug')}"
                     if raw.get("slug")
                     else ""
                 )
