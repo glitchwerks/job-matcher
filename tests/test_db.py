@@ -212,6 +212,46 @@ class TestInsertAndFeed:
             scores = [r["score"] for r in results]
             assert scores == sorted(scores, reverse=True)
 
+    def test_insert_listing_with_minimal_fields(self):
+        """insert_listing() succeeds with only required fields — no optional keys present.
+
+        Regression guard: if a new column is added to the INSERT statement without a
+        corresponding setdefault() guard, this test will fail with a binding error,
+        catching the same class of bug as #173 (missing salary_is_predicted guard).
+        """
+        with TempDB() as path:
+            minimal = {
+                "source": "remotive",
+                "source_id": "minimal-001",
+                "title": "Test Job",
+                "company": "Test Co",
+                "location": "Remote",
+                "description": "Test description",
+                "redirect_url": "https://example.com/job/minimal",
+                "created_at": "2026-01-01T00:00:00Z",
+                "fetched_at": "2026-01-02T00:00:00Z",
+                "score": 7.5,
+                "matched_skills": ["Python"],
+                "missing_skills": [],
+                "concerns": [],
+                "verdict": "Good match.",
+                # Intentionally omitting: salary_is_predicted, salary_min, salary_max,
+                # contract_type, contract_time, tokens_in, tokens_out, cost_usd,
+                # job_type, model_used, posted_at, source_id (adzuna_id), etc.
+            }
+            db.insert_listing(minimal, db_path=path)
+
+            conn = db.get_connection(path)
+            row = conn.execute(
+                "SELECT * FROM listings WHERE source_id = ?", ("minimal-001",)
+            ).fetchone()
+            conn.close()
+
+            assert row is not None, "Minimal listing was not inserted"
+            assert row["salary_is_predicted"] is None
+            assert row["source"] == "remotive"
+            assert row["title"] == "Test Job"
+
 
 # ---------------------------------------------------------------------------
 # get_feed search and remote_only filters

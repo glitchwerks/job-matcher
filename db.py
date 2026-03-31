@@ -392,8 +392,15 @@ def insert_listing(listing: dict, db_path: str = _DEFAULT_DB_PATH) -> None:
         elif val is None:
             row[col] = json.dumps([])
 
-    # Ensure token, status, and classification columns are present even if absent from the source dict.
+    # Ensure all optional columns are present even if absent from the source dict.
+    row.setdefault("salary_min", None)
+    row.setdefault("salary_max", None)
     row.setdefault("salary_is_predicted", None)
+    row.setdefault("contract_type", None)
+    row.setdefault("contract_time", None)
+    row.setdefault("bookmarked", 0)
+    row.setdefault("dismissed", 0)
+    row.setdefault("seen", 0)
     row.setdefault("tokens_input", None)
     row.setdefault("tokens_output", None)
     row.setdefault("applied", 0)
