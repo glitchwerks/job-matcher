@@ -716,7 +716,7 @@ def settings():
     provider_order: list[str] = providers_data.get("provider_order") or []
     llm_schemas = _build_llm_schemas(llm_section, provider_order)
 
-    source_schemas: list[tuple[str, dict, bool, bool]] = []
+    source_schemas: list[tuple[str, dict, bool, bool, bool]] = []
     for key, cls in SOURCES.items():
         schema = cls.settings_schema()
         cfg = sources_section.get(key) or {}
@@ -726,7 +726,8 @@ def settings():
         else:
             has_values = False  # no-credential sources are never "configured"
         is_enabled = bool(cfg.get("enabled", False))
-        source_schemas.append((key, schema, has_values, is_enabled))
+        credentials_required = bool(required_fields)
+        source_schemas.append((key, schema, has_values, is_enabled, credentials_required))
 
     # POST-with-error: re-render the form (not a redirect) so the error is shown.
     saved = False  # POST always redirects on success; reaching here means error or GET

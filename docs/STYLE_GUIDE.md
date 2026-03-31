@@ -210,22 +210,39 @@ All buttons extend `.btn` (base). Add a modifier class for semantic variants.
 
 Used for binary on/off controls (e.g. source enabled). Pure CSS — no JS required.
 
-```
-<label class="source-toggle" aria-label="Enable [Name]">
-  <input type="checkbox" name="...">
+```html
+<label class="source-toggle">
+  <input
+    type="checkbox"
+    name="..."
+    aria-label="Enable [Name]"
+    {% if is_enabled and not toggle_disabled %}checked{% endif %}
+    {% if toggle_disabled %}disabled{% endif %}>
+  <span class="source-toggle-label"></span>
   <span class="source-toggle-track">
     <span class="source-toggle-knob"></span>
   </span>
 </label>
+{% if toggle_disabled %}
+  <span class="toggle-hint">Add credentials to enable</span>
+{% endif %}
 ```
 
-| Class | Notes |
-|---|---|
-| `.source-toggle` | Outer `<label>`; `margin-left: auto` pushes it right in a flex row |
-| `.source-toggle-track` | 36×20px pill; `--border-mid` at rest, `--text-accent` when checked |
-| `.source-toggle-knob` | 14×14px circle; slides right 16px on checked; `#fff` when on |
+| Class | Element | Notes |
+|---|---|---|
+| `.source-toggle` | `<label>` | Outer wrapper; `margin-left: auto` pushes it right in a flex row |
+| `.source-toggle-label` | `<span>` | Renders "Enabled" or "Disabled" text via `::before` pseudo-element; driven by `input:checked ~` sibling selector |
+| `.source-toggle-track` | `<span>` | 36×20px pill; `--border-mid` at rest, `--text-accent` when checked |
+| `.source-toggle-knob` | `<span>` | 14×14px circle; slides right via `calc(36px - 14px - 6px)` on checked; `#fff` |
+| `.toggle-hint` | `<span>` | Italic helper text (`var(--text-muted)`, 0.75rem) shown alongside a disabled toggle |
 
-Checked state is driven entirely by CSS `input:checked +` sibling selectors.
+**Checked state** is driven by CSS `input:checked ~` sibling selectors (note `~`, not `+` — the label span sits between the input and the track).
+
+**Disabled state** — when a source requires credentials that are not yet filled in, add `disabled` to the `<input>` and render `.toggle-hint`. Always render the input as unchecked when disabled (prevents a confusing "on but locked" visual). CSS rules:
+
+- `input:disabled ~ .source-toggle-track` and `input:disabled ~ .source-toggle-label` — 40% opacity, `cursor: not-allowed`
+- `.source-toggle:has(input:disabled)` — `cursor: not-allowed` on the outer label
+- Keyless sources (no required credentials) are never disabled.
 
 ### Tabs
 
