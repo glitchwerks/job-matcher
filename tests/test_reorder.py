@@ -179,3 +179,17 @@ class TestReorderEndpoint:
             content_type="application/json",
         )
         assert resp.status_code == 400
+
+    def test_response_fragment_contains_data_id_attributes(self, client, tmp_providers_path):
+        """data-id attributes are required by SortableJS.toArray() — verify they survive the round-trip."""
+        from providers import _PROVIDER_CLASS_MAP
+        keys = list(_PROVIDER_CLASS_MAP.keys())
+        resp = client.post(
+            "/api/providers/reorder",
+            data=json.dumps({"order": keys}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        for key in keys:
+            assert f'data-id="{key}"' in html, f"Missing data-id for provider '{key}' in response fragment"
