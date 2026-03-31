@@ -37,6 +37,12 @@ from credentials import CredentialError, load_providers
 
 _DB_PATH: str = os.environ.get("DB_PATH", "jobs.db")
 
+_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
+_DEFAULT_CONFIG_PATH = os.path.join(_CONFIG_DIR, "config.json")
+_DEFAULT_PROFILE_PATH = os.path.join(_CONFIG_DIR, "profile.json")
+_DEFAULT_KEYS_PATH = os.path.join(_CONFIG_DIR, "keys.json")
+_DEFAULT_PROVIDERS_PATH = os.path.join(_CONFIG_DIR, "providers.json")
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -77,7 +83,7 @@ _REQUIRED_SEARCH = ("country", "what", "results_per_page", "max_pages")
 _REQUIRED_SCORING = ("threshold",)
 
 
-def load_config(path: str = "config/config.json") -> dict:
+def load_config(path: str = _DEFAULT_CONFIG_PATH) -> dict:
     """Load and validate config/config.json.
 
     Raises SystemExit with a descriptive message if the file cannot be read
@@ -131,7 +137,7 @@ def load_config(path: str = "config/config.json") -> dict:
 
 
 
-def load_profile(path: str = "config/profile.json") -> dict:
+def load_profile(path: str = _DEFAULT_PROFILE_PATH) -> dict:
     """Load config/profile.json and return the parsed dict.
 
     Raises SystemExit if the file cannot be read or is not valid JSON.
@@ -492,11 +498,11 @@ def score_listing_with_fallback(
 # ---------------------------------------------------------------------------
 
 def run(
-    config_path: str = "config/config.json",
-    profile_path: str = "config/profile.json",
+    config_path: str = _DEFAULT_CONFIG_PATH,
+    profile_path: str = _DEFAULT_PROFILE_PATH,
     hours: int | None = None,
-    keys_path: str = "config/keys.json",
-    providers_path: str = "config/providers.json",
+    keys_path: str = _DEFAULT_KEYS_PATH,
+    providers_path: str = _DEFAULT_PROVIDERS_PATH,
 ) -> None:
     """Run the full ingestion pipeline.
 
@@ -715,10 +721,10 @@ def run(
 # ---------------------------------------------------------------------------
 
 def rescore(
-    config_path: str = "config/config.json",
-    profile_path: str = "config/profile.json",
-    keys_path: str = "config/keys.json",
-    providers_path: str = "config/providers.json",
+    config_path: str = _DEFAULT_CONFIG_PATH,
+    profile_path: str = _DEFAULT_PROFILE_PATH,
+    keys_path: str = _DEFAULT_KEYS_PATH,
+    providers_path: str = _DEFAULT_PROVIDERS_PATH,
 ) -> None:
     """Re-score all previously scored listings against the current profile.
 
@@ -831,8 +837,8 @@ if __name__ == "__main__":
         help="Re-score all previously scored listings against the current profile. "
              "Does not fetch new listings.",
     )
-    parser.add_argument("--config", default="config/config.json", help="Path to config.json")
-    parser.add_argument("--profile", default="config/profile.json", help="Path to profile.json")
+    parser.add_argument("--config", default=_DEFAULT_CONFIG_PATH, help="Path to config.json")
+    parser.add_argument("--profile", default=_DEFAULT_PROFILE_PATH, help="Path to profile.json")
     parser.add_argument(
         "--hours",
         type=int,

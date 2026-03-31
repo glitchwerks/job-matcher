@@ -41,6 +41,11 @@ _ENV_LLM_DEFAULTS: tuple[tuple[str, str, str], ...] = (
     ("GOOGLE_API_KEY",    "gemini",    "gemini-1.5-flash"),
 )
 
+_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
+_DEFAULT_CONFIG_PATH = os.path.join(_CONFIG_DIR, "config.json")
+_DEFAULT_KEYS_PATH = os.path.join(_CONFIG_DIR, "keys.json")
+_DEFAULT_PROVIDERS_PATH = os.path.join(_CONFIG_DIR, "providers.json")
+
 
 # ===========================================================================
 # Public exception
@@ -60,9 +65,9 @@ class CredentialError(Exception):
 # ===========================================================================
 
 def migrate_from_legacy(
-    providers_path: str = "config/providers.json",
-    keys_path: str = "config/keys.json",
-    config_path: str = "config/config.json",
+    providers_path: str = _DEFAULT_PROVIDERS_PATH,
+    keys_path: str = _DEFAULT_KEYS_PATH,
+    config_path: str = _DEFAULT_CONFIG_PATH,
 ) -> Optional[dict]:
     """Attempt to build a ``providers.json``-shaped dict from legacy credential files.
 
@@ -193,9 +198,9 @@ def migrate_from_legacy(
 # ===========================================================================
 
 def load_providers(
-    providers_path: str = "config/providers.json",
-    keys_path: str = "config/keys.json",
-    config_path: str = "config/config.json",
+    providers_path: str = _DEFAULT_PROVIDERS_PATH,
+    keys_path: str = _DEFAULT_KEYS_PATH,
+    config_path: str = _DEFAULT_CONFIG_PATH,
 ) -> dict:
     """Load the unified credential store and return it as a dict.
 
@@ -305,7 +310,7 @@ def load_providers(
 
 def save_providers(
     updates: dict,
-    providers_path: str = "config/providers.json",
+    providers_path: str = _DEFAULT_PROVIDERS_PATH,
 ) -> None:
     """Deep-merge *updates* into ``providers.json`` and write atomically.
 

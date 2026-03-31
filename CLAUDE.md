@@ -13,7 +13,7 @@ uv pip install -r requirements.txt
 # Run ingestion pipeline (fetch → filter → scrape → score → store)
 python ingest.py
 python ingest.py --hours 25        # Only process listings from the last 25 hours
-python ingest.py --rescore         # Re-score all stored listings against updated profile.json
+python ingest.py --rescore         # Re-score all stored listings against updated config/profile.json
 
 # Run web UI (http://localhost:5000)
 python app.py
@@ -42,16 +42,17 @@ Any step can short-circuit the listing with a logged reason (`FILTERED`, `DUPE`,
 
 ### LLM provider integration
 
-`load_keys()` reads `keys.json` (falling back to env vars `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` if the file is absent). `build_provider_chain()` returns an ordered list of `LLMProvider` instances based on the `preferred_provider` field and dict insertion order. `score_listing_with_fallback()` tries providers in sequence: auth failures (401/403) permanently remove a provider for the run; transient failures skip only the current listing. The scoring prompt expects a JSON response with exactly: `score` (0–10), `matched_skills`, `missing_skills`, `concerns`, `verdict`. Markdown code fences are stripped before parsing.
+`load_keys()` reads `config/keys.json` (falling back to env vars `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` if the file is absent). `build_provider_chain()` returns an ordered list of `LLMProvider` instances based on the `preferred_provider` field and dict insertion order. `score_listing_with_fallback()` tries providers in sequence: auth failures (401/403) permanently remove a provider for the run; transient failures skip only the current listing. The scoring prompt expects a JSON response with exactly: `score` (0–10), `matched_skills`, `missing_skills`, `concerns`, `verdict`. Markdown code fences are stripped before parsing.
 
-Results include a `model_used` field stored as `"provider/model"` per listing. Scoring threshold is set in `config.json` under `scoring`. Token counts and estimated cost are stored per listing and aggregated in the `/stats` view.
+Results include a `model_used` field stored as `"provider/model"` per listing. Scoring threshold is set in `config/config.json` under `scoring`. Token counts and estimated cost are stored per listing and aggregated in the `/stats` view.
 
 ### Config & profile
 
-- **`config.json`** — Adzuna credentials (`adzuna_app_id`, `adzuna_app_key`), search params (`country`, `what`, `where`, `distance`, `max_days_old`, `results_per_page`, `max_pages`), scoring threshold, and optional `prefilter` block (title include/exclude patterns, contract type/time).
-- **`keys.json`** — LLM provider API keys and model selection. Each provider entry has `api_key` and `model`. Dict insertion order defines fallback sequence; `preferred_provider` names the first-choice provider. Managed via the `/settings` UI. Gitignored — copy from `keys.example.json` to get started. If absent, `load_keys()` constructs a keys dict from env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`) for backward compatibility.
-- **`profile.json`** — Candidate skills and preferences injected verbatim into the scoring prompt. Fields: `primary_skills`, `anti_preferences`, `seniority`, `preferred_industries`, `location_preference`, `scoring_notes`.
-- All three files are gitignored. Copy from `*.example.json` to get started.
+- **`config/config.json`** — Adzuna credentials (`adzuna_app_id`, `adzuna_app_key`), search params (`country`, `what`, `where`, `distance`, `max_days_old`, `results_per_page`, `max_pages`), scoring threshold, and optional `prefilter` block (title include/exclude patterns, contract type/time).
+- **`config/keys.json`** — LLM provider API keys and model selection. Each provider entry has `api_key` and `model`. Dict insertion order defines fallback sequence; `preferred_provider` names the first-choice provider. Managed via the `/settings` UI. Gitignored — copy from `config/keys.example.json` to get started. If absent, `load_keys()` constructs a keys dict from env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`) for backward compatibility.
+- **`config/profile.json`** — Candidate skills and preferences injected verbatim into the scoring prompt. Fields: `primary_skills`, `anti_preferences`, `seniority`, `preferred_industries`, `location_preference`, `scoring_notes`.
+- **`config/providers.json`** — Unified credential store (replaces `config/keys.json`). Managed via the `/settings` UI. Gitignored — copy from `config/providers.example.json` to get started.
+- All files are gitignored. Copy from `*.example.json` to get started.
 - Adzuna credentials and `DB_PATH` can be overridden via env vars: `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`. `DB_PATH` defaults to `./jobs.db`.
 
 ### Database schema notes
@@ -75,5 +76,5 @@ Results include a `model_used` field stored as `"provider/model"` per listing. S
 | SQLite, no ORM | Schema is small and stable; avoids dependencies and migration tooling |
 | HTMX, no JS framework | Zero build tooling for a read-mostly UI with two write actions |
 | Decouple ingest from serve | Ingest takes minutes (scraping + LLM); it cannot run inside a web request |
-| `profile.json` flat file | Edited manually as a whole unit; easier to version-control than a DB record |
-| `keys.json` separate from `config.json` | API keys change more often and are more sensitive than search params; separation allows tighter file ACLs on `keys.json` |
+| `config/profile.json` flat file | Edited manually as a whole unit; easier to version-control than a DB record |
+| `config/keys.json` separate from `config/config.json` | API keys change more often and are more sensitive than search params; separation allows tighter file ACLs on `config/keys.json` |
