@@ -9,81 +9,16 @@ salary parsed best-effort from free-text strings.
 from __future__ import annotations
 
 import logging
-import re
 from typing import Iterator
 
 import requests
-from bs4 import BeautifulSoup
 
 from .base import JobSource
+from .utils import parse_salary, strip_html
 
 logger = logging.getLogger("ingest.remotive")
 
 _REMOTIVE_URL = "https://remotive.com/api/remote-jobs"
-
-# Regex to find numbers with optional k-suffix, e.g. "80,000", "120k", "50K"
-_SALARY_NUMBER_RE = re.compile(r"[\d,]+(?:\.\d+)?[kK]?")
-
-
-def _parse_salary(raw: str) -> tuple[float | None, float | None]:
-    """Parse a free-text salary string into (salary_min, salary_max).
-
-    Handles patterns like:
-      - "$80,000 - $120,000"
-      - "€50k"
-      - "100K-150K"
-      - "" (empty → both None)
-
-    Args:
-        raw: Free-text salary string from the Remotive API.
-
-    Returns:
-        A (salary_min, salary_max) tuple of floats, or (None, None) if the
-        string is empty or no numeric values can be extracted.
-    """
-    if not raw or not raw.strip():
-        return None, None
-
-    matches = _SALARY_NUMBER_RE.findall(raw)
-    if not matches:
-        return None, None
-
-    values: list[float] = []
-    for m in matches:
-        # Strip commas used as thousands separators.
-        cleaned = m.replace(",", "")
-        lower = cleaned.lower()
-        if lower.endswith("k"):
-            try:
-                values.append(float(lower[:-1]) * 1000)
-            except ValueError:
-                continue
-        else:
-            try:
-                values.append(float(cleaned))
-            except ValueError:
-                continue
-
-    if not values:
-        return None, None
-
-    salary_min = values[0]
-    salary_max = values[1] if len(values) >= 2 else salary_min
-    return salary_min, salary_max
-
-
-def _strip_html(html: str) -> str:
-    """Strip HTML tags from a string using BeautifulSoup.
-
-    Args:
-        html: HTML string to strip.
-
-    Returns:
-        Plain text with tags removed and whitespace normalised.
-    """
-    if not html:
-        return ""
-    return BeautifulSoup(html, "html.parser").get_text(separator=" ", strip=True)
 
 
 class RemotiveClient(JobSource):
@@ -201,7 +136,7 @@ class RemotiveClient(JobSource):
             Dict conforming to the canonical listing schema defined in
             ``job_sources.base``.
         """
-        salary_min, salary_max = _parse_salary(raw.get("salary") or "")
+        salary_min, salary_max = parse_salary(raw.get("salary") or "")
 
         return {
             "source": self.SOURCE,
@@ -214,7 +149,7 @@ class RemotiveClient(JobSource):
             "salary_period": None,  # Remotive salary is free-text; period cannot be reliably inferred
             "contract_type": None,
             "contract_time": raw.get("job_type", "") or "",
-            "description": _strip_html(raw.get("description", "") or ""),
+            "description": strip_html(raw.get("description", "") or ""),
             "redirect_url": raw.get("url", "") or "",
             "created_at": raw.get("publication_date", "") or "",
         }

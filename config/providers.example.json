@@ -7,6 +7,8 @@
     "gemini":    { "api_key": "", "model": "gemini-1.5-flash" }
   },
   "job_sources": {
-    "adzuna": { "app_id": "", "app_key": "" }
+    "adzuna":  { "enabled": true, "app_id": "", "app_key": "" },
+    "jobicy":  { "enabled": false },
+    "jooble":  { "enabled": false, "api_key": "" }
   }
 }

@@ -20,7 +20,8 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from job_sources import SOURCES, JobSource, make_source
-from job_sources.remotive import RemotiveClient, _parse_salary, _strip_html
+from job_sources.remotive import RemotiveClient
+from job_sources.utils import parse_salary as _parse_salary, strip_html as _strip_html
 
 
 # ---------------------------------------------------------------------------
