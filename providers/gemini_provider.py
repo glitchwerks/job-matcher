@@ -96,6 +96,42 @@ class GeminiProvider(LLMProvider):
             ],
         }
 
+    @classmethod
+    def validate_credentials(cls, api_key: str, model: str) -> str:
+        """Send a 1-token test call to Google Gemini and return a state string.
+
+        Returns one of: ``'valid'``, ``'invalid_key'``, ``'unknown_model'``,
+        ``'unreachable'``.  The api_key is never logged or included in any
+        return value.
+
+        Google's SDK raises varied exception types depending on failure mode;
+        the lowercased exception message is inspected to distinguish auth vs
+        model errors.
+
+        Args:
+            api_key: Google API key.
+            model:   Gemini model ID.
+
+        Returns:
+            State string describing the validation outcome.
+        """
+        try:
+            client = genai.Client(api_key=api_key)
+            client.models.generate_content(
+                model=model,
+                contents="hi",
+            )
+            return "valid"
+        except Exception as exc:
+            exc_str = str(exc).lower()
+            # Google signals auth failures with specific keywords in the message.
+            if any(kw in exc_str for kw in ("api_key_invalid", "invalid api key", "unauthenticated", "permission denied")):
+                return "invalid_key"
+            # Model-not-found errors include "not found" or "404" in the message.
+            if "not found" in exc_str or "404" in exc_str:
+                return "unknown_model"
+            return "unreachable"
+
     @property
     def input_cost_per_mtok(self) -> float:
         """USD cost per million input tokens for the configured model."""

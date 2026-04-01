@@ -81,3 +81,30 @@ class LLMProvider(ABC):
               also include a ``default`` (str) for pre-populated values.
         """
         ...
+
+    @classmethod
+    @abstractmethod
+    def validate_credentials(cls, api_key: str, model: str) -> str:
+        """Validate *api_key* and *model* by making a minimal live API call.
+
+        Implementations should make the cheapest possible test call (e.g.
+        ``max_tokens=1``) to confirm that the key is accepted and the model
+        name is recognised.  The key must never appear in any return value
+        or log output.
+
+        Args:
+            api_key: Provider API key string.
+            model:   Provider model name string.
+
+        Returns:
+            One of the following state strings:
+
+            * ``"valid"``          — key and model accepted.
+            * ``"invalid_key"``    — authentication or permission error.
+            * ``"unknown_model"``  — key valid but model not found.
+            * ``"unreachable"``    — network error or unexpected exception.
+
+        Raises:
+            NotImplementedError: If not overridden by the concrete subclass.
+        """
+        raise NotImplementedError

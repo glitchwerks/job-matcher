@@ -102,6 +102,38 @@ class AnthropicProvider(LLMProvider):
             ],
         }
 
+    @classmethod
+    def validate_credentials(cls, api_key: str, model: str) -> str:
+        """Send a 1-token test call to Anthropic and return a state string.
+
+        Returns one of: ``'valid'``, ``'invalid_key'``, ``'unknown_model'``,
+        ``'unreachable'``.  The api_key is never logged or included in any
+        return value.
+
+        Args:
+            api_key: Anthropic API key.
+            model:   Anthropic model ID.
+
+        Returns:
+            State string describing the validation outcome.
+        """
+        try:
+            client = anthropic.Anthropic(api_key=api_key)
+            client.messages.create(
+                model=model,
+                max_tokens=1,
+                messages=[{"role": "user", "content": "hi"}],
+            )
+            return "valid"
+        except anthropic.AuthenticationError:
+            return "invalid_key"
+        except anthropic.PermissionDeniedError:
+            return "invalid_key"
+        except anthropic.NotFoundError:
+            return "unknown_model"
+        except Exception:
+            return "unreachable"
+
     @property
     def input_cost_per_mtok(self) -> float:
         """USD cost per million input tokens for the configured model."""

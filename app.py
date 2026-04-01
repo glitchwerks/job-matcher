@@ -831,84 +831,6 @@ def settings_config_redirect():
 # Key validation
 # ---------------------------------------------------------------------------
 
-def _validate_anthropic(api_key: str, model: str) -> str:
-    """Send a 1-token test call to Anthropic and return a state string.
-
-    Returns one of: 'valid', 'invalid_key', 'unknown_model', 'unreachable'.
-    The api_key is never logged or included in any return value.
-    """
-    import anthropic as _anthropic
-    try:
-        client = _anthropic.Anthropic(api_key=api_key)
-        client.messages.create(
-            model=model,
-            max_tokens=1,
-            messages=[{"role": "user", "content": "hi"}],
-        )
-        return "valid"
-    except _anthropic.AuthenticationError:
-        return "invalid_key"
-    except _anthropic.PermissionDeniedError:
-        return "invalid_key"
-    except _anthropic.NotFoundError:
-        return "unknown_model"
-    except Exception:
-        return "unreachable"
-
-
-def _validate_openai(api_key: str, model: str) -> str:
-    """Send a 1-token test call to OpenAI and return a state string.
-
-    Returns one of: 'valid', 'invalid_key', 'unknown_model', 'unreachable'.
-    The api_key is never logged or included in any return value.
-    """
-    import openai as _openai
-    try:
-        client = _openai.OpenAI(api_key=api_key)
-        client.chat.completions.create(
-            model=model,
-            max_tokens=1,
-            messages=[{"role": "user", "content": "hi"}],
-        )
-        return "valid"
-    except _openai.AuthenticationError:
-        return "invalid_key"
-    except _openai.PermissionDeniedError:
-        return "invalid_key"
-    except _openai.NotFoundError:
-        return "unknown_model"
-    except Exception:
-        return "unreachable"
-
-
-def _validate_gemini(api_key: str, model: str) -> str:
-    """Send a 1-token test call to Google Gemini and return a state string.
-
-    Returns one of: 'valid', 'invalid_key', 'unknown_model', 'unreachable'.
-    The api_key is never logged or included in any return value.
-
-    Google's SDK raises varied exception types depending on failure mode; we
-    inspect the lowercased message string to distinguish auth vs model errors.
-    """
-    from google import genai as _genai
-    try:
-        _client = _genai.Client(api_key=api_key)
-        _client.models.generate_content(
-            model=model,
-            contents="hi",
-        )
-        return "valid"
-    except Exception as exc:
-        exc_str = str(exc).lower()
-        # Google signals auth failures with specific keywords in the message.
-        if any(kw in exc_str for kw in ("api_key_invalid", "invalid api key", "unauthenticated", "permission denied")):
-            return "invalid_key"
-        # Model-not-found errors include "not found" or "404" in the message.
-        if "not found" in exc_str or "404" in exc_str:
-            return "unknown_model"
-        return "unreachable"
-
-
 _VALIDATE_TIMEOUT_SECONDS = 5
 """Per-provider timeout for key validation API calls."""
 
@@ -962,13 +884,6 @@ def validate_keys():
     providers_data = _load_providers_safe()
     llm_section: dict = providers_data.get("llm") or {}
 
-    # Map provider key → validator function (module-level helpers).
-    _validator_map = {
-        "anthropic": _validate_anthropic,
-        "openai":    _validate_openai,
-        "gemini":    _validate_gemini,
-    }
-
     providers_list = []
     for provider_key, cls in _PROVIDER_CLASS_MAP.items():
         schema = cls.settings_schema()
@@ -981,13 +896,7 @@ def validate_keys():
         if not api_key:
             state = "not_configured"
         else:
-            validator = _validator_map.get(provider_key)
-            if validator is None:
-                # No validator registered for this provider — treat as unreachable
-                # rather than silently skipping it.
-                state = "unreachable"
-            else:
-                state = _validate_with_timeout(validator, api_key, model)
+            state = _validate_with_timeout(cls.validate_credentials, api_key, model)
 
         providers_list.append({
             "key":          provider_key,

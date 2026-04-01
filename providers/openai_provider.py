@@ -96,6 +96,38 @@ class OpenAIProvider(LLMProvider):
             ],
         }
 
+    @classmethod
+    def validate_credentials(cls, api_key: str, model: str) -> str:
+        """Send a 1-token test call to OpenAI and return a state string.
+
+        Returns one of: ``'valid'``, ``'invalid_key'``, ``'unknown_model'``,
+        ``'unreachable'``.  The api_key is never logged or included in any
+        return value.
+
+        Args:
+            api_key: OpenAI API key.
+            model:   OpenAI model ID.
+
+        Returns:
+            State string describing the validation outcome.
+        """
+        try:
+            client = openai.OpenAI(api_key=api_key)
+            client.chat.completions.create(
+                model=model,
+                max_tokens=1,
+                messages=[{"role": "user", "content": "hi"}],
+            )
+            return "valid"
+        except openai.AuthenticationError:
+            return "invalid_key"
+        except openai.PermissionDeniedError:
+            return "invalid_key"
+        except openai.NotFoundError:
+            return "unknown_model"
+        except Exception:
+            return "unreachable"
+
     @property
     def input_cost_per_mtok(self) -> float:
         """USD cost per million input tokens for the configured model."""
