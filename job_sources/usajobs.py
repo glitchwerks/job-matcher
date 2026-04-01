@@ -91,6 +91,7 @@ class USAJobsClient(JobSource):
         """
         return {
             "display_name": "USAJobs",
+            "home_url": "https://www.usajobs.gov",
             "fields": [
                 {
                     "name": "api_key",

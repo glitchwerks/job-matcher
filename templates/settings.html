@@ -201,6 +201,16 @@
       margin-left: 0.5rem;
       font-style: italic;
     }
+    .provider-home-link {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.15s;
+      flex-shrink: 0;
+    }
+    .provider-home-link:hover {
+      color: var(--text-accent);
+    }
   </style>
 </head>
 <body>
@@ -343,6 +353,9 @@
         <div class="provider-row">
           <div class="provider-header">
             <span class="provider-name">{{ schema.display_name }}</span>
+            {% if schema.home_url %}
+              <a href="{{ schema.home_url }}" target="_blank" rel="noopener noreferrer" class="provider-home-link" title="Visit {{ schema.display_name }}">&#8599;</a>
+            {% endif %}
             {% if schema.fields %}
               {% if has_values %}
                 <span class="key-status configured">&#9679; configured</span>

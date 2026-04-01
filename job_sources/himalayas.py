@@ -125,6 +125,7 @@ class HimalayasClient(JobSource):
         """
         return {
             "display_name": "Himalayas",
+            "home_url": "https://himalayas.app",
             "fields": [],
         }
 

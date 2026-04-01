@@ -137,6 +137,7 @@ class TheMuseClient(JobSource):
         """
         return {
             "display_name": "The Muse",
+            "home_url": "https://www.themuse.com",
             "fields": [],
         }
 

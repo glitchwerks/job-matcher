@@ -123,6 +123,7 @@ class RemotiveClient(JobSource):
         """
         return {
             "display_name": "Remotive",
+            "home_url": "https://remotive.com",
             "fields": [],
         }
 

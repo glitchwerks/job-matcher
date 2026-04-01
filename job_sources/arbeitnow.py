@@ -108,6 +108,7 @@ class ArbeitnowClient(JobSource):
         """
         return {
             "display_name": "Arbeitnow",
+            "home_url": "https://www.arbeitnow.com",
             "fields": [],
         }
 

@@ -275,6 +275,42 @@ class TestNoCredentialSources:
         assert cls.settings_schema()["fields"] == []
 
 
+class TestSourceHomeUrl:
+    """Every job source schema must expose a non-empty ``home_url`` string."""
+
+    @pytest.mark.parametrize("cls,expected_url", [
+        (AdzunaClient, "https://www.adzuna.com"),
+        (ArbeitnowClient, "https://www.arbeitnow.com"),
+        (HimalayasClient, "https://himalayas.app"),
+        (RemoteOKClient, "https://remoteok.com"),
+        (RemotiveClient, "https://remotive.com"),
+        (TheMuseClient, "https://www.themuse.com"),
+        (USAJobsClient, "https://www.usajobs.gov"),
+    ])
+    def test_home_url_present(self, cls, expected_url):
+        schema = cls.settings_schema()
+        assert "home_url" in schema, f"{cls.__name__}: missing 'home_url' key"
+        assert schema["home_url"] == expected_url, (
+            f"{cls.__name__}: expected home_url={expected_url!r}, "
+            f"got {schema['home_url']!r}"
+        )
+
+    @pytest.mark.parametrize("cls,_", [
+        (AdzunaClient, None),
+        (ArbeitnowClient, None),
+        (HimalayasClient, None),
+        (RemoteOKClient, None),
+        (RemotiveClient, None),
+        (TheMuseClient, None),
+        (USAJobsClient, None),
+    ])
+    def test_home_url_is_https(self, cls, _):
+        url = cls.settings_schema()["home_url"]
+        assert url.startswith("https://"), (
+            f"{cls.__name__}: home_url must start with 'https://', got {url!r}"
+        )
+
+
 class TestSourceRegistryAccess:
     """settings_schema() must be reachable via the SOURCES registry."""
 

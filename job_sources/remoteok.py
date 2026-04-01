@@ -115,6 +115,7 @@ class RemoteOKClient(JobSource):
         """
         return {
             "display_name": "Remote OK",
+            "home_url": "https://remoteok.com",
             "fields": [],
         }
 

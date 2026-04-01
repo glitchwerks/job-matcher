@@ -66,6 +66,7 @@ class AdzunaClient(JobSource):
         """
         return {
             "display_name": "Adzuna",
+            "home_url": "https://www.adzuna.com",
             "fields": [
                 {
                     "name": "app_id",
