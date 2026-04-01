@@ -1,0 +1,36 @@
+name: Lint Failure
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  handle:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'failure'
+
+    steps:
+      - name: Get PR number
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          PR=$(gh api repos/${{ github.repository }}/pulls \
+            --jq ".[] | select(.head.sha == \"${{ github.event.workflow_run.head_sha }}\") | .number" \
+            | head -1)
+          echo "number=$PR" >> $GITHUB_OUTPUT
+
+      - name: Run lint-failure action
+        if: steps.pr.outputs.number != ''
+        uses: cbeaulieu-gt/github-actions/lint-failure@2d3c49a595ad5bf4795c704951348bb6c9fbc821
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          gh_pat: ${{ secrets.GH_PAT }}
+          pr_number: ${{ steps.pr.outputs.number }}
+          run_id: ${{ github.event.workflow_run.id }}
+          auto_apply: 'true'
