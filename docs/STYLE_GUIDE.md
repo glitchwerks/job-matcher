@@ -205,6 +205,7 @@ All buttons extend `.btn` (base). Add a modifier class for semantic variants.
 | `.filter-input` | `<input type="text">` | Filter bar text input; width 220px |
 | `.filter-select` | `<select>` | Filter bar dropdown; custom SVG arrow |
 | `.filter-toggle` | `<label>` | Checkbox label wrapper in filter bar |
+| `.provider-home-link` | `<a>` | External link icon (↗) placed next to provider names on the Settings → Job Sources tab; `font-size: 0.8rem`, `var(--text-muted)` at rest, `var(--text-accent)` on hover, `transition: color 0.15s` |
 
 ### Toggle Switch
 
