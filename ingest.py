@@ -851,6 +851,17 @@ def rescore(
         return
 
     total = len(listings)
+    logger.info("=" * 60)
+    logger.info("RESCORE RUN STARTED")
+    logger.info("  Listings to rescore: %d", total)
+    if chain:
+        logger.info(
+            "  LLM providers: %s",
+            " | ".join(f"{_provider_name(p)}/{_provider_model(p)}" for p in chain),
+        )
+    else:
+        logger.warning("  No LLM providers configured — all rescores will fail")
+    logger.info("=" * 60)
     rescored = 0
     failed = 0
     tokens_input = 0
@@ -911,6 +922,9 @@ def rescore(
             for name, b in provider_costs.items()
         )
         logger.info("  Cost breakdown: %s", breakdown)
+    logger.info("=" * 60)
+    logger.info("RESCORE RUN COMPLETE")
+    logger.info("=" * 60)
 
 
 # ---------------------------------------------------------------------------
