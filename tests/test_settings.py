@@ -786,6 +786,209 @@ class TestValidateKeys:
 
 
 # ---------------------------------------------------------------------------
+# Dynamic registry — new providers added to _PROVIDER_CLASS_MAP appear
+# automatically without any template changes (#151)
+# ---------------------------------------------------------------------------
+
+class TestValidateKeysDynamic:
+    """Verify that validate_keys() loops _PROVIDER_CLASS_MAP dynamically.
+
+    We inject a fake provider class into the registry and confirm its
+    display_name appears in the HTML partial without touching the template.
+    The fake provider is removed from the registry after each test so it
+    does not leak into other test cases.
+    """
+
+    def _write_providers_with_fake(self, path, fake_key="fake-api-key"):
+        """Write providers.json that includes the fake 'testprovider' entry."""
+        data = {
+            "provider_order": ["anthropic", "openai", "gemini", "testprovider"],
+            "llm": {
+                "anthropic":    {"api_key": "sk-ant", "model": "claude-haiku-4-5-20251001"},
+                "openai":       {"api_key": "sk-oai", "model": "gpt-4o-mini"},
+                "gemini":       {"api_key": "gm-key", "model": "gemini-1.5-flash"},
+                "testprovider": {"api_key": fake_key,  "model": "test-model"},
+            },
+            "job_sources": {},
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+
+    def test_new_provider_in_registry_appears_in_output(
+        self, client, tmp_providers_path, tmp_keys_path, monkeypatch
+    ):
+        """A provider added to _PROVIDER_CLASS_MAP shows up without template changes."""
+        from providers import _PROVIDER_CLASS_MAP, LLMProvider
+
+        # Build a minimal fake provider class.
+        class _FakeProviderCls(LLMProvider):
+            @classmethod
+            def settings_schema(cls):
+                return {"display_name": "TestProvider", "fields": []}
+
+            def complete(self, prompt):
+                raise NotImplementedError
+
+            @property
+            def input_cost_per_mtok(self):
+                return 0.0
+
+            @property
+            def output_cost_per_mtok(self):
+                return 0.0
+
+        # Register the fake provider in the map.
+        _PROVIDER_CLASS_MAP["testprovider"] = _FakeProviderCls
+        try:
+            self._write_providers_with_fake(tmp_providers_path)
+            monkeypatch.setattr(app_module, "_validate_anthropic", lambda k, m: "valid")
+            monkeypatch.setattr(app_module, "_validate_openai",    lambda k, m: "valid")
+            monkeypatch.setattr(app_module, "_validate_gemini",    lambda k, m: "valid")
+            resp = client.post("/api/validate-keys")
+            assert resp.status_code == 200
+            body = resp.data.decode()
+            # The display_name from the fake provider's settings_schema() must appear.
+            assert "TestProvider" in body
+            # There should now be 4 rows (3 real + 1 fake).
+            assert body.count("validation-row") == 4
+        finally:
+            _PROVIDER_CLASS_MAP.pop("testprovider", None)
+
+    def test_new_provider_not_configured_when_key_empty(
+        self, client, tmp_providers_path, tmp_keys_path, monkeypatch
+    ):
+        """A registered provider with no api_key shows 'not_configured'."""
+        from providers import _PROVIDER_CLASS_MAP, LLMProvider
+
+        class _FakeProviderCls(LLMProvider):
+            @classmethod
+            def settings_schema(cls):
+                return {"display_name": "TestProvider", "fields": []}
+
+            def complete(self, prompt):
+                raise NotImplementedError
+
+            @property
+            def input_cost_per_mtok(self):
+                return 0.0
+
+            @property
+            def output_cost_per_mtok(self):
+                return 0.0
+
+        _PROVIDER_CLASS_MAP["testprovider"] = _FakeProviderCls
+        try:
+            # Write the fake provider with an empty api_key.
+            self._write_providers_with_fake(tmp_providers_path, fake_key="")
+            monkeypatch.setattr(app_module, "_validate_anthropic", lambda k, m: "valid")
+            monkeypatch.setattr(app_module, "_validate_openai",    lambda k, m: "valid")
+            monkeypatch.setattr(app_module, "_validate_gemini",    lambda k, m: "valid")
+            resp = client.post("/api/validate-keys")
+            body = resp.data.decode()
+            # Fake provider row must show not_configured (muted badge).
+            assert "validation-muted" in body
+        finally:
+            _PROVIDER_CLASS_MAP.pop("testprovider", None)
+
+
+# ---------------------------------------------------------------------------
+# _validate_with_timeout — timeout path
+# ---------------------------------------------------------------------------
+
+class TestValidateWithTimeout:
+    """Unit tests for the _validate_with_timeout() helper.
+
+    Verifies that a validator call that blocks longer than the configured
+    timeout is interrupted and returns 'unreachable'.
+    """
+
+    def test_returns_validator_result_when_fast(self):
+        """A fast validator's return value passes through unchanged."""
+        result = app_module._validate_with_timeout(
+            lambda k, m: "valid", "key", "model"
+        )
+        assert result == "valid"
+
+    def test_returns_unreachable_on_timeout(self, monkeypatch):
+        """A validator that never returns is treated as unreachable after timeout."""
+        import time
+
+        # Reduce timeout to 0.05 s so the test completes quickly.
+        monkeypatch.setattr(app_module, "_VALIDATE_TIMEOUT_SECONDS", 0.05)
+
+        def _hanging_validator(k, m):
+            time.sleep(10)  # much longer than the patched timeout
+            return "valid"
+
+        result = app_module._validate_with_timeout(_hanging_validator, "key", "model")
+        assert result == "unreachable"
+
+    def test_returns_unreachable_when_validator_raises(self):
+        """An exception inside the validator is caught and mapped to unreachable."""
+        def _exploding(k, m):
+            raise RuntimeError("boom")
+
+        result = app_module._validate_with_timeout(_exploding, "key", "model")
+        assert result == "unreachable"
+
+    def test_validator_state_strings_pass_through(self):
+        """All non-timeout state strings are forwarded verbatim."""
+        for state in ("valid", "invalid_key", "unknown_model", "unreachable"):
+            result = app_module._validate_with_timeout(
+                lambda k, m, s=state: s, "key", "model"
+            )
+            assert result == state
+
+
+# ---------------------------------------------------------------------------
+# Timeout integration — endpoint maps timed-out providers to unreachable
+# ---------------------------------------------------------------------------
+
+class TestValidateKeysTimeout:
+    """Integration test: a provider that times out shows unreachable in the page."""
+
+    def _write_providers(self, path):
+        data = {
+            "provider_order": ["anthropic", "openai", "gemini"],
+            "llm": {
+                "anthropic": {"api_key": "sk-ant", "model": "claude-haiku-4-5-20251001"},
+                "openai":    {"api_key": "sk-oai", "model": "gpt-4o-mini"},
+                "gemini":    {"api_key": "gm-key", "model": "gemini-1.5-flash"},
+            },
+            "job_sources": {},
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+
+    def test_timed_out_provider_shows_unreachable_others_unaffected(
+        self, client, tmp_providers_path, tmp_keys_path, monkeypatch
+    ):
+        """A validator that blocks is mapped to unreachable; others still validate."""
+        import time
+
+        # Reduce timeout so the test completes quickly.
+        monkeypatch.setattr(app_module, "_VALIDATE_TIMEOUT_SECONDS", 0.05)
+
+        self._write_providers(tmp_providers_path)
+
+        def _slow_validator(k, m):
+            time.sleep(10)  # exceeds patched timeout
+            return "valid"
+
+        monkeypatch.setattr(app_module, "_validate_anthropic", _slow_validator)
+        monkeypatch.setattr(app_module, "_validate_openai",    lambda k, m: "valid")
+        monkeypatch.setattr(app_module, "_validate_gemini",    lambda k, m: "valid")
+
+        resp = client.post("/api/validate-keys")
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        # Timed-out provider must show Unreachable.
+        assert "Unreachable" in body
+        # Other two providers must still show valid.
+        assert body.count("validation-valid") == 2
+
+
+# ---------------------------------------------------------------------------
 # _validate_* helper unit tests — error type classification
 # ---------------------------------------------------------------------------
 

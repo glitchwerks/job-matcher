@@ -909,42 +909,93 @@ def _validate_gemini(api_key: str, model: str) -> str:
         return "unreachable"
 
 
+_VALIDATE_TIMEOUT_SECONDS = 5
+"""Per-provider timeout for key validation API calls."""
+
+
+def _validate_with_timeout(validator, api_key: str, model: str) -> str:
+    """Run *validator(api_key, model)* in a daemon thread with a fixed timeout.
+
+    Returns the validator's state string, or ``'unreachable'`` if the call
+    does not complete within ``_VALIDATE_TIMEOUT_SECONDS``.
+
+    Args:
+        validator: Callable ``(api_key, model) -> str``.
+        api_key:   Provider API key string.
+        model:     Provider model name string.
+
+    Returns:
+        One of: ``'valid'``, ``'invalid_key'``, ``'unknown_model'``,
+        ``'unreachable'``.
+    """
+    result_holder: list[str] = []
+
+    def _target() -> None:
+        try:
+            result_holder.append(validator(api_key, model))
+        except Exception:
+            result_holder.append("unreachable")
+
+    t = threading.Thread(target=_target, daemon=True)
+    t.start()
+    t.join(timeout=_VALIDATE_TIMEOUT_SECONDS)
+    if t.is_alive():
+        # Thread is still blocked (network hang) — treat as unreachable.
+        return "unreachable"
+    return result_holder[0] if result_holder else "unreachable"
+
+
 @app.route("/api/validate-keys", methods=["POST"])
 def validate_keys():
     """Validate each configured LLM provider by making a minimal 1-token test call.
 
+    Loops ``_PROVIDER_CLASS_MAP`` so new providers are included automatically
+    without any template or route changes.
+
     Returns an HTML partial (not JSON) intended for HTMX to swap into the page.
     Each provider gets one of five states: valid, invalid_key, unknown_model,
-    unreachable, not_configured.
+    unreachable, not_configured.  Each provider call is bounded to
+    ``_VALIDATE_TIMEOUT_SECONDS`` seconds; a timeout maps to ``unreachable``.
 
     No API key values are logged or returned in the response.
     """
     providers_data = _load_providers_safe()
     llm_section: dict = providers_data.get("llm") or {}
-    results = {}
 
-    _validators = {
+    # Map provider key → validator function (module-level helpers).
+    _validator_map = {
         "anthropic": _validate_anthropic,
         "openai":    _validate_openai,
         "gemini":    _validate_gemini,
     }
 
-    for provider, validator in _validators.items():
-        cfg = llm_section.get(provider, {})
+    providers_list = []
+    for provider_key, cls in _PROVIDER_CLASS_MAP.items():
+        schema = cls.settings_schema()
+        display_name: str = schema.get("display_name", provider_key.title())
+
+        cfg = llm_section.get(provider_key, {})
         api_key = cfg.get("api_key", "").strip()
         model   = cfg.get("model", "").strip()
 
         if not api_key:
-            results[provider] = "not_configured"
-            continue
+            state = "not_configured"
+        else:
+            validator = _validator_map.get(provider_key)
+            if validator is None:
+                # No validator registered for this provider — treat as unreachable
+                # rather than silently skipping it.
+                state = "unreachable"
+            else:
+                state = _validate_with_timeout(validator, api_key, model)
 
-        try:
-            results[provider] = validator(api_key, model)
-        except Exception:
-            # Belt-and-suspenders: a failure in one provider must not block others.
-            results[provider] = "unreachable"
+        providers_list.append({
+            "key":          provider_key,
+            "display_name": display_name,
+            "state":        state,
+        })
 
-    return render_template("_validation_results.html", results=results)
+    return render_template("_validation_results.html", providers=providers_list)
 
 
 @app.route("/api/providers/reorder", methods=["POST"])

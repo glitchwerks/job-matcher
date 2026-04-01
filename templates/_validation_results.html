@@ -1,6 +1,12 @@
 {# _validation_results.html — HTMX partial returned by POST /api/validate-keys.
    Rendered into #validation-results on the settings page.
-   Each provider gets exactly one state row. No key values are ever included. #}
+   Each provider gets exactly one state row. No key values are ever included.
+
+   Context variable:
+     providers — list of dicts, one per entry in _PROVIDER_CLASS_MAP:
+       { "key": str, "display_name": str, "state": str }
+   Valid state values: valid, invalid_key, unknown_model, unreachable, not_configured.
+#}
 
 {% macro state_badge(state) %}
   {% if state == "valid" %}
@@ -17,16 +23,10 @@
 {% endmacro %}
 
 <div class="validation-results">
+  {% for provider in providers %}
   <div class="validation-row">
-    <span class="validation-provider">Anthropic</span>
-    {{ state_badge(results.anthropic) }}
+    <span class="validation-provider">{{ provider.display_name }}</span>
+    {{ state_badge(provider.state) }}
   </div>
-  <div class="validation-row">
-    <span class="validation-provider">OpenAI</span>
-    {{ state_badge(results.openai) }}
-  </div>
-  <div class="validation-row">
-    <span class="validation-provider">Gemini</span>
-    {{ state_badge(results.gemini) }}
-  </div>
+  {% endfor %}
 </div>
