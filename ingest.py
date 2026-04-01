@@ -577,7 +577,7 @@ def run(
         logger.warning(
             "No job sources are enabled. Enable at least one source in Settings > Sources."
         )
-        print("Run complete: 0 fetched | no sources enabled")
+        logger.info("Run complete: 0 fetched | no sources enabled")
         return
 
     chain = build_provider_chain(providers)
@@ -784,20 +784,22 @@ def run(
 
     total_tokens = total_tokens_input + total_tokens_output
     run_cost = sum(b["cost"] for b in provider_costs.values())
-    print(
-        f"Run complete: {len(sources)} source(s) | {fetched} fetched | {prefiltered} pre-filtered | "
-        f"{deduped} dupes skipped | {scored} scored ({score_failed} failed) | "
-        f"{scraped_fallback} scrape fallbacks | "
-        f"~{total_tokens:,} tok | ~${run_cost:.4f}"
+    logger.info(
+        "Run complete: %d source(s) | %d fetched | %d pre-filtered | "
+        "%d dupes skipped | %d scored (%d failed) | "
+        "%d scrape fallbacks | ~%s tok | ~$%.4f",
+        len(sources), fetched, prefiltered,
+        deduped, scored, score_failed,
+        scraped_fallback, f"{total_tokens:,}", run_cost,
     )
     if len(provider_costs) > 1:
         breakdown = " | ".join(
             f"{name}: ~{b['input'] + b['output']:,} tok ~${b['cost']:.4f}"
             for name, b in provider_costs.items()
         )
-        print(f"  Cost breakdown: {breakdown}")
+        logger.info("  Cost breakdown: %s", breakdown)
     if source_fetch_counts:
-        print("  Sources: " + " | ".join(f"{src}: {cnt}" for src, cnt in source_fetch_counts.items()))
+        logger.info("  Sources: %s", " | ".join(f"{src}: {cnt}" for src, cnt in source_fetch_counts.items()))
     logger.info("=" * 60)
     logger.info("INGEST RUN COMPLETE")
     logger.info("=" * 60)
@@ -845,7 +847,7 @@ def rescore(
 
     listings = db.get_all_scored(db_path=_DB_PATH)
     if not listings:
-        print("No scored listings to rescore.")
+        logger.info("No scored listings to rescore.")
         return
 
     total = len(listings)
@@ -899,16 +901,16 @@ def rescore(
 
     total_tokens = tokens_input + tokens_output
     cost = sum(b["cost"] for b in provider_costs.values())
-    print(
-        f"Rescore complete: {total} listings | {rescored} rescored ({failed} failed) | "
-        f"~{total_tokens:,} tok | ~${cost:.4f}"
+    logger.info(
+        "Rescore complete: %d listings | %d rescored (%d failed) | ~%s tok | ~$%.4f",
+        total, rescored, failed, f"{total_tokens:,}", cost,
     )
     if len(provider_costs) > 1:
         breakdown = " | ".join(
             f"{name}: ~{b['input'] + b['output']:,} tok ~${b['cost']:.4f}"
             for name, b in provider_costs.items()
         )
-        print(f"  Cost breakdown: {breakdown}")
+        logger.info("  Cost breakdown: %s", breakdown)
 
 
 # ---------------------------------------------------------------------------

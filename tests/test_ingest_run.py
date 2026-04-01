@@ -264,8 +264,9 @@ class TestIngestRunHappyPath:
         assert "Senior Python Engineer" in titles
         assert "Backend Developer" in titles
 
-    def test_summary_line_matches_app_regex(self, tmp_path, capsys):
-        """The printed summary line matches ``app._INGEST_SUMMARY_RE``."""
+    def test_summary_line_matches_app_regex(self, tmp_path, caplog):
+        """The logged summary line matches ``app._INGEST_SUMMARY_RE``."""
+        import logging
         db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
@@ -280,6 +281,7 @@ class TestIngestRunHappyPath:
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
             patch.object(ingest, "_DB_PATH", db_path),
+            caplog.at_level(logging.INFO, logger="ingest"),
         ):
             ingest.run(
                 config_path=config_path,
@@ -287,13 +289,12 @@ class TestIngestRunHappyPath:
                 keys_path=keys_path,
             )
 
-        captured = capsys.readouterr()
-        stdout = captured.out
+        log_text = caplog.text
 
-        m = _INGEST_SUMMARY_RE.search(stdout)
+        m = _INGEST_SUMMARY_RE.search(log_text)
         assert m is not None, (
             f"Summary line did not match _INGEST_SUMMARY_RE.\n"
-            f"Printed output:\n{stdout}"
+            f"Log output:\n{log_text}"
         )
 
         fetched = int(m.group(1))
@@ -411,8 +412,9 @@ class TestIngestRunScoringFailure:
         feed = db.get_feed(threshold=6.0, db_path=db_path)
         assert feed == [], "Score-failed listing must not appear in the feed"
 
-    def test_score_failure_summary_reports_one_failed(self, tmp_path, capsys):
+    def test_score_failure_summary_reports_one_failed(self, tmp_path, caplog):
         """The summary line records score_failed=1 when one listing fails scoring."""
+        import logging
         db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
@@ -427,6 +429,7 @@ class TestIngestRunScoringFailure:
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=None),
             patch.object(ingest, "_DB_PATH", db_path),
+            caplog.at_level(logging.INFO, logger="ingest"),
         ):
             ingest.run(
                 config_path=config_path,
@@ -434,13 +437,12 @@ class TestIngestRunScoringFailure:
                 keys_path=keys_path,
             )
 
-        captured = capsys.readouterr()
-        stdout = captured.out
+        log_text = caplog.text
 
-        m = _INGEST_SUMMARY_RE.search(stdout)
+        m = _INGEST_SUMMARY_RE.search(log_text)
         assert m is not None, (
             f"Summary line did not match _INGEST_SUMMARY_RE.\n"
-            f"Printed output:\n{stdout}"
+            f"Log output:\n{log_text}"
         )
 
         score_failed = int(m.group(3))
@@ -480,8 +482,9 @@ class TestIngestRunDedup:
 
         assert count == 2, f"Expected 2 rows (no dupes), got {count}"
 
-    def test_duplicate_reflected_in_summary(self, tmp_path, capsys):
+    def test_duplicate_reflected_in_summary(self, tmp_path, caplog):
         """Second run reports 2 dupes skipped in its summary line."""
+        import logging
         db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
@@ -505,16 +508,16 @@ class TestIngestRunDedup:
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
             patch.object(ingest, "_DB_PATH", db_path),
+            caplog.at_level(logging.INFO, logger="ingest"),
         ):
             ingest.run(config_path=config_path, profile_path=profile_path, keys_path=keys_path)
-            capsys.readouterr()  # Discard first run output.
+            caplog.clear()  # Discard first run log output.
             ingest.run(config_path=config_path, profile_path=profile_path, keys_path=keys_path)
 
-        captured = capsys.readouterr()
-        stdout = captured.out
+        log_text = caplog.text
 
-        m = _dupe_summary_re.search(stdout)
-        assert m is not None, f"Expected dupe summary in output:\n{stdout}"
+        m = _dupe_summary_re.search(log_text)
+        assert m is not None, f"Expected dupe summary in log output:\n{log_text}"
 
         dupes = int(m.group(2))
         assert dupes == 2, f"Expected 2 dupes skipped, got {dupes}"

@@ -628,11 +628,26 @@ def get_bookmarks(db_path: str = _DEFAULT_DB_PATH) -> list[dict]:
 
 
 def get_all_scored(db_path: str = _DEFAULT_DB_PATH) -> list[dict]:
-    """Return all listings that have been scored (seen = 1), ordered by fetched_at DESC."""
+    """Return all listings that have been scored (seen = 1), ordered by fetched_at DESC.
+
+    Uses a subquery to pick the row with the highest id per (source, source_id)
+    pair so that any accidental duplicate rows (e.g. from an imperfect migration)
+    are collapsed to a single entry before the caller iterates them.
+    """
     conn = get_connection(db_path)
     try:
         rows = conn.execute(
-            "SELECT * FROM listings WHERE seen = 1 ORDER BY fetched_at DESC"
+            """
+            SELECT * FROM listings
+            WHERE seen = 1
+              AND id IN (
+                  SELECT MAX(id)
+                  FROM listings
+                  WHERE seen = 1
+                  GROUP BY source, source_id
+              )
+            ORDER BY fetched_at DESC
+            """
         ).fetchall()
         return [_deserialise_row(r) for r in rows]
     finally:
