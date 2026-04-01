@@ -1138,14 +1138,6 @@ body {
   color: var(--text-primary);
 }
 
-.source-description {
-  font-family: var(--font-body);
-  font-size: 0.82rem;
-  color: var(--text-muted);
-  margin: 2px 0 6px;
-  line-height: 1.5;
-}
-
 .key-status {
   font-family: var(--font-mono);
   font-size: 0.70rem;

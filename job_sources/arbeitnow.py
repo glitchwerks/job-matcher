@@ -108,7 +108,6 @@ class ArbeitnowClient(JobSource):
         """
         return {
             "display_name": "Arbeitnow",
-            "description": "European tech job board with a free, open API. Strong coverage of remote and EU-based software roles. No API key required.",
             "home_url": "https://www.arbeitnow.com",
             "fields": [],
         }

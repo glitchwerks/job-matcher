@@ -66,7 +66,6 @@ class AdzunaClient(JobSource):
         """
         return {
             "display_name": "Adzuna",
-            "description": "Global job aggregator with broad coverage across industries and countries. Requires a free API key from adzuna.com. Best for high-volume searches in supported regions.",
             "home_url": "https://www.adzuna.com",
             "fields": [
                 {

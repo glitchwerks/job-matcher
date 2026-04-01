@@ -118,7 +118,6 @@ class JoobleClient(JobSource):
         """
         return {
             "display_name": "Jooble",
-            "description": "Aggregates listings from hundreds of boards worldwide. Free API key required (register at jooble.org). Broad coverage; description quality varies.",
             "fields": [
                 {
                     "name": "api_key",

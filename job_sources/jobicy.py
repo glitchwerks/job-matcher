@@ -60,7 +60,6 @@ class JobicyClient(JobSource):
         """
         return {
             "display_name": "Jobicy",
-            "description": "Remote job board with a free, unauthenticated API. Returns full job descriptions — no scraping needed. Good for remote software and data roles.",
             "fields": [],
         }
 

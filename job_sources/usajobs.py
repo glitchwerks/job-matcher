@@ -91,7 +91,6 @@ class USAJobsClient(JobSource):
         """
         return {
             "display_name": "USAJobs",
-            "description": "Official US federal government job board. Requires a free API key and contact email from usajobs.gov. Best for government or contractor roles.",
             "home_url": "https://www.usajobs.gov",
             "fields": [
                 {
