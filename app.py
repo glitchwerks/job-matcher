@@ -408,6 +408,7 @@ def feed():
     )
     job_types = db.get_job_types(db_path=DB_PATH)
     last_fetch_time = db.get_last_fetch_time(db_path=DB_PATH)
+    new_count = sum(1 for listing in listings if listing["opened_at"] is None)
     return render_template(
         "index.html",
         listings=listings,
@@ -420,6 +421,7 @@ def feed():
         job_types=job_types,
         sort=sort,
         last_fetch_time=last_fetch_time,
+        new_count=new_count,
         config_warnings=_config_warnings(),
         running=_ingest_running(),
     )
@@ -500,6 +502,19 @@ def dismiss(listing_id: int):
     """
     db.set_dismissed(listing_id, 1, db_path=DB_PATH)
     return make_response("", 200)
+
+
+@app.route("/listings/<int:listing_id>/open", methods=["POST"])
+def mark_listing_opened(listing_id: int):
+    """Mark a listing as opened (first-time expand) and clear its New badge.
+
+    Called fire-and-forget by HTMX when the user expands a card for the first
+    time.  The operation is idempotent — if the listing is already marked
+    opened, the DB write is a no-op.  Always returns 204 No Content regardless
+    of whether the listing exists, since a missing id is benign in this context.
+    """
+    db.mark_opened(listing_id, db_path=DB_PATH)
+    return make_response("", 204)
 
 
 def _mask_config_keys(data: dict) -> dict:

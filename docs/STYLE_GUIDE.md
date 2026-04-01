@@ -173,6 +173,7 @@ All badges share the pill shape: `border-radius: 20px`, `--font-mono`, padding `
 | `.badge-onsite` | — | On-site location tag (neutral) |
 | `.badge-jobtype` | — | Job type tag (neutral) |
 | `.badge-source` | — | Job source provider tag (neutral, dashed border to distinguish from job-type) |
+| `.badge-new` | — | "New" indicator on cards never opened by the user; amber border/text (`--text-accent`); hidden via `[open]` selector on expand; absent on reload once `opened_at` is persisted |
 | `.model-badge` | — | LLM model identifier (muted, 70% opacity) |
 | `.key-status` | `.configured`, `.not-set` | Settings credential status |
 | `.validation-badge` | `.validation-valid`, `.validation-invalid`, `.validation-warning`, `.validation-muted` | API key validation results |

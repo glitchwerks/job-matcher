@@ -23,7 +23,10 @@
   {% set is_remote = false %}
 {% endif %}
 
-<details class="card-details" id="card-{{ listing.id }}" data-tier="{{ tier }}">
+<details class="card-details" id="card-{{ listing.id }}" data-tier="{{ tier }}"
+  hx-post="/listings/{{ listing.id }}/open"
+  hx-trigger="toggle[this.open]"
+  hx-swap="none">
 
   {# ── Summary: collapsed one-line view ────────────────────────── #}
   <summary class="card-summary">
@@ -80,6 +83,10 @@
     } %}
     {% set _source_label = _source_map.get(listing.source, listing.source | title) %}
     <span class="badge-source">{{ _source_label }}</span>
+
+    {% if listing.opened_at is none %}
+      <span class="badge-new">New</span>
+    {% endif %}
 
   </summary>
 

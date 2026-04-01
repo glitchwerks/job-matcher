@@ -111,6 +111,7 @@ def init_db(db_path: str = _DEFAULT_DB_PATH) -> None:
                     applied             INTEGER DEFAULT 0,
                     job_type            TEXT,
                     posted_at           TEXT,
+                    opened_at           TEXT DEFAULT NULL,
                     UNIQUE(source, source_id)
                 )
             """)
@@ -154,6 +155,7 @@ def init_db(db_path: str = _DEFAULT_DB_PATH) -> None:
                     applied             INTEGER DEFAULT 0,
                     job_type            TEXT,
                     posted_at           TEXT,
+                    opened_at           TEXT DEFAULT NULL,
                     UNIQUE(source, source_id)
                 )
             """)
@@ -250,6 +252,7 @@ def init_db(db_path: str = _DEFAULT_DB_PATH) -> None:
                     applied             INTEGER DEFAULT 0,
                     job_type            TEXT,
                     posted_at           TEXT,
+                    opened_at           TEXT DEFAULT NULL,
                     UNIQUE(source, source_id)
                 )
             """)
@@ -316,6 +319,7 @@ def init_db(db_path: str = _DEFAULT_DB_PATH) -> None:
                 ("job_type",      "TEXT"),
                 ("model_used",    "TEXT"),
                 ("posted_at",     "TEXT"),
+                ("opened_at",     "TEXT"),
             ):
                 try:
                     conn.execute(
@@ -828,6 +832,31 @@ def set_applied(listing_id: int, value: int, db_path: str = _DEFAULT_DB_PATH) ->
         conn.execute(
             "UPDATE listings SET applied = ? WHERE id = ?",
             (int(bool(value)), listing_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_opened(listing_id: int, db_path: str = _DEFAULT_DB_PATH) -> None:
+    """Record that the user has opened (expanded) this listing for the first time.
+
+    Sets ``opened_at`` to the current UTC timestamp as an ISO 8601 string.
+    This is idempotent — if ``opened_at`` is already set, the row is not
+    updated, so repeat expansions do not overwrite the original open time.
+
+    Args:
+        listing_id: Internal integer primary key.
+        db_path:    Path to the SQLite database file.
+    """
+    import datetime
+
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            "UPDATE listings SET opened_at = ? WHERE id = ? AND opened_at IS NULL",
+            (now, listing_id),
         )
         conn.commit()
     finally:

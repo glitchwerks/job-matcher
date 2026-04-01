@@ -1052,6 +1052,38 @@ body {
   margin-top: 2px;
 }
 
+/* New badge — shown on cards the user has never opened.
+   Uses --text-accent (amber) for the border and text to draw attention without
+   competing with score-tier semantic colors (green/amber-tier/red).
+   Hidden instantly when the card is expanded via the [open] sibling selector;
+   gone permanently on next page load once opened_at is set in the database. */
+.badge-new {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 20px;
+  border: 1px solid var(--text-accent);
+  white-space: nowrap;
+  background: transparent;
+  color: var(--text-accent);
+  margin-top: 2px;
+  transition: opacity 0.15s ease;
+}
+
+/* Instantly hide the badge once the card is open — no server round-trip needed.
+   The badge is also absent on next reload once opened_at is persisted. */
+.card-details[open] .badge-new {
+  display: none;
+}
+
+/* Feed-meta "N new" count — matches feed-meta typography but uses accent color */
+.feed-new-count {
+  color: var(--text-accent);
+}
+
 /* Model used badge — monospace, dimmer than badge-jobtype, no uppercase */
 .model-badge {
   flex-shrink: 0;
