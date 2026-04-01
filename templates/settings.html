@@ -365,6 +365,9 @@
             {% else %}
               <span class="key-status configured">&#9679; no credentials required</span>
             {% endif %}
+            {% if toggle_disabled %}
+              <span class="toggle-hint">Add credentials to enable</span>
+            {% endif %}
             <label class="source-toggle">
               <input
                 type="checkbox"
@@ -377,9 +380,6 @@
                 <span class="source-toggle-knob"></span>
               </span>
             </label>
-            {% if toggle_disabled %}
-              <span class="toggle-hint">Add credentials to enable</span>
-            {% endif %}
           </div>
 
           {% for field in schema.fields %}

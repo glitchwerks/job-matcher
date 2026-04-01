@@ -212,6 +212,9 @@ All buttons extend `.btn` (base). Add a modifier class for semantic variants.
 Used for binary on/off controls (e.g. source enabled). Pure CSS — no JS required.
 
 ```html
+{% if toggle_disabled %}
+  <span class="toggle-hint">Add credentials to enable</span>
+{% endif %}
 <label class="source-toggle">
   <input
     type="checkbox"
@@ -224,9 +227,6 @@ Used for binary on/off controls (e.g. source enabled). Pure CSS — no JS requir
     <span class="source-toggle-knob"></span>
   </span>
 </label>
-{% if toggle_disabled %}
-  <span class="toggle-hint">Add credentials to enable</span>
-{% endif %}
 ```
 
 | Class | Element | Notes |
