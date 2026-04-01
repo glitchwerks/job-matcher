@@ -12,27 +12,13 @@ import logging
 from typing import Iterator
 
 import requests
-from bs4 import BeautifulSoup
 
 from .base import JobSource
+from .utils import strip_html
 
 logger = logging.getLogger("ingest.jobicy")
 
 _JOBICY_URL = "https://jobicy.com/api/v2/remote-jobs"
-
-
-def _strip_html(html: str) -> str:
-    """Strip HTML tags from a string using BeautifulSoup.
-
-    Args:
-        html: HTML string to strip.
-
-    Returns:
-        Plain text with tags removed and whitespace normalised.
-    """
-    if not html:
-        return ""
-    return BeautifulSoup(html, "html.parser").get_text(separator=" ", strip=True)
 
 
 class JobicyClient(JobSource):
@@ -57,7 +43,7 @@ class JobicyClient(JobSource):
         jobicy_cfg: dict = config.get("jobicy") or {}
         self._tag: str = jobicy_cfg.get("tag", "software engineer")
         self._geo: str = jobicy_cfg.get("geo", "usa")
-        self._count: int = int(jobicy_cfg.get("count", 50))
+        self._count: int = max(1, min(int(jobicy_cfg.get("count", 50)), 100))
 
     # ------------------------------------------------------------------
     # JobSource interface
@@ -185,7 +171,7 @@ class JobicyClient(JobSource):
             "salary_period": salary_period,
             "contract_type": None,
             "contract_time": raw.get("jobType", "") or "",
-            "description": _strip_html(raw.get("jobDescription", "") or ""),
+            "description": strip_html(raw.get("jobDescription", "") or ""),
             "redirect_url": raw.get("url", "") or "",
             "created_at": raw.get("pubDate", "") or "",
         }

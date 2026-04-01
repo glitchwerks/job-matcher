@@ -17,20 +17,16 @@ from __future__ import annotations
 
 import logging
 import math
-import re
 from typing import Iterator
 
 import requests
-from bs4 import BeautifulSoup
 
 from .base import JobSource
+from .utils import parse_salary, strip_html
 
 logger = logging.getLogger("ingest.jooble")
 
 _JOOBLE_BASE_URL = "https://jooble.org/api/{api_key}"
-
-# Regex to find numbers with optional k-suffix, e.g. "80,000", "120k", "50K"
-_SALARY_NUMBER_RE = re.compile(r"[\d,]+(?:\.\d+)?[kK]?")
 
 # Mapping of Jooble contract type strings to canonical values.
 _CONTRACT_TIME_MAP: dict[str, str] = {
@@ -38,66 +34,6 @@ _CONTRACT_TIME_MAP: dict[str, str] = {
     "part-time": "part_time",
     "contract": "contract",
 }
-
-
-def _parse_salary(raw: str) -> tuple[float | None, float | None]:
-    """Parse a free-text salary string into (salary_min, salary_max).
-
-    Handles patterns like:
-      - "$80,000 - $120,000"
-      - "€50k"
-      - "100K-150K"
-      - "" (empty → both None)
-
-    Args:
-        raw: Free-text salary string from the Jooble API.
-
-    Returns:
-        A (salary_min, salary_max) tuple of floats, or (None, None) if the
-        string is empty or no numeric values can be extracted.
-    """
-    if not raw or not raw.strip():
-        return None, None
-
-    matches = _SALARY_NUMBER_RE.findall(raw)
-    if not matches:
-        return None, None
-
-    values: list[float] = []
-    for m in matches:
-        cleaned = m.replace(",", "")
-        lower = cleaned.lower()
-        if lower.endswith("k"):
-            try:
-                values.append(float(lower[:-1]) * 1000)
-            except ValueError:
-                continue
-        else:
-            try:
-                values.append(float(cleaned))
-            except ValueError:
-                continue
-
-    if not values:
-        return None, None
-
-    salary_min = values[0]
-    salary_max = values[1] if len(values) >= 2 else salary_min
-    return salary_min, salary_max
-
-
-def _strip_html(html: str) -> str:
-    """Strip HTML tags from a string using BeautifulSoup.
-
-    Args:
-        html: HTML string to strip.
-
-    Returns:
-        Plain text with tags removed and whitespace normalised.
-    """
-    if not html:
-        return ""
-    return BeautifulSoup(html, "html.parser").get_text(separator=" ", strip=True)
 
 
 def _normalise_contract_time(raw_type: str) -> str:
@@ -124,6 +60,9 @@ class JoobleClient(JobSource):
     fetches page 1 to read ``totalCount`` and computes the page ceiling.
     Results are capped at ``max_pages`` (default 5) to avoid excessive API
     usage.
+
+    The first-page response from ``total_pages()`` is cached so that
+    ``pages()`` does not repeat the same HTTP request.
     """
 
     SOURCE = "jooble"
@@ -155,12 +94,13 @@ class JoobleClient(JobSource):
         self._api_key: str = api_key
         self._keywords: str = jooble_cfg.get("keywords", "software engineer")
         self._location: str = jooble_cfg.get("location", "")
-        self._results_per_page: int = int(jooble_cfg.get("results_per_page", 20))
-        self._max_pages: int = int(jooble_cfg.get("max_pages", 5))
+        self._results_per_page: int = max(1, int(jooble_cfg.get("results_per_page", 20)))
+        self._max_pages: int = max(1, int(jooble_cfg.get("max_pages", 5)))
         self._url: str = _JOOBLE_BASE_URL.format(api_key=self._api_key)
 
-        # Cache for total_pages() to avoid a redundant first-page request.
+        # Cache for total_pages() / first-page results to avoid duplicate requests.
         self._cached_total_pages: int | None = None
+        self._cached_first_page: list[dict] | None = None  # raw jobs from page 1
 
     # ------------------------------------------------------------------
     # JobSource interface
@@ -189,7 +129,7 @@ class JoobleClient(JobSource):
         }
 
     def fetch_page(self, page: int) -> list[dict]:
-        """Fetch a single page of raw Jooble listings.
+        """Fetch and normalise a single page of Jooble listings.
 
         On any non-200 HTTP status or network/JSON error the method logs a
         warning and returns an empty list so the caller can continue without
@@ -199,8 +139,8 @@ class JoobleClient(JobSource):
             page: 1-based page number.
 
         Returns:
-            List of raw listing dicts as returned by the ``jobs`` array in
-            the Jooble API response.  Returns ``[]`` on any error.
+            List of normalised listing dicts (via ``normalise()``).
+            Returns ``[]`` on any error.
         """
         payload: dict[str, str | int] = {
             "keywords": self._keywords,
@@ -210,32 +150,25 @@ class JoobleClient(JobSource):
 
         try:
             response = requests.post(self._url, json=payload, timeout=15)
+            response.raise_for_status()
+            data = response.json()
         except requests.RequestException as exc:
             logger.warning("Jooble request failed (page %d): %s", page, exc)
             return []
-
-        if response.status_code != 200:
-            logger.warning(
-                "Jooble returned HTTP %d for page %d; skipping",
-                response.status_code,
-                page,
-            )
-            return []
-
-        try:
-            data = response.json()
         except ValueError as exc:
             logger.warning("Jooble response is not valid JSON (page %d): %s", page, exc)
             return []
 
-        return data.get("jobs", [])
+        raw_jobs: list[dict] = data.get("jobs", [])
+        return [self.normalise(job) for job in raw_jobs]
 
     def total_pages(self) -> int:
         """Return the number of available pages, capped at ``max_pages``.
 
         Fetches page 1 on the first call to read ``totalCount``.  The result
         is cached for the lifetime of the instance so subsequent calls do not
-        make additional HTTP requests.
+        make additional HTTP requests.  The raw page-1 jobs are also cached
+        so that ``pages()`` can reuse them without a second request.
 
         Returns:
             ``math.ceil(totalCount / results_per_page)``, capped at
@@ -259,6 +192,9 @@ class JoobleClient(JobSource):
             self._cached_total_pages = 1
             return 1
 
+        # Cache raw page-1 results so pages() doesn't re-fetch.
+        self._cached_first_page = data.get("jobs", [])
+
         total_count: int = 0
         try:
             total_count = int(data.get("totalCount", 0))
@@ -276,18 +212,27 @@ class JoobleClient(JobSource):
     def pages(self) -> Iterator[list[dict]]:
         """Yield normalised listing lists, one per page.
 
-        Iterates from page 1 up to ``total_pages()`` (inclusive).  Stops
-        early if a page returns zero results.
+        Reuses the page-1 response cached by ``total_pages()`` to avoid a
+        duplicate API call, then iterates from page 2 up to ``total_pages()``
+        (inclusive).  Stops early if a page returns zero results.
 
         Yields:
             Lists of normalised listing dicts (after ``normalise()``).
         """
-        for page in range(1, self.total_pages() + 1):
+        total = self.total_pages()  # populates _cached_first_page
+
+        if self._cached_first_page is not None:
+            yield [self.normalise(r) for r in self._cached_first_page]
+            start_page = 2
+        else:
+            start_page = 1
+
+        for page in range(start_page, total + 1):
             results = self.fetch_page(page)
             if not results:
                 logger.info("Jooble page %d returned 0 results; stopping early", page)
                 return
-            yield [self.normalise(r) for r in results]
+            yield results
 
     def normalise(self, raw: dict) -> dict:
         """Map a Jooble listing dict to the canonical listing schema.
@@ -305,7 +250,7 @@ class JoobleClient(JobSource):
             Dict conforming to the canonical listing schema defined in
             ``job_sources.base``.
         """
-        salary_min, salary_max = _parse_salary(raw.get("salary") or "")
+        salary_min, salary_max = parse_salary(raw.get("salary") or "")
 
         raw_type: str = raw.get("type", "") or ""
         contract_time: str = _normalise_contract_time(raw_type) if raw_type else ""
@@ -321,7 +266,7 @@ class JoobleClient(JobSource):
             "salary_period": None,  # Jooble salary is free-text; period cannot be reliably inferred
             "contract_type": None,
             "contract_time": contract_time,
-            "description": _strip_html(raw.get("snippet", "") or ""),
+            "description": strip_html(raw.get("snippet", "") or ""),
             "redirect_url": raw.get("link", "") or "",
             "created_at": raw.get("updated", "") or "",
         }

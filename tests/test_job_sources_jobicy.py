@@ -23,7 +23,8 @@ import requests as _req
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from job_sources import SOURCES, JobSource
-from job_sources.jobicy import JobicyClient, _strip_html
+from job_sources.jobicy import JobicyClient
+from job_sources.utils import strip_html as _strip_html
 
 
 # ---------------------------------------------------------------------------

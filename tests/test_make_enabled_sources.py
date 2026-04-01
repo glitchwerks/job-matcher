@@ -8,8 +8,8 @@ Covered cases
 * Sources with enabled=True but missing required credentials log a warning and
   are excluded.
 * Sources with enabled=True and no required credentials (keyless) are included.
-* An empty providers_data dict returns an empty list (all sources default to disabled).
-* Sources not present in providers_data default to disabled.
+* An empty providers_data dict enables all keyless sources (missing enabled key defaults to True).
+* Sources not present in providers_data default to enabled; keyed sources without credentials are skipped with a warning.
 * The result list preserves SOURCES registry order for enabled sources.
 """
 
@@ -112,15 +112,23 @@ class TestMakeEnabledSourcesDisabled:
         from job_sources import AdzunaClient
         assert AdzunaClient not in types
 
-    def test_missing_entry_defaults_to_disabled(self):
-        """A source with no entry in providers_data is treated as disabled."""
-        result = make_enabled_sources(_providers({}), _BASE_CONFIG)
-        assert result == []
+    def test_missing_entry_defaults_to_enabled(self):
+        """A source with no entry in providers_data is treated as enabled.
 
-    def test_empty_providers_data_returns_empty_list(self):
-        """Completely empty providers_data returns an empty list."""
+        Keyless sources (no required credentials) will be instantiated.
+        Keyed sources (e.g. adzuna, jooble) will be skipped with a warning
+        because required credentials are absent.
+        """
+        from job_sources import RemotiveClient
+        result = make_enabled_sources(_providers({}), _BASE_CONFIG)
+        # Keyless sources like remotive should be enabled by default.
+        assert any(isinstance(s, RemotiveClient) for s in result)
+
+    def test_empty_providers_data_enables_keyless_sources(self):
+        """Completely empty providers_data enables all keyless sources."""
+        from job_sources import RemotiveClient
         result = make_enabled_sources({}, _BASE_CONFIG)
-        assert result == []
+        assert any(isinstance(s, RemotiveClient) for s in result)
 
 
 class TestMakeEnabledSourcesEnabled:
@@ -246,10 +254,12 @@ class TestMakeEnabledSourcesWithFakeRegistry:
 
         assert result == []
 
-    def test_source_not_in_providers_defaults_to_disabled(self, monkeypatch):
+    def test_source_not_in_providers_defaults_to_enabled(self, monkeypatch):
+        """A keyless source with no entry in providers_data is enabled by default."""
         fake_sources = {"_keyless_test": _KeylessSource}
         monkeypatch.setattr("job_sources.SOURCES", fake_sources)
 
-        # No entry for _keyless_test in providers_data.
+        # No entry for _keyless_test in providers_data — missing key defaults to True.
         result = make_enabled_sources(_providers({}), _BASE_CONFIG)
-        assert result == []
+        assert len(result) == 1
+        assert isinstance(result[0], _KeylessSource)

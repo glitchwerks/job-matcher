@@ -30,9 +30,8 @@ from job_sources.jooble import (
     JoobleClient,
     _CONTRACT_TIME_MAP,
     _normalise_contract_time,
-    _parse_salary,
-    _strip_html,
 )
+from job_sources.utils import parse_salary as _parse_salary, strip_html as _strip_html
 
 
 # ---------------------------------------------------------------------------
@@ -305,8 +304,8 @@ class TestJoobleNormalise:
 # ---------------------------------------------------------------------------
 
 class TestJoobleClientFetchPage:
-    def test_success_returns_raw_jobs_list(self):
-        """A 200 response returns the raw jobs list."""
+    def test_success_returns_normalised_jobs_list(self):
+        """A 200 response returns a list of normalised listing dicts."""
         client = _client()
         mock_resp = _mock_response(200, {"totalCount": 1, "jobs": [_RAW_JOB]})
 
@@ -314,6 +313,7 @@ class TestJoobleClientFetchPage:
             results = client.fetch_page(1)
 
         assert len(results) == 1
+        assert results[0]["source"] == "jooble"
         assert results[0]["title"] == "Senior Python Developer"
 
     def test_empty_jobs_returns_empty_list(self):
@@ -445,7 +445,11 @@ class TestJoobleClientTotalPages:
 
 class TestJoobleClientPages:
     def test_yields_normalised_listings_per_page(self):
-        """pages() yields lists of normalised dicts across all pages."""
+        """pages() yields lists of normalised dicts across all pages.
+
+        total_pages() fetches and caches page 1; pages() reuses that cache for
+        page 1 and only makes a fresh HTTP call for page 2 onward.
+        """
         client = _client(results_per_page=1, max_pages=2)
         total_count_resp = _mock_response(200, {"totalCount": 2, "jobs": [_RAW_JOB]})
         page2_resp = _mock_response(200, {"totalCount": 2, "jobs": [
@@ -453,9 +457,8 @@ class TestJoobleClientPages:
         ]})
 
         with patch("job_sources.jooble.requests.post", side_effect=[
-            total_count_resp,  # total_pages() call
-            _mock_response(200, {"totalCount": 2, "jobs": [_RAW_JOB]}),   # fetch_page(1)
-            page2_resp,  # fetch_page(2)
+            total_count_resp,  # total_pages() call — also caches page-1 results
+            page2_resp,        # fetch_page(2) — page 1 served from cache
         ]):
             pages = list(client.pages())
 
@@ -465,15 +468,18 @@ class TestJoobleClientPages:
         assert pages[1][0]["source_id"] == "999"
 
     def test_stops_early_when_page_returns_empty(self):
-        """pages() stops early when a page returns no results."""
+        """pages() stops early when a page returns no results.
+
+        Page 1 is served from the cache populated by total_pages(), so the
+        only fresh HTTP call is for page 2 which returns empty and halts iteration.
+        """
         client = _client(results_per_page=10, max_pages=3)
         total_resp = _mock_response(200, {"totalCount": 30, "jobs": [_RAW_JOB]})
         empty_resp = _mock_response(200, {"totalCount": 30, "jobs": []})
 
         with patch("job_sources.jooble.requests.post", side_effect=[
-            total_resp,   # total_pages() call
-            _mock_response(200, {"totalCount": 30, "jobs": [_RAW_JOB]}),  # fetch_page(1)
-            empty_resp,   # fetch_page(2) — triggers early stop
+            total_resp,  # total_pages() call — also caches page-1 results
+            empty_resp,  # fetch_page(2) — triggers early stop; page 1 served from cache
         ]):
             pages = list(client.pages())
 

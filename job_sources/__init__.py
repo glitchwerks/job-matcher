@@ -132,7 +132,7 @@ def make_enabled_sources(providers_data: dict, config: dict) -> list[JobSource]:
 
     for key, cls in SOURCES.items():
         src_cfg = sources_cfg.get(key) or {}
-        if not src_cfg.get("enabled", False):
+        if not src_cfg.get("enabled", True):
             continue
 
         # For keyed sources, check required credentials are present.
