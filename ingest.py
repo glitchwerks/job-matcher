@@ -852,7 +852,7 @@ def rescore(
 
     total = len(listings)
     logger.info("=" * 60)
-    logger.info("RESCORE RUN STARTED")
+    logger.info("RESCORE RUN STARTED  (re-scoring existing listings — no new fetch)")
     logger.info("  Listings to rescore: %d", total)
     if chain:
         logger.info(
