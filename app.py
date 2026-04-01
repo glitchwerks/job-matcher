@@ -1029,7 +1029,9 @@ def api_job_source_toggle(source_key: str):
     if "enabled" not in body:
         return "Missing 'enabled' field in request body.", 400
 
-    enabled = bool(body["enabled"])
+    enabled = body["enabled"]
+    if not isinstance(enabled, bool):
+        return {"error": "The 'enabled' field must be a boolean (true or false)."}, 400
 
     # When enabling, verify required credentials are already stored.
     if enabled:
