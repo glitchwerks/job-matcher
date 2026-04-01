@@ -327,3 +327,38 @@ class TestCsrfLocalhostGuard:
     def test_is_localhost_request_true_when_no_headers(self):
         with flask_app.test_request_context("/profile", method="POST"):
             assert app_module._is_localhost_request() is True
+
+    def test_is_localhost_request_true_for_bracketed_ipv6_origin(self):
+        """Bracketed IPv6 ::1 — the standard URL form http://[::1]:5000 — must be accepted."""
+        with flask_app.test_request_context(
+            "/profile",
+            method="POST",
+            headers={"Origin": "http://[::1]:5000"},
+        ):
+            assert app_module._is_localhost_request() is True
+
+
+# ===========================================================================
+# _validate_config_dict — type validation (Issue #136 follow-up)
+# ===========================================================================
+
+class TestValidateConfigDictTypeChecks:
+    """Type-validation tests for _validate_config_dict (threshold must be numeric)."""
+
+    def test_threshold_string_is_flagged(self):
+        data = {"scoring": {"threshold": "not-a-number"}}
+        missing = _validate_config_dict(data)
+        assert any("scoring.threshold" in m for m in missing)
+
+    def test_threshold_none_is_flagged(self):
+        data = {"scoring": {"threshold": None}}
+        missing = _validate_config_dict(data)
+        assert any("scoring.threshold" in m for m in missing)
+
+    def test_threshold_int_is_valid(self):
+        data = {"scoring": {"threshold": 7}}
+        assert _validate_config_dict(data) == []
+
+    def test_threshold_float_is_valid(self):
+        data = {"scoring": {"threshold": 7.5}}
+        assert _validate_config_dict(data) == []

@@ -31,7 +31,7 @@ DB_PATH: str = os.environ.get("DB_PATH", "jobs.db")
 # CSRF guard — localhost-only Origin/Referer check
 # ---------------------------------------------------------------------------
 
-_LOCALHOST_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
+_LOCALHOST_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
 
 
 def _is_localhost_request() -> bool:
@@ -48,7 +48,8 @@ def _is_localhost_request() -> bool:
         if not value:
             continue
         # Parse just the host portion — e.g. "http://localhost:5000/path" → "localhost"
-        match = re.match(r"https?://([^/:]+)", value)
+        # The IPv6 alternative captures "[::1]" (brackets included) from "http://[::1]:5000".
+        match = re.match(r"https?://(\[[^\]]+\]|[^/:]+)", value)
         if match:
             host = match.group(1).lower()
             if host in _LOCALHOST_HOSTS:
@@ -156,6 +157,8 @@ def _validate_config_dict(data: dict) -> list[str]:
         for key in _PROFILE_REQUIRED_SCORING:
             if key not in scoring:
                 missing.append(f"scoring.{key}")
+        if "threshold" in scoring and not isinstance(scoring["threshold"], (int, float)):
+            missing.append("scoring.threshold (must be a number)")
 
     # Only validate search sub-keys when the caller has included a search block.
     search = data.get("search")
