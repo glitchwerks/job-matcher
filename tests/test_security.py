@@ -19,7 +19,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import app as app_module
-from app import app as flask_app, _validate_config_dict
+from app import app as flask_app, _validate_config_dict, _is_trusted_host
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +337,79 @@ class TestCsrfLocalhostGuard:
         ):
             assert app_module._is_localhost_request() is True
 
+    def test_is_localhost_request_true_for_lan_ip_origin(self):
+        """RFC 1918 LAN IP must be accepted — app is accessed from other machines on the LAN."""
+        with flask_app.test_request_context(
+            "/profile",
+            method="POST",
+            headers={"Origin": "http://192.168.1.50:5000"},
+        ):
+            assert app_module._is_localhost_request() is True
+
+    def test_is_localhost_request_true_for_null_origin_falls_through(self):
+        """'Origin: null' is unparseable — the guard must fall through to Referer, not block."""
+        with flask_app.test_request_context(
+            "/profile",
+            method="POST",
+            headers={"Origin": "null"},
+        ):
+            # No Referer present either, so falls through to the allow-all return
+            assert app_module._is_localhost_request() is True
+
+    def test_null_origin_with_trusted_referer_is_allowed(self):
+        """'Origin: null' + trusted Referer — Referer must be consulted after null Origin."""
+        with flask_app.test_request_context(
+            "/profile",
+            method="POST",
+            headers={"Origin": "null", "Referer": "http://localhost:5000/profile"},
+        ):
+            assert app_module._is_localhost_request() is True
+
+    def test_null_origin_with_external_referer_is_blocked(self):
+        """'Origin: null' + external Referer — must block once the Referer is checked."""
+        with flask_app.test_request_context(
+            "/profile",
+            method="POST",
+            headers={"Origin": "null", "Referer": "http://evil.example.com/attack"},
+        ):
+            assert app_module._is_localhost_request() is False
+
+    # --- integration: LAN IP passes the before_request guard ---
+
+    def test_post_with_lan_ip_origin_is_allowed(self, client, tmp_config_path):
+        """Requests from a LAN IP must not be blocked — the app is used across the local network."""
+        _write_config(tmp_config_path)
+        payload = json.dumps({"scoring": {"threshold": 7.0}})
+        resp = client.post(
+            "/profile",
+            data={"config_json": payload},
+            headers={"Origin": "http://192.168.1.50:5000"},
+        )
+        # 422 (validation) not 403 — the guard let it through
+        assert resp.status_code != 403
+
+    def test_post_with_ipv6_loopback_origin_is_allowed(self, client, tmp_config_path):
+        """IPv6 loopback [::1] must be accepted by the guard."""
+        _write_config(tmp_config_path)
+        payload = json.dumps({"scoring": {"threshold": 7.0}})
+        resp = client.post(
+            "/profile",
+            data={"config_json": payload},
+            headers={"Origin": "http://[::1]:5000"},
+        )
+        assert resp.status_code != 403
+
+    def test_post_with_null_origin_is_allowed(self, client, tmp_config_path):
+        """'Origin: null' (sent by some browsers for local-file requests) must not block."""
+        _write_config(tmp_config_path)
+        payload = json.dumps({"scoring": {"threshold": 7.0}})
+        resp = client.post(
+            "/profile",
+            data={"config_json": payload},
+            headers={"Origin": "null"},
+        )
+        assert resp.status_code != 403
+
 
 # ===========================================================================
 # _validate_config_dict — type validation (Issue #136 follow-up)
@@ -362,3 +435,39 @@ class TestValidateConfigDictTypeChecks:
     def test_threshold_float_is_valid(self):
         data = {"scoring": {"threshold": 7.5}}
         assert _validate_config_dict(data) == []
+
+
+# ===========================================================================
+# _is_trusted_host — unit tests (Issue #231)
+# ===========================================================================
+
+class TestIsTrustedHost:
+    """Unit tests for the _is_trusted_host helper."""
+
+    def test_localhost_string_is_trusted(self):
+        assert _is_trusted_host("localhost") is True
+
+    def test_loopback_127_is_trusted(self):
+        assert _is_trusted_host("127.0.0.1") is True
+
+    def test_ipv6_loopback_without_brackets_is_trusted(self):
+        # Brackets are stripped by _is_localhost_request before calling this helper
+        assert _is_trusted_host("::1") is True
+
+    def test_rfc1918_192_168_is_trusted(self):
+        assert _is_trusted_host("192.168.1.50") is True
+
+    def test_rfc1918_10_x_is_trusted(self):
+        assert _is_trusted_host("10.0.0.1") is True
+
+    def test_rfc1918_172_16_is_trusted(self):
+        assert _is_trusted_host("172.16.0.1") is True
+
+    def test_public_ip_is_not_trusted(self):
+        assert _is_trusted_host("93.184.216.34") is False
+
+    def test_external_hostname_is_not_trusted(self):
+        assert _is_trusted_host("evil.example.com") is False
+
+    def test_invalid_host_returns_false(self):
+        assert _is_trusted_host("not a valid host!") is False

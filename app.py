@@ -5,6 +5,7 @@ Thin routing layer only. All data access goes through db.py.
 Business logic lives in ingest.py; none of it belongs here.
 """
 
+import ipaddress
 import json
 import os
 import re
@@ -28,20 +29,40 @@ DB_PATH: str = os.environ.get("DB_PATH", "jobs.db")
 
 
 # ---------------------------------------------------------------------------
-# CSRF guard — localhost-only Origin/Referer check
+# CSRF guard — private-network Origin/Referer check
 # ---------------------------------------------------------------------------
 
-_LOCALHOST_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
+
+def _is_trusted_host(host: str) -> bool:
+    """Return True if *host* is localhost or any RFC 1918 / loopback address.
+
+    ``host`` is the bare hostname or IP string extracted from a URL — brackets
+    have already been stripped from IPv6 addresses (e.g. ``::1``, not
+    ``[::1]``).  The ``ipaddress`` module is stdlib so no new dependency is
+    introduced.
+    """
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_private
+    except ValueError:
+        return False
 
 
 def _is_localhost_request() -> bool:
-    """Return True if the request originates from localhost.
+    """Return True if the request originates from localhost or a private LAN address.
 
     Checks the ``Origin`` header first (set by most browsers on same-origin
     XHR/fetch), then falls back to ``Referer``.  If neither header is present
     the request is allowed through — curl and other CLI tools do not send
     Origin/Referer, so blocking headerless requests would break admin scripts
     and testing.
+
+    The loop logic is:
+    - Header present AND regex matches AND host is trusted  → return True
+    - Header present AND regex matches AND host is NOT trusted → return False
+    - Header present BUT regex does not match (e.g. "null") → continue to next header
+    - No usable header found after the loop → return True (allow CLI/test clients)
     """
     for header in ("Origin", "Referer"):
         value = request.headers.get(header, "").strip()
@@ -50,11 +71,16 @@ def _is_localhost_request() -> bool:
         # Parse just the host portion — e.g. "http://localhost:5000/path" → "localhost"
         # The IPv6 alternative captures "[::1]" (brackets included) from "http://[::1]:5000".
         match = re.match(r"https?://(\[[^\]]+\]|[^/:]+)", value)
-        if match:
-            host = match.group(1).lower()
-            if host in _LOCALHOST_HOSTS:
-                return True
-        return False  # Header present but host is not localhost
+        if not match:
+            # Header present but unparseable (e.g. "null") — try next header
+            continue
+        host = match.group(1).lower()
+        # Strip brackets from IPv6 addresses before passing to ipaddress module
+        if host.startswith("[") and host.endswith("]"):
+            host = host[1:-1]
+        if _is_trusted_host(host):
+            return True
+        return False  # Non-private origin found — block
     return True  # No Origin/Referer header — allow (CLI tools, tests)
 
 
