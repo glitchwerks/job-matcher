@@ -730,34 +730,55 @@ def ingest_status():
 def _build_llm_schemas(
     llm_section: dict,
     provider_order: list[str],
-) -> list[tuple[str, dict, bool]]:
+) -> list[tuple[str, dict, bool, dict]]:
     """Build the ordered llm_schemas list for the settings template.
 
-    Returns a list of ``(provider_key, schema_dict, has_values)`` tuples.
-    Providers in *provider_order* come first (unknown/duplicate keys skipped),
-    followed by any registry providers not listed, in registry insertion order.
+    Returns a list of ``(provider_key, schema_dict, has_values, current_values)``
+    tuples.  Providers in *provider_order* come first (unknown/duplicate keys
+    skipped), followed by any registry providers not listed, in registry
+    insertion order.
+
+    ``has_values`` is ``True`` only when every required field in the schema has
+    a non-blank stored value.  Checking all required fields (not just
+    ``api_key``) prevents a provider with a key but an empty model string from
+    falsely showing "● configured".
+
+    ``current_values`` maps non-password field names to their stored value (or
+    the field's ``default`` if not yet stored).  This dict is passed to the
+    template so that non-password inputs can be pre-populated, ensuring that
+    the placeholder default is actually submitted when the user saves without
+    explicitly editing the field.
 
     Args:
         llm_section:    The ``"llm"`` sub-dict from ``providers.json``.
         provider_order: The ``provider_order`` list from ``providers.json``.
     """
     seen: set[str] = set()
-    schemas: list[tuple[str, dict, bool]] = []
+    schemas: list[tuple[str, dict, bool, dict]] = []
+
+    def _make_entry(key: str) -> tuple[str, dict, bool, dict]:
+        cls = _PROVIDER_CLASS_MAP[key]
+        schema = cls.settings_schema()
+        cfg = llm_section.get(key) or {}
+        has_values = all(
+            bool(cfg.get(f["name"], "").strip())
+            for f in schema["fields"]
+            if f.get("required")
+        )
+        current_values = {
+            f["name"]: cfg.get(f["name"]) or f.get("default") or ""
+            for f in schema["fields"]
+            if f.get("type") != "password"
+        }
+        return (key, schema, has_values, current_values)
+
     for key in provider_order:
         if key in _PROVIDER_CLASS_MAP and key not in seen:
-            cls = _PROVIDER_CLASS_MAP[key]
-            schema = cls.settings_schema()
-            cfg = llm_section.get(key) or {}
-            has_values = bool(cfg.get("api_key", "").strip())
-            schemas.append((key, schema, has_values))
+            schemas.append(_make_entry(key))
             seen.add(key)
     for key in _PROVIDER_CLASS_MAP:
         if key not in seen:
-            cls = _PROVIDER_CLASS_MAP[key]
-            schema = cls.settings_schema()
-            cfg = llm_section.get(key) or {}
-            has_values = bool(cfg.get("api_key", "").strip())
-            schemas.append((key, schema, has_values))
+            schemas.append(_make_entry(key))
             seen.add(key)
     return schemas
 

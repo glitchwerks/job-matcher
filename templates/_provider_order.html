@@ -1,12 +1,12 @@
 {# _provider_order.html — drag-to-reorder list fragment.
    Context variables:
-     llm_schemas  list of (provider_key, schema_dict, has_values_bool)
+     llm_schemas  list of (provider_key, schema_dict, has_values_bool, current_values_dict)
                   in the desired display order.
    This partial is both {% include %}'d in settings.html and returned
    as an HTTP response fragment from POST /api/providers/reorder.
 #}
 <ul id="provider-order-list" class="provider-order-list">
-  {% for provider_key, schema, has_values in llm_schemas %}
+  {% for provider_key, schema, has_values, current_values in llm_schemas %}
   <li
     data-id="{{ provider_key }}"
     class="order-item{% if not has_values %} order-item--unconfigured{% endif %}">

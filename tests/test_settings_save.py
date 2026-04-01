@@ -589,3 +589,130 @@ class TestSettingsGetEnabledCheckbox:
         # We verify by checking the remotive block does not contain checked.
         # Since other sources may also appear unchecked, just confirm the field renders.
         assert 'name="remotive__enabled"' in body
+
+
+# ===========================================================================
+# _build_llm_schemas — has_values checks all required fields (Bug #240)
+# ===========================================================================
+
+
+class TestBuildLlmSchemasHasValues:
+    """has_values must be False when any required field (not just api_key) is empty."""
+
+    def test_has_values_false_when_model_empty(
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
+    ):
+        """A provider with api_key set but model empty must NOT show 'configured'."""
+        import json as _json
+
+        data = {
+            "provider_order": ["anthropic"],
+            "llm": {
+                # api_key is set, but model is empty — this is the broken state
+                # that caused false "● configured" status (issue #240).
+                "anthropic": {"api_key": "sk-test", "model": ""},
+            },
+            "job_sources": {},
+        }
+        with open(tmp_providers_path, "w", encoding="utf-8") as fh:
+            _json.dump(data, fh)
+
+        from app import _build_llm_schemas
+
+        schemas = _build_llm_schemas(data["llm"], data["provider_order"])
+        # Find the anthropic entry.
+        anthropic_entry = next(
+            (e for e in schemas if e[0] == "anthropic"), None
+        )
+        assert anthropic_entry is not None, "anthropic must appear in schemas"
+        _key, _schema, has_values, _current_values = anthropic_entry
+        assert has_values is False, (
+            "has_values must be False when model is empty, even if api_key is set"
+        )
+
+    def test_has_values_true_when_all_required_fields_set(
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
+    ):
+        """A provider with both api_key and model set must show 'configured'."""
+        import json as _json
+
+        data = {
+            "provider_order": ["anthropic"],
+            "llm": {
+                "anthropic": {"api_key": "sk-test", "model": "claude-haiku-4-5-20251001"},
+            },
+            "job_sources": {},
+        }
+        with open(tmp_providers_path, "w", encoding="utf-8") as fh:
+            _json.dump(data, fh)
+
+        from app import _build_llm_schemas
+
+        schemas = _build_llm_schemas(data["llm"], data["provider_order"])
+        anthropic_entry = next(
+            (e for e in schemas if e[0] == "anthropic"), None
+        )
+        assert anthropic_entry is not None
+        _key, _schema, has_values, _current_values = anthropic_entry
+        assert has_values is True, (
+            "has_values must be True when all required fields (api_key and model) are set"
+        )
+
+    def test_current_values_prepopulates_model_default(
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
+    ):
+        """current_values must fall back to field default when model not stored."""
+        import json as _json
+
+        data = {
+            "provider_order": ["anthropic"],
+            "llm": {
+                # model not stored at all — current_values must use the schema default
+                "anthropic": {"api_key": "sk-test"},
+            },
+            "job_sources": {},
+        }
+        with open(tmp_providers_path, "w", encoding="utf-8") as fh:
+            _json.dump(data, fh)
+
+        from app import _build_llm_schemas
+
+        schemas = _build_llm_schemas(data["llm"], data["provider_order"])
+        anthropic_entry = next(
+            (e for e in schemas if e[0] == "anthropic"), None
+        )
+        assert anthropic_entry is not None
+        _key, _schema, _has_values, current_values = anthropic_entry
+        # The model default from AnthropicProvider.settings_schema() is
+        # "claude-haiku-4-5-20251001".  current_values must surface that default.
+        assert current_values.get("model") == "claude-haiku-4-5-20251001", (
+            "current_values['model'] must fall back to the schema default when not stored"
+        )
+
+    def test_current_values_does_not_include_password_fields(
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
+    ):
+        """Password fields must never appear in current_values (they stay blank in the form)."""
+        import json as _json
+
+        data = {
+            "provider_order": ["anthropic"],
+            "llm": {
+                "anthropic": {"api_key": "sk-secret", "model": "claude-haiku-4-5-20251001"},
+            },
+            "job_sources": {},
+        }
+        with open(tmp_providers_path, "w", encoding="utf-8") as fh:
+            _json.dump(data, fh)
+
+        from app import _build_llm_schemas
+
+        schemas = _build_llm_schemas(data["llm"], data["provider_order"])
+        anthropic_entry = next(
+            (e for e in schemas if e[0] == "anthropic"), None
+        )
+        assert anthropic_entry is not None
+        _key, _schema, _has_values, current_values = anthropic_entry
+        assert "api_key" not in current_values, (
+            "api_key (password field) must not appear in current_values"
+        )

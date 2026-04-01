@@ -286,7 +286,7 @@
     <form class="settings-form" method="post" action="/settings">
       <input type="hidden" name="tab" value="llm">
 
-      {% for provider_key, schema, has_values in llm_schemas %}
+      {% for provider_key, schema, has_values, current_values in llm_schemas %}
         <div class="provider-row">
           <div class="provider-header">
             <span class="provider-name">{{ schema.display_name }}</span>
@@ -316,6 +316,7 @@
                 type="text"
                 name="{{ provider_key }}__{{ field.name }}"
                 autocomplete="off"
+                value="{{ current_values.get(field.name, field.default or '') }}"
                 placeholder="{{ field.default if field.default is defined else '' }}">
             {% endif %}
           {% endfor %}
