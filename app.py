@@ -1098,6 +1098,81 @@ def api_providers_reorder():
     return render_template("_provider_order.html", llm_schemas=llm_schemas)
 
 
+@app.route("/api/job-sources/<source_key>/toggle", methods=["POST"])
+def api_job_source_toggle(source_key: str):
+    """Persist the enabled/disabled state for a single job source.
+
+    Designed for HTMX ``hx-trigger="change"`` on the source toggle checkbox so
+    the change is saved immediately without requiring a full form submit.
+
+    Request body (JSON)::
+
+        {"enabled": true}   # or false
+
+    Validation rules:
+
+    * ``source_key`` must exist in the ``SOURCES`` registry → 404 if unknown.
+    * When ``enabled=true``, all ``required`` credential fields for the source
+      must have non-empty values already stored in ``providers.json`` → 422 if
+      any are missing.
+    * When ``enabled=false``, no credential check is performed.
+
+    Returns:
+        200 JSON ``{"ok": true}`` on success.
+        404 JSON ``{"error": "..."}`` for unknown source keys.
+        422 JSON ``{"error": "..."}`` when required credentials are missing.
+        400 plain text for a malformed request body.
+        500 plain text if the file cannot be written.
+    """
+    if source_key not in SOURCES:
+        return jsonify({"error": f"Unknown job source: {source_key!r}"}), 404
+
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return "Invalid request body — expected JSON object.", 400
+
+    if "enabled" not in body:
+        return "Missing 'enabled' field in request body.", 400
+
+    enabled = body["enabled"]
+    if not isinstance(enabled, bool):
+        return "The 'enabled' field must be a boolean (true or false).", 400
+
+    # When enabling, verify required credentials are already stored.
+    if enabled:
+        cls = SOURCES[source_key]
+        schema = cls.settings_schema()
+        required_fields = [f for f in schema.get("fields", []) if f.get("required")]
+
+        if required_fields:
+            providers_data = _load_providers_safe()
+            src_cfg: dict = (providers_data.get("job_sources") or {}).get(source_key) or {}
+            missing = [
+                f["label"]
+                for f in required_fields
+                if not str(src_cfg.get(f["name"], "")).strip()
+            ]
+            if missing:
+                display_name = schema.get("display_name", source_key)
+                fields_str = " and ".join(missing)
+                return jsonify({
+                    "error": (
+                        f"{display_name} requires {fields_str} before it can be enabled. "
+                        "Add credentials in the Settings form and save, then try again."
+                    )
+                }), 422
+
+    try:
+        save_providers(
+            {"job_sources": {source_key: {"enabled": enabled}}},
+            providers_path=_PROVIDERS_PATH,
+        )
+    except OSError:
+        return "Could not save — check file permissions.", 500
+
+    return jsonify({"ok": True}), 200
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------

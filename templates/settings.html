@@ -374,7 +374,14 @@
                 name="{{ source_key }}__enabled"
                 aria-label="Enable {{ schema.display_name }}"
                 {% if is_enabled and not toggle_disabled %}checked{% endif %}
-                {% if toggle_disabled %}disabled{% endif %}>
+                {% if toggle_disabled %}disabled{% endif %}
+                {% if not toggle_disabled %}
+                hx-post="/api/job-sources/{{ source_key }}/toggle"
+                hx-trigger="change"
+                hx-vals='js:{"enabled": event.target.checked}'
+                hx-swap="none"
+                hx-on::after-request="if (event.detail.failed) { this.checked = !this.checked; }"
+                {% endif %}>
               <span class="source-toggle-label"></span>
               <span class="source-toggle-track">
                 <span class="source-toggle-knob"></span>
