@@ -1264,7 +1264,7 @@ body {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   padding: 16px 20px;
-  margin-bottom: 1rem;
+  margin-bottom: 16px;
 }
 
 .ingest-form {
@@ -1318,7 +1318,7 @@ body {
   border: 1px solid #3a2e10;
   border-radius: var(--radius-md);
   padding: 10px 20px;
-  margin-bottom: 1rem;
+  margin-bottom: 16px;
 }
 
 /* Pulsing dot spinner — pure CSS, no images */

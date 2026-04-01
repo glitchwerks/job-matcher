@@ -282,6 +282,30 @@ Tab switching is handled by a small inline JS block (no library).
 | `.stats-table` | `--font-mono` 0.78rem; border-collapse; cells border-bottom `--border-subtle` |
 | `.stats-section-heading` | `--font-mono` 0.68rem uppercase weight 600, `--text-muted` |
 
+### Ingest Trigger (feed page)
+
+Rendered via `templates/_ingest_trigger.html`, included in `index.html` inside a `.ingest-trigger-container` div. Has two states:
+
+**Idle state** (`.ingest-trigger-wrap`):
+
+| Class | Notes |
+|---|---|
+| `.ingest-trigger-wrap` | `--bg-surface` card; `--border-subtle`; `--radius-md`; padding 16px 20px; `margin-bottom: 16px` to separate from `.card-list` below |
+| `.ingest-form` | Flex row, `align-items: center`, `flex-wrap: wrap`, gap 12px |
+| `.btn-ingest` | Amber-tinted action button; `--text-accent` colour, dark amber border/hover |
+| `.ingest-opt` | Muted label for optional controls (checkboxes, selects) alongside the button |
+| `.ingest-last-run` | `--font-mono` 0.72rem; `--text-secondary`; summary of the most recent run |
+| `.ingest-run-time` | `--text-muted`; timestamp inside `.ingest-last-run` |
+
+**Running state** (`.ingest-status-running`):
+
+| Class | Notes |
+|---|---|
+| `.ingest-status-running` | Inline-flex pill; `--bg-surface`, dark amber border, `--text-accent`; `margin-bottom: 16px` matches idle state gap |
+| `.ingest-spinner` | Pulsing dot; pure CSS animation, no images |
+
+Both states carry `margin-bottom: 16px` to maintain consistent spacing above `.card-list` regardless of which state is active.
+
 ---
 
 ## 6. State Conventions
