@@ -1,36 +1,47 @@
 # Job Matcher — Design Document
 
-> Derived from `REQUIREMENTS.MD`. This document covers architecture, component design,
-> data flow, key decisions, and edge-case handling. It is the reference for implementation.
+> This document covers architecture, component design, data flow, key decisions,
+> and edge-case handling. It reflects the current v2 codebase.
 
 ---
 
 ## 1. High-Level Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      ingest.py (CLI)                    │
-│                                                         │
-│  AdzunaClient → PreFilter → Scraper → Scorer → DB       │
-└───────────────────────────┬─────────────────────────────┘
-                            │ writes to
-                      jobs.db (SQLite)
-                            │ reads from
-┌───────────────────────────▼─────────────────────────────┐
-│                   app.py (Flask server)                  │
-│                                                         │
-│  GET /              → main feed (scored, not dismissed) │
-│  GET /bookmarks     → bookmarked listings only          │
-│  GET /applied       → applied listings only             │
-│  GET /stats         → usage and cost dashboard          │
-│  POST /bookmark/<id>  → HTMX toggle bookmark           │
-│  POST /dismiss/<id>   → HTMX dismiss listing           │
-│  POST /apply/<id>     → HTMX toggle applied            │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                         ingest.py (CLI)                          │
+│                                                                  │
+│  job_sources/        credentials.py   providers/                │
+│  (7 pluggable    ──► load_providers() ──► build_provider_chain() │
+│   sources)               │                       │               │
+│       │                  ▼                       ▼               │
+│  PreFilter ──► Scraper ──► score_listing_with_fallback() ──► DB  │
+└──────────────────────────────────┬───────────────────────────────┘
+                                   │ writes to
+                             jobs.db (SQLite)
+                                   │ reads from
+┌──────────────────────────────────▼───────────────────────────────┐
+│                        app.py (Flask server)                     │
+│                                                                  │
+│  GET /                  → main feed (scored, not dismissed)      │
+│  GET /bookmarks         → bookmarked listings only               │
+│  GET /applied           → applied listings only                  │
+│  GET /stats             → usage and cost dashboard               │
+│  GET/POST /settings     → LLM provider + job source credentials  │
+│  GET/POST /profile      → config.json editor                     │
+│  POST /bookmark/<id>    → HTMX toggle bookmark                   │
+│  POST /dismiss/<id>     → HTMX dismiss listing                   │
+│  POST /apply/<id>       → HTMX toggle applied                    │
+│  POST /ingest/trigger   → spawn ingest.py subprocess             │
+│  GET  /ingest/status    → poll ingest subprocess state           │
+│  POST /api/validate-keys          → test LLM credentials         │
+│  POST /api/providers/reorder      → save provider fallback order │
+│  GET  /settings/config            → 301 redirect to /profile     │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 The ingestion pipeline and web server are **fully decoupled**. `ingest.py` is a CLI
-script that can be run manually or via cron whether or not the Flask server is running.
+script run manually or via Task Scheduler whether or not the Flask server is running.
 They communicate only through the shared SQLite file.
 
 ### Deployment Model
@@ -38,20 +49,23 @@ They communicate only through the shared SQLite file.
 The application runs natively on Windows using two independent processes:
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│               Windows native deployment                  │
-│                                                         │
-│  NSSM service             Task Scheduler job            │
-│  (gunicorn app:app)       (ingest.py --hours 25         │
-│                            daily at 6am)                │
-│         │                      │                        │
-│         └──────────┬───────────┘                        │
-│                    │ shared SQLite file                  │
-│               C:\Apps\job_matcher\jobs.db               │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                    Windows native deployment                      │
+│                                                                  │
+│  NSSM service                  Task Scheduler job                │
+│  (waitress-serve app:app)      (ingest.py --hours 25             │
+│                                 daily at 6am)                    │
+│          │                           │                           │
+│          └──────────────┬────────────┘                           │
+│                         │ shared SQLite file                     │
+│                   C:\Apps\job_matcher\jobs.db                    │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-`DB_PATH` and Adzuna credentials are configured as machine-level Windows environment variables, so both the service and the scheduled task pick them up automatically without a `.env` file. LLM provider API keys (Anthropic, OpenAI, Gemini, etc.) are stored separately in `keys.json` at the project root and managed through the `/settings` UI — they are never set as environment variables.
+`DB_PATH` and Adzuna credentials can be set as machine-level Windows environment
+variables so both processes pick them up automatically. LLM provider API keys and
+job source credentials are stored in `config/providers.json` and managed through
+the `/settings` UI — they are never set as environment variables.
 
 ---
 
@@ -59,20 +73,73 @@ The application runs natively on Windows using two independent processes:
 
 ### 2.1 `db.py` — Database Layer
 
-Owns all SQLite interactions. Other modules import from here; nothing else touches the DB directly.
+Owns all SQLite interactions. No other module opens the database file directly.
 
-**Responsibilities:**
-- `init_db()` — create `listings` table if it does not exist
-- `listing_exists(adzuna_id)` — dedup check before fetching full description
-- `insert_listing(listing_dict)` — insert a new raw listing
-- `update_score(adzuna_id, score_dict)` — write Haiku results back to a row
-- `get_feed(threshold)` — listings with score ≥ threshold, not dismissed, ordered by score DESC
-- `get_bookmarks()` — bookmarked listings ordered by score DESC
-- `set_bookmarked(id, value)` — toggle bookmark flag
-- `set_dismissed(id, value)` — toggle dismissed flag
+**Public functions:**
 
-**Schema note:** `matched_skills`, `missing_skills`, and `concerns` are stored as JSON
-strings and deserialised in Python before being passed to templates.
+| Function | Purpose |
+|---|---|
+| `get_connection(db_path)` | Return an open connection with `row_factory = sqlite3.Row` |
+| `init_db(db_path)` | Create or migrate the `listings` table; idempotent on every startup |
+| `listing_exists(conn, source, source_id)` | Primary dedup check by `(source, source_id)` |
+| `listing_exists_by_url(conn, redirect_url)` | Secondary cross-source dedup check by URL |
+| `insert_listing(listing, db_path)` | Insert a new listing row; serialises JSON array columns |
+| `update_score(source, source_id, score_data, db_path)` | Write scoring results back to an existing row |
+| `get_feed(threshold, min_score, remote_only, search, job_type, sort, db_path)` | Listings scored ≥ threshold, not dismissed, not applied |
+| `get_bookmarks(db_path)` | All bookmarked listings ordered by score DESC |
+| `get_applied(db_path)` | All listings where `applied = 1`, ordered by `fetched_at DESC` |
+| `get_all_scored(db_path)` | All listings with `seen = 1`, used by the rescorer |
+| `get_listing_by_id(listing_id, db_path)` | Single listing by internal primary key |
+| `get_job_types(db_path)` | Sorted list of distinct non-null `job_type` values |
+| `get_last_fetch_time(db_path)` | Most recent `fetched_at` timestamp (for "last updated" display) |
+| `get_usage_stats(db_path, input_cost_per_mtok, output_cost_per_mtok)` | Aggregated token usage and cost totals + per-day breakdown |
+| `set_bookmarked(listing_id, value, db_path)` | Set `bookmarked` flag to 0 or 1 |
+| `set_dismissed(listing_id, value, db_path)` | Set `dismissed` flag to 0 or 1 |
+| `set_applied(listing_id, value, db_path)` | Set `applied` flag to 0 or 1 |
+| `toggle_bookmarked(listing_id, db_path)` | Atomic flip of `bookmarked`; returns updated listing |
+| `toggle_applied(listing_id, db_path)` | Atomic flip of `applied`; returns updated listing |
+
+**Schema — `listings` table:**
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | Autoincrement |
+| `source` | TEXT NOT NULL | Source identifier, e.g. `"adzuna"` |
+| `source_id` | TEXT NOT NULL | Source-specific listing ID |
+| `title` | TEXT | |
+| `company` | TEXT | |
+| `location` | TEXT | |
+| `salary_min` | REAL | |
+| `salary_max` | REAL | |
+| `salary_is_predicted` | INTEGER | 1 = salary is an estimate |
+| `contract_type` | TEXT | e.g. `"permanent"` |
+| `contract_time` | TEXT | e.g. `"full_time"` |
+| `description` | TEXT | Full scraped JD or API snippet fallback |
+| `redirect_url` | TEXT | Canonical job URL |
+| `created_at` | TEXT | ISO 8601 — when the listing was posted |
+| `fetched_at` | TEXT | ISO 8601 — when ingest.py processed it |
+| `score` | REAL | LLM score 0–10; NULL if scoring failed |
+| `matched_skills` | TEXT | JSON array (deserialised on read) |
+| `missing_skills` | TEXT | JSON array (deserialised on read) |
+| `concerns` | TEXT | JSON array (deserialised on read) |
+| `verdict` | TEXT | One-sentence LLM summary |
+| `bookmarked` | INTEGER DEFAULT 0 | |
+| `dismissed` | INTEGER DEFAULT 0 | |
+| `seen` | INTEGER DEFAULT 0 | 1 = scored; 0 = score failed, retry eligible |
+| `model_used` | TEXT | `"provider/model"` string, e.g. `"anthropic/claude-haiku-4-5-20251001"` |
+| `tokens_input` | INTEGER | |
+| `tokens_output` | INTEGER | |
+| `applied` | INTEGER DEFAULT 0 | |
+| `job_type` | TEXT | Search query used during ingest (e.g. `"software engineer"`) |
+| `posted_at` | TEXT | ISO 8601 — populated from `created_at` when not set by source |
+
+**Constraints and indexes:**
+- `UNIQUE(source, source_id)` — primary dedup constraint
+- `CREATE INDEX idx_listings_redirect_url ON listings (redirect_url)` — secondary dedup
+
+**Migration strategy:** `init_db()` inspects the existing schema and routes to one of
+four migration paths (fresh, legacy `adzuna_id` column, partial migration, or
+already-migrated). All paths are idempotent and safe to call on every startup.
 
 ---
 
@@ -81,81 +148,99 @@ strings and deserialised in Python before being passed to templates.
 Runs as a standalone script. Orchestrates the full pipeline in sequence:
 
 ```
-1. Load config.json and profile.json
-2. For each page of Adzuna results (up to exhaustion or page cap):
-   a. Fetch page via AdzunaClient
-   b. For each listing:
-      i.   Pre-filter (title regex, salary, contract type)
-      ii.  Dedup check against DB
-      iii. Scrape full description from redirect_url
-      iv.  Score via Claude Haiku
-      v.   Persist to DB
-3. Print summary (fetched / filtered / scored / skipped)
+1. Load config/config.json and config/profile.json
+2. db.init_db()
+3. credentials.load_providers() → providers dict
+4. job_sources.make_enabled_sources(providers, config) → list of source clients
+5. providers.build_provider_chain(providers) → ordered LLM provider list
+6. For each enabled source client:
+   For each page from client.pages():
+     For each listing in page:
+       a. Hours filter (--hours flag) — skip if listing is older than cutoff
+       b. prefilter(listing, config) — skip if fails title/salary/contract checks
+       c. db.listing_exists() + db.listing_exists_by_url() — skip duplicates
+       d. scrape_description(redirect_url) — full JD or fallback to snippet
+       e. score_listing_with_fallback(listing, profile, chain, dead_providers)
+       f. db.insert_listing(listing)
+7. Print run summary (sources / fetched / filtered / dupes / scored / tokens / cost)
 ```
 
-**Key classes / functions:**
+**Key functions:**
 
 | Name | Purpose |
 |---|---|
-| `AdzunaClient` | Wraps Adzuna REST API, handles pagination |
-| `prefilter(listing, config)` | Returns `True` if listing passes all heuristics |
-| `scrape_description(url)` | GETs the redirect URL, extracts visible text via BS4 |
-| `score_listing(description, profile, config)` | Calls Haiku, parses structured JSON response |
-| `run()` | Top-level orchestrator |
+| `load_config(path)` | Load and validate `config/config.json`; env vars override Adzuna credentials |
+| `load_profile(path)` | Load `config/profile.json`; raises `SystemExit` on missing/invalid |
+| `prefilter(listing, config)` | Returns `None` (pass) or a reason string (fail) |
+| `scrape_description(url, fallback)` | GET + BS4 parse; returns `(text, scraped_ok)` |
+| `score_listing(description, profile, provider)` | Single-provider scoring call |
+| `score_listing_with_fallback(listing, profile, chain, dead_providers)` | Tries providers in order; auth errors permanently disable a provider for the run |
+| `run(...)` | Full ingest orchestrator |
+| `rescore(...)` | Re-score all `seen=1` listings against current profile (no new fetches) |
+
+**Note:** `AdzunaClient` has moved to `job_sources/adzuna.py`. It is re-exported from
+`ingest.py` for backward compatibility but should be imported from `job_sources` in
+new code.
 
 ---
 
 ### 2.3 `app.py` — Flask Server
 
-Thin server layer. Routes delegate to `db.py`; no business logic lives here.
+Thin routing layer. All data access goes through `db.py`; no business logic lives here.
 
 | Route | Method | Template / Response |
 |---|---|---|
-| `/` | GET | `index.html` with feed listings; accepts `min_score`, `remote_only`, `search`, `job_type` query params |
-| `/bookmarks` | GET | `index.html` with bookmarked listings |
-| `/applied` | GET | `index.html` with applied listings |
-| `/stats` | GET | `stats.html` — cumulative token usage and estimated cost by day |
-| `/bookmark/<id>` | POST | HTMX partial — updated action buttons for that card |
-| `/dismiss/<id>` | POST | HTMX — removes card from DOM (empty 200 response) |
-| `/apply/<id>` | POST | HTMX partial — updated action buttons; listing moves to `/applied` |
+| `/` | GET | `index.html` — feed; accepts `min_score`, `remote_only`, `search`, `job_type`, `sort` query params |
+| `/bookmarks` | GET | `index.html` — bookmarked listings |
+| `/applied` | GET | `index.html` — applied listings |
+| `/stats` | GET | `stats.html` — token usage and cost dashboard + runtime versions |
+| `/bookmark/<id>` | POST | HTMX partial — updated action buttons (`_actions.html`) |
+| `/dismiss/<id>` | POST | HTMX — empty 200; card removed from DOM |
+| `/apply/<id>` | POST | HTMX partial — updated action buttons (`_actions.html`) |
+| `/ingest/trigger` | POST | Spawns `ingest.py` subprocess; returns 202 with `_ingest_trigger.html` or 409 if already running |
+| `/ingest/status` | GET | Polls subprocess state; returns `_ingest_trigger.html` partial + `HX-Trigger: ingestComplete` on completion |
+| `/settings` | GET | `settings.html` — LLM credentials and job source settings; `?tab=llm` or `?tab=sources` |
+| `/settings` | POST | Save credentials via `credentials.save_providers()`; redirect to GET |
+| `/profile` | GET | `profile.html` — `config.json` editor; sensitive fields masked as `"***"` |
+| `/profile` | POST | Validate JSON, restore masked fields, write `config.json`; returns 400 on parse error |
+| `/settings/config` | GET | 301 redirect to `/profile` |
+| `/api/validate-keys` | POST | Test each configured LLM provider; returns `_validation_results.html` partial |
+| `/api/providers/reorder` | POST | Persist `provider_order` list from drag-to-reorder; returns `_provider_order.html` partial |
 
-HTMX actions swap only the affected card or button — no full page reload.
-
----
-
-### 2.4 `templates/index.html` — UI
-
-Single template, two modes (`feed` vs `bookmarks`) controlled by a Jinja2 context variable.
-
-**Layout:**
-```
-┌──────────────────────────────────┐
-│  Header: "Job Matcher" | nav     │
-├──────────────────────────────────┤
-│  [Feed]  [Bookmarks]             │
-├──────────────────────────────────┤
-│  Card: Title / Company / Location│
-│        Score bar  |  Salary      │
-│        Matched: Python, Go ...   │
-│        Missing:  K8s ...         │
-│        Concerns: ...             │
-│        Verdict: one sentence     │
-│        [View listing] [⭐] [✕]   │
-├──────────────────────────────────┤
-│  Card: ...                       │
-└──────────────────────────────────┘
-```
-
-- Score rendered as a coloured badge (green ≥ 8, yellow ≥ 6, red < 6)
-- Bookmark (⭐) and Dismiss (✕) use `hx-post` + `hx-swap` to update in place
-- "View listing" opens `redirect_url` in a new tab
-- No JavaScript other than the HTMX CDN script tag
+HTMX actions swap only the affected element — no full page reload.
 
 ---
 
-### 2.5 `profile.json` — Skills Profile
+### 2.4 Templates and Static Files
 
-Human-editable. Loaded at scoring time and injected into the Haiku prompt verbatim.
+**Templates** (`templates/`):
+
+| File | Purpose |
+|---|---|
+| `index.html` | Main page — feed, bookmarks, and applied views (mode set by `view` context var) |
+| `stats.html` | API usage and cost dashboard + runtime component versions |
+| `settings.html` | LLM provider credentials and job source settings (tabbed) |
+| `profile.html` | `config.json` editor textarea |
+| `_card.html` | Listing card partial — reused across all list views |
+| `_actions.html` | Action buttons partial — returned by HTMX write routes |
+| `_ingest_trigger.html` | Ingest trigger button / in-progress indicator |
+| `_provider_order.html` | Provider drag-to-reorder list fragment |
+| `_validation_results.html` | Credential validation results fragment |
+
+**Static files** (`static/`):
+
+| File | Purpose |
+|---|---|
+| `style.css` | All application styles — see `docs/STYLE_GUIDE.md` for token/component reference |
+| `favicon.svg` | JM monogram favicon |
+| `js/sortable.min.js` | Drag-to-reorder library used by the provider order UI on the settings page |
+
+---
+
+### 2.5 `config/profile.json` — Skills Profile
+
+Human-editable. Loaded at scoring time and injected into the LLM prompt verbatim.
+Gitignored — copy from `config/profile.example.json`.
 
 ```json
 {
@@ -171,17 +256,18 @@ Human-editable. Loaded at scoring time and injected into the Haiku prompt verbat
   ],
   "seniority": "Senior / Staff",
   "preferred_industries": ["fintech", "developer tooling", "infrastructure"],
-  "location_preference": "remote or Miami, FL"
+  "location_preference": "remote or Miami, FL",
+  "scoring_notes": ""
 }
 ```
 
 ---
 
-### 2.6 `config.json` — Runtime Configuration
+### 2.6 `config/config.json` — Runtime Configuration
 
-Never committed to source control (contains Adzuna credentials). A `config.example.json`
-is provided with placeholder values. LLM provider API keys are stored in `keys.json`
-(managed via `/settings`), not here.
+Gitignored — copy from `config/config.example.json`. Edited via the `/profile` UI or
+directly. Adzuna credentials and `DB_PATH` can also be set as environment variables
+(`ADZUNA_APP_ID`, `ADZUNA_APP_KEY`).
 
 ```json
 {
@@ -198,17 +284,123 @@ is provided with placeholder values. LLM provider API keys are stored in `keys.j
     "max_pages": 5
   },
   "scoring": {
-    "threshold": 7.0,
-    "model": "claude-haiku-4-5-20251001"
+    "threshold": 7.0
   },
   "prefilter": {
-    "title_exclude": ["junior", "intern", "lead", "manager", "director", "principal"],
-    "title_include": ["engineer", "developer", "architect", "sre", "devops"],
+    "title_exclude": ["junior", "intern", "manager"],
+    "title_include": ["engineer", "developer", "architect"],
     "require_contract_time": null,
     "require_contract_type": null
   }
 }
 ```
+
+**`config/providers.json`** supersedes the legacy `keys.json`. It is the unified
+credential store for LLM provider keys and job source API credentials. Managed via the
+`/settings` UI and written atomically via `credentials.save_providers()`. Gitignored —
+copy from `config/providers.example.json`.
+
+---
+
+### 2.7 `job_sources/` — Pluggable Job Source Module
+
+Provides an abstract base class and seven concrete backends so the ingestion pipeline
+can fetch from multiple sources without source-specific branching in `ingest.py`.
+
+**Abstract base class** (`job_sources/base.py` → `JobSource`):
+
+| Method | Signature | Purpose |
+|---|---|---|
+| `fetch_page(page)` | `(int) → list[dict]` | Fetch one page of raw listings |
+| `total_pages()` | `() → int` | Return the number of pages to iterate |
+| `normalise(raw)` | `(dict) → dict` | Convert a raw listing to the canonical schema |
+| `settings_schema()` | `(cls) → dict` | Return `{display_name, fields}` for the Settings UI |
+| `pages()` | `() → Iterator[list[dict]]` | Default pagination iterator (calls `fetch_page` + `normalise`) |
+
+All `normalise()` implementations must return a dict with these keys: `source`,
+`source_id`, `title`, `company`, `location`, `salary_min`, `salary_max`,
+`salary_period`, `contract_type`, `contract_time`, `description`, `redirect_url`,
+`created_at`.
+
+**Registered sources** (`SOURCES` dict in `job_sources/__init__.py`):
+
+| Key | Class | Notes |
+|---|---|---|
+| `adzuna` | `AdzunaClient` | Requires `adzuna_app_id` and `adzuna_app_key` |
+| `arbeitnow` | `ArbeitnowClient` | No credentials required |
+| `himalayas` | `HimalayasClient` | No credentials required |
+| `remoteok` | `RemoteOKClient` | No credentials required |
+| `remotive` | `RemotiveClient` | No credentials required |
+| `the_muse` | `TheMuseClient` | No credentials required |
+| `usajobs` | `USAJobsClient` | Requires `user_agent` header value |
+
+**Factory functions:**
+
+- `make_source(config)` — instantiate a single source from `config["job_source"]`
+  (default: `"adzuna"`).
+- `make_enabled_sources(providers_data, config)` — return all sources where
+  `providers_data["job_sources"][key]["enabled"] == True` and required credentials
+  are present.
+
+---
+
+### 2.8 `providers/` — LLM Provider Module
+
+Provides an abstract base class and three concrete LLM backends with a shared fallback
+chain mechanism.
+
+**Abstract base** (`providers/base.py` → `LLMProvider`):
+
+| Member | Purpose |
+|---|---|
+| `complete(prompt)` | Send a completion request; return scored result dict with token counts |
+| `input_cost_per_mtok` | USD per million input tokens (used for cost tracking) |
+| `output_cost_per_mtok` | USD per million output tokens |
+| `settings_schema()` | Return `{display_name, fields}` for the Settings UI |
+
+**Concrete providers:**
+
+| Key | Class | Default model |
+|---|---|---|
+| `anthropic` | `AnthropicProvider` | `claude-haiku-4-5-20251001` |
+| `openai` | `OpenAIProvider` | `gpt-4o-mini` |
+| `gemini` | `GeminiProvider` | `gemini-1.5-flash` |
+
+**`build_provider_chain(providers_data)`** reads `providers_data["provider_order"]`
+and the `providers_data["llm"]` sub-dict to return an ordered list of instantiated
+`LLMProvider` objects. Providers with an empty `api_key` are excluded from the chain.
+
+**`score_listing_with_fallback(listing, profile, chain, dead_providers)`** iterates the
+chain in order:
+- **Auth error (401/403):** permanently adds the provider to `dead_providers` for the
+  rest of the run — the API key is bad.
+- **Transient error (rate limit, 5xx, network):** logs a warning and moves to the next
+  provider; this provider remains available for subsequent listings.
+- **Success:** injects `"model_used": "provider/model"` into the result dict and
+  returns it.
+
+---
+
+### 2.9 `credentials.py` — Unified Credential Loading
+
+Single shared module imported by both `ingest.py` and `app.py`.
+
+**Public API:**
+- `CredentialError` — raised when no usable credentials can be found
+- `load_providers(providers_path, keys_path, config_path)` — load `providers.json`
+  with fallback migration from legacy `keys.json`/`config.json`, then env vars
+- `migrate_from_legacy(...)` — atomic one-time migration from `keys.json` + `config.json`
+  to `providers.json`; original files are never modified
+- `save_providers(updates, providers_path)` — deep-merge updates into `providers.json`;
+  write is atomic via `.tmp` rename
+
+**Credential precedence:**
+1. `providers.json` present and parseable → use it; env vars are NOT consulted
+2. `providers.json` absent → attempt migration from legacy files
+3. Migration succeeds → return migrated data (also writes `providers.json`)
+4. Migration returns `None` → build from env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+   `GOOGLE_API_KEY`, `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`)
+5. No env vars → raise `CredentialError`
 
 ---
 
@@ -217,27 +409,31 @@ is provided with placeholder values. LLM provider API keys are stored in `keys.j
 ```
 ingest.py
   │
-  ├─ load config.json, profile.json
-  │
+  ├─ load_config(), load_profile()
   ├─ db.init_db()
+  ├─ credentials.load_providers() → providers dict
+  ├─ job_sources.make_enabled_sources(providers, config) → [source1, source2, ...]
+  ├─ providers.build_provider_chain(providers) → [llm1, llm2, ...]
   │
-  └─ for page in AdzunaClient.pages():
-       for listing in page:
-         │
-         ├─ prefilter() → skip if fails
-         ├─ db.listing_exists() → skip if duplicate
-         ├─ scrape_description(redirect_url) → full text or fallback to snippet
-         ├─ score_listing(text, profile) → {score, matched_skills, ...}
-         └─ db.insert_listing({...score data merged in})
+  └─ for source in sources:
+       for page in source.pages():
+         for listing in page:
+           │
+           ├─ hours filter → skip if too old
+           ├─ prefilter(listing, config) → skip if fails
+           ├─ db.listing_exists() + db.listing_exists_by_url() → skip if dupe
+           ├─ scrape_description(redirect_url) → full text or snippet fallback
+           ├─ score_listing_with_fallback(...) → {score, skills, verdict, model_used}
+           └─ db.insert_listing({...listing + score data})
 ```
 
-**Scraping fallback:** If the scraper fails (timeout, bot block, parsing error), the
-Adzuna snippet is used as the description and a `scrape_failed` flag is logged. Scoring
-still proceeds on the snippet — the score may be lower quality but the listing is not lost.
+**Scraping fallback:** If the scraper fails (timeout, bot block, text too short), the
+source API snippet is used as the description. Scoring still proceeds — the result may
+be lower quality but the listing is not lost.
 
-**Scoring retry:** If the Haiku API call fails or returns malformed JSON, retry once
-with a 2-second delay. If it fails again, insert the listing with `score = NULL` and
-`seen = FALSE` so it can be re-scored in a future run.
+**Provider fallback:** Auth failures permanently remove a provider from the chain for
+that run. Transient failures skip only the current listing. If all providers fail for a
+listing, it is stored with `score = NULL` and `seen = 0` for retry on the next run.
 
 ---
 
@@ -246,15 +442,21 @@ with a 2-second delay. If it fails again, insert the listing with `score = NULL`
 ```
 Browser
   │
-  ├─ GET / → Flask → db.get_feed(threshold) → render index.html
+  ├─ GET / → Flask → db.get_feed() → render index.html
   │
   ├─ POST /bookmark/42
   │    hx-swap="outerHTML" on the button group
-  │    → Flask → db.set_bookmarked(42, True) → render _action_buttons.html partial
+  │    → Flask → db.toggle_bookmarked(42) → render _actions.html partial
   │
-  └─ POST /dismiss/42
-       hx-swap="outerHTML" hx-target="#card-42"
-       → Flask → db.set_dismissed(42, True) → return "" (removes card)
+  ├─ POST /dismiss/42
+  │    hx-swap="outerHTML" hx-target="#card-42"
+  │    → Flask → db.set_dismissed(42, 1) → return "" (removes card)
+  │
+  └─ POST /ingest/trigger
+       → Flask → subprocess.Popen([sys.executable, "ingest.py", ...])
+       → returns 202 with polling partial
+       → GET /ingest/status polls until done
+       → on completion: HX-Trigger: ingestComplete → feed reloads
 ```
 
 ---
@@ -262,29 +464,43 @@ Browser
 ## 5. Key Design Decisions
 
 ### Why SQLite stdlib (not SQLAlchemy)
-Keeps dependencies minimal and the schema explicit. The query surface is small and
-well-defined; an ORM would add complexity without benefit for a single-user local tool.
+Schema is small and stable. An ORM adds complexity without benefit for a single-user
+local tool with a well-defined query surface.
 
 ### Why HTMX (not React/Vue)
-Zero build tooling. The UI is a read-mostly display layer with two write actions.
-HTMX handles both with a CDN script tag and two HTML attributes per button.
+Zero build tooling. The UI is a read-mostly display layer with a small number of write
+actions. HTMX handles all of them with a CDN script tag and a few HTML attributes.
 
 ### Why pre-filter before LLM
-Each Haiku call costs ~$0.001. At 500 listings/run with a 60% filter rate, this saves
-~300 calls per run (~$0.30). Over weeks of daily runs this compounds meaningfully.
+Each LLM call costs ~$0.001. At 500 listings/run with a 60% filter rate, this saves
+~300 calls per run. Over weeks of daily runs this compounds meaningfully.
 
 ### Why scrape the full description
 Adzuna's API snippet is typically 200–300 characters — not enough for reliable skill
-matching. The full JD gives Haiku the context it needs for accurate scoring.
+matching. The full JD gives the LLM the context it needs for accurate scoring.
 
 ### Why decouple ingest from serve
 The ingestion run can take minutes (scraping + LLM calls). Running it inside the web
-request would be unacceptable. Decoupling means the UI is always snappy and the
-ingestion can be automated independently.
+request would block the UI. Decoupling means the UI is always responsive and ingest
+can be scheduled independently. The trigger UI in the browser spawns a subprocess and
+polls for completion.
 
-### Why `profile.json` rather than a DB table
-The profile is edited by the user manually, infrequently, and as a whole unit. A flat
-file is simpler to edit and version-control than a DB row.
+### Why `config/profile.json` rather than a DB table
+The profile is edited as a whole unit, infrequently, and is straightforward to
+version-control as a flat file.
+
+### Why `config/providers.json` separate from `config/config.json`
+Credentials change more often and are more sensitive than search parameters.
+Separation allows tighter file-level access controls.
+
+### Why a pluggable job_sources module
+Multiple sources (7 at present) run without any branching in the orchestrator.
+Adding a new source requires only a new file implementing `JobSource` plus a registry
+entry — no changes to `ingest.py`.
+
+### Why a provider chain with fallback
+A single LLM provider is a single point of failure. The fallback chain means a
+temporary rate limit or quota exhaustion on the primary provider does not stop a run.
 
 ---
 
@@ -292,68 +508,99 @@ file is simpler to edit and version-control than a DB row.
 
 | Failure | Handling |
 |---|---|
-| Adzuna API error (4xx/5xx) | Log and abort run; do not insert partial data |
-| Adzuna rate limit (429) | Exponential backoff, max 3 retries |
-| Scrape timeout / bot block | Use API snippet as fallback; log warning |
-| Scrape produces empty text | Use API snippet as fallback |
-| Haiku returns non-JSON | Retry once; if still broken, store with NULL score |
-| Haiku API error | Same as above |
-| DB write failure | Log and skip listing; do not crash run |
-| Missing config keys | Raise on startup with a clear error message |
+| Source API error (4xx/5xx) | Log warning; source client returns empty list for that page |
+| Scrape timeout / bot block | Use API snippet as fallback; log `SCRAPE FALLBACK` |
+| Scrape produces short text | Use API snippet as fallback |
+| LLM returns non-JSON | Provider retries once; if still broken, returns `None` |
+| LLM auth error (401/403) | Provider permanently disabled for the rest of the run |
+| LLM transient error | Skip current listing; provider stays available |
+| All providers fail for listing | Store with `score = NULL`, `seen = 0` for retry |
+| DB write failure | Log and skip listing; run continues |
+| Missing required config keys | `SystemExit` at startup with a descriptive message |
 
 ---
 
-## 7. Dependency List
+## 7. Dependencies
 
-```
-flask
-requests
-beautifulsoup4
-anthropic
-```
+**Core** (`requirements.txt`):
+- `flask` — web framework
+- `requests` — HTTP client for scraping and source API calls
+- `beautifulsoup4` — HTML parsing for the scraper
+- `waitress` — production WSGI server (used by the NSSM service)
+- `pydantic` — data validation (used internally by LLM SDK clients)
 
-No other third-party packages. SQLite is stdlib. HTMX is loaded from CDN in the template.
+**LLM clients** (`requirements.txt`):
+- `anthropic` — Anthropic (Claude) API client
+- `openai` — OpenAI API client
+- `google-genai` — Google Gemini API client
+
+**Dev** (`requirements-dev.txt`):
+- `pytest` — test runner
+- `ruff` — linter
+
+Note: `pytest` also appears in `requirements.txt` for convenience in the Windows
+native deployment; `requirements-dev.txt` is the canonical dev dependency file.
 
 ---
 
 ## 8. File Map
 
 ```
-job_aggregator/
-├── ingest.py              # CLI pipeline: fetch → filter → scrape → score → store
-├── app.py                 # Flask server + route handlers
-├── db.py                  # SQLite schema init and all query helpers
-├── profile.json           # User skills profile (gitignored — copy from profile.example.json)
-├── profile.example.json   # Safe template for profile.json
-├── config.json            # API keys and search config (gitignored — copy from config.example.json)
-├── config.example.json    # Safe template for config.json
-├── requirements.txt       # Python dependencies (pinned)
-├── templates/
-│   ├── index.html         # Main page template (feed, bookmarks, applied views)
-│   ├── _card.html         # Listing card partial (reused by HTMX swaps)
-│   ├── _actions.html      # Action buttons partial returned by POST routes
-│   └── stats.html         # Usage and cost dashboard
+job_matcher/
+├── app.py                       # Flask server + route handlers
+├── db.py                        # SQLite schema, migrations, and all query helpers
+├── ingest.py                    # CLI pipeline: fetch → filter → scrape → score → store
+├── credentials.py               # Unified credential loading (shared by ingest + app)
+├── requirements.txt             # Python dependencies (pinned)
+├── requirements-dev.txt         # Dev-only dependencies (pytest, ruff)
+├── README.md
+├── CLAUDE.md
+├── config/
+│   ├── config.json              # Search params + scoring threshold (gitignored)
+│   ├── config.example.json
+│   ├── profile.json             # Candidate skills profile (gitignored)
+│   ├── profile.example.json
+│   ├── providers.json           # LLM + job source credentials (gitignored)
+│   └── providers.example.json
+├── job_sources/                 # Pluggable job source backends
+│   ├── __init__.py              # Registry (SOURCES), make_source(), make_enabled_sources()
+│   ├── base.py                  # JobSource abstract base class
+│   ├── adzuna.py
+│   ├── arbeitnow.py
+│   ├── himalayas.py
+│   ├── remoteok.py
+│   ├── remotive.py
+│   ├── the_muse.py
+│   └── usajobs.py
+├── providers/                   # LLM provider backends
+│   ├── __init__.py              # build_provider_chain(), _PROVIDER_CLASS_MAP
+│   ├── base.py                  # LLMProvider abstract base class
+│   ├── anthropic_provider.py
+│   ├── openai_provider.py
+│   └── gemini_provider.py
+├── scripts/                     # Windows deployment helpers
+│   ├── setup.ps1                # Register NSSM service + Task Scheduler job
+│   ├── status.ps1               # Show service and scheduler status
+│   ├── teardown.ps1             # Remove service and scheduled task
+│   └── deploy-remote.ps1        # Remote deployment helper
+├── templates/                   # 9 Jinja2 templates (see §2.4)
 ├── static/
-│   ├── style.css          # Stylesheet — dark terminal-ledger theme
-│   └── favicon.svg        # JM monogram favicon
+│   ├── style.css                # All styles — see docs/STYLE_GUIDE.md
+│   ├── favicon.svg
+│   └── js/
+│       └── sortable.min.js      # Drag-to-reorder for provider order UI
 ├── tests/
-│   ├── __init__.py
-│   ├── test_prefilter.py  # Unit tests for prefilter() logic
-│   ├── test_db.py         # Unit tests for DB layer
-│   └── test_ingest.py     # Unit tests for ingest utilities
-├── jobs.db                # SQLite database (generated, gitignored)
-├── REQUIREMENTS.md        # Original requirements spec
-├── DESIGN.md              # This document
-└── TODO.md                # Implementation task list
+└── docs/
+    ├── DESIGN.md                # This document
+    └── STYLE_GUIDE.md           # CSS token and component reference
 ```
 
 ---
 
-## 9. Out of Scope (v1)
+## 9. Out of Scope
 
-See `REQUIREMENTS.MD`. Notably excluded:
-- Application status tracking / notes
-- Multiple job sources beyond Adzuna
-- Resume parsing to generate `profile.json`
-- Email digest or notifications
-- Cloud/hosted deployment (designed for self-hosted homelab use)
+- Application status notes / tracking beyond the `applied` flag
+- Resume parsing to auto-generate `config/profile.json`
+- Email digest or push notifications
+- Cloud / hosted deployment (designed for self-hosted, single-user use)
+- Multi-user support
