@@ -137,6 +137,7 @@ class TheMuseClient(JobSource):
         """
         return {
             "display_name": "The Muse",
+            "description": "US-focused job board with company culture context. Free API with optional key to reduce rate limits. Good coverage of mid-to-large tech companies.",
             "home_url": "https://www.themuse.com",
             "fields": [],
         }

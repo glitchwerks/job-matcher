@@ -125,6 +125,7 @@ class HimalayasClient(JobSource):
         """
         return {
             "display_name": "Himalayas",
+            "description": "Remote-first tech job board focused on software and product roles. Free API with no authentication required. High-quality listings.",
             "home_url": "https://himalayas.app",
             "fields": [],
         }

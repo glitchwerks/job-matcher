@@ -58,6 +58,7 @@ class RemotiveClient(JobSource):
         """
         return {
             "display_name": "Remotive",
+            "description": "Curated remote tech jobs across software, design, and marketing. Free API with no authentication. Smaller volume but strong signal-to-noise.",
             "home_url": "https://remotive.com",
             "fields": [],
         }

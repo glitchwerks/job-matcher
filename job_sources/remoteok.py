@@ -115,6 +115,7 @@ class RemoteOKClient(JobSource):
         """
         return {
             "display_name": "Remote OK",
+            "description": "Remote-only job board with a free public API. High volume of dev, design, and tech roles worldwide. No API key required.",
             "home_url": "https://remoteok.com",
             "fields": [],
         }
