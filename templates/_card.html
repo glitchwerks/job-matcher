@@ -66,6 +66,21 @@
       <span class="badge-jobtype">{{ listing.job_type | title }}</span>
     {% endif %}
 
+    {#- Source badge — display-mapped provider name -#}
+    {% set _source_map = {
+      "adzuna":    "Adzuna",
+      "jobicy":    "Jobicy",
+      "jooble":    "Jooble",
+      "himalayas": "Himalayas",
+      "arbeitnow": "Arbeitnow",
+      "remoteok":  "RemoteOK",
+      "remotive":  "Remotive",
+      "the_muse":  "The Muse",
+      "usajobs":   "USAJobs"
+    } %}
+    {% set _source_label = _source_map.get(listing.source, listing.source | title) %}
+    <span class="badge-source">{{ _source_label }}</span>
+
   </summary>
 
   {# ── Body: full card detail, shown when open ─────────────────── #}

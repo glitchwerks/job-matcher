@@ -1085,3 +1085,82 @@ class TestToggleApplied:
             assert result["source_id"] == "ta-004"
             assert "score" in result
             assert isinstance(result["matched_skills"], list)
+
+
+# ---------------------------------------------------------------------------
+# source field present in all read helpers (required for source badge on cards)
+# ---------------------------------------------------------------------------
+
+class TestSourceFieldInReadHelpers:
+    """Verify that every read helper returns dicts that include a 'source' key.
+
+    The source badge on job cards depends on listing['source'] being present
+    in the dicts that templates receive.  All helpers use SELECT *, so 'source'
+    is always fetched — these tests guard against future SELECT changes that
+    could accidentally drop the column.
+    """
+
+    def test_get_feed_includes_source(self):
+        """get_feed() dicts contain a 'source' key with the inserted value."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source="himalayas", source_id="src-f-001", score=9.0),
+                db_path=path,
+            )
+            results = db.get_feed(threshold=7.0, db_path=path)
+            assert len(results) == 1
+            assert "source" in results[0]
+            assert results[0]["source"] == "himalayas"
+
+    def test_get_bookmarks_includes_source(self):
+        """get_bookmarks() dicts contain a 'source' key with the inserted value."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source="jobicy", source_id="src-b-001", bookmarked=1),
+                db_path=path,
+            )
+            bookmarks = db.get_bookmarks(db_path=path)
+            assert len(bookmarks) == 1
+            assert "source" in bookmarks[0]
+            assert bookmarks[0]["source"] == "jobicy"
+
+    def test_get_applied_includes_source(self):
+        """get_applied() dicts contain a 'source' key with the inserted value."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source="jooble", source_id="src-a-001", applied=1),
+                db_path=path,
+            )
+            applied = db.get_applied(db_path=path)
+            assert len(applied) == 1
+            assert "source" in applied[0]
+            assert applied[0]["source"] == "jooble"
+
+    def test_get_listing_by_id_includes_source(self):
+        """get_listing_by_id() dict contains a 'source' key with the inserted value."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source="arbeitnow", source_id="src-i-001"),
+                db_path=path,
+            )
+            conn = db.get_connection(path)
+            try:
+                row = conn.execute(
+                    "SELECT id FROM listings WHERE source_id = 'src-i-001'"
+                ).fetchone()
+                listing_id = row["id"]
+            finally:
+                conn.close()
+            result = db.get_listing_by_id(listing_id, db_path=path)
+            assert result is not None
+            assert "source" in result
+            assert result["source"] == "arbeitnow"
+
+    def test_source_defaults_to_adzuna(self):
+        """When source is omitted from the insert dict it defaults to 'adzuna'."""
+        with TempDB() as path:
+            listing = make_listing(source_id="src-def-001")
+            listing["source"] = "adzuna"  # explicit default
+            db.insert_listing(listing, db_path=path)
+            results = db.get_feed(threshold=7.0, db_path=path)
+            assert results[0]["source"] == "adzuna"

@@ -172,6 +172,7 @@ All badges share the pill shape: `border-radius: 20px`, `--font-mono`, padding `
 | `.badge-remote` | — | Remote location tag (green tier) |
 | `.badge-onsite` | — | On-site location tag (neutral) |
 | `.badge-jobtype` | — | Job type tag (neutral) |
+| `.badge-source` | — | Job source provider tag (neutral, dashed border to distinguish from job-type) |
 | `.model-badge` | — | LLM model identifier (muted, 70% opacity) |
 | `.key-status` | `.configured`, `.not-set` | Settings credential status |
 | `.validation-badge` | `.validation-valid`, `.validation-invalid`, `.validation-warning`, `.validation-muted` | API key validation results |

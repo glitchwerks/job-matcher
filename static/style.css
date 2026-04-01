@@ -1034,6 +1034,24 @@ body {
   margin-top: 2px;
 }
 
+/* Source provider badge — neutral/muted, sits after job-type badge in summary row.
+   Visually distinct from skill chips (no tier color) and from job-type via a
+   dashed border, making it easy to scan without competing for attention. */
+.badge-source {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 20px;
+  border: 1px dashed var(--border-mid);
+  white-space: nowrap;
+  background: transparent;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
 /* Model used badge — monospace, dimmer than badge-jobtype, no uppercase */
 .model-badge {
   flex-shrink: 0;
