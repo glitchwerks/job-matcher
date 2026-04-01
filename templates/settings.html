@@ -376,6 +376,7 @@
                 {% if is_enabled and not toggle_disabled %}checked{% endif %}
                 {% if toggle_disabled %}disabled{% endif %}
                 {% if not toggle_disabled %}
+                hx-ext="json-enc"
                 hx-post="/api/job-sources/{{ source_key }}/toggle"
                 hx-trigger="change"
                 hx-vals='js:{"enabled": event.target.checked}'

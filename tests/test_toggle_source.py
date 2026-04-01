@@ -248,6 +248,15 @@ class TestMalformedBody:
         )
         assert resp.status_code == 400
 
+    def test_form_encoded_body_returns_400(self, client, tmp_providers_path):
+        """HTMX without json-enc sends form data — endpoint must reject it."""
+        resp = client.post(
+            "/api/job-sources/adzuna/toggle",
+            data={"enabled": "true"},  # form-encoded, not JSON
+            content_type="application/x-www-form-urlencoded",
+        )
+        assert resp.status_code == 400
+
 
 # ---------------------------------------------------------------------------
 # 500 — write failure
