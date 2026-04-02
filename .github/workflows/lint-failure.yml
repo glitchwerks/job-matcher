@@ -1,18 +1,19 @@
 name: Lint Failure
 
 on:
+  # Runs after CI completes so we can inspect its outcome and fix lint errors automatically
   workflow_run:
     workflows: ["CI"]
     types: [completed]
 
+# preflight only needs actions: read; write permissions are scoped to the lint-fix job below
 permissions:
-  contents: write
-  pull-requests: write
   actions: read
 
 jobs:
   preflight:
     runs-on: ubuntu-latest
+    # Guard here so the job exits fast when CI passed — avoids unnecessary API calls
     if: github.event.workflow_run.conclusion == 'failure'
     outputs:
       pr_number: ${{ steps.pr.outputs.number }}
@@ -40,6 +41,7 @@ jobs:
             && echo "lint_failed=true" >> $GITHUB_OUTPUT \
             || echo "lint_failed=false" >> $GITHUB_OUTPUT
 
+  # Separate job required: reusable workflows cannot be called from the same job that sets outputs
   lint-fix:
     needs: preflight
     if: needs.preflight.outputs.pr_number != '' && needs.preflight.outputs.lint_failed == 'true'
@@ -50,6 +52,7 @@ jobs:
       actions: read
     with:
       pr_number: ${{ needs.preflight.outputs.pr_number }}
+      # github.run_id would be this workflow's ID; we need the triggering CI run's ID
       run_id: ${{ github.event.workflow_run.id }}
       auto_apply: true
     secrets:
