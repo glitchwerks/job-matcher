@@ -176,6 +176,7 @@ def init_db(db_path: str = _DEFAULT_DB_PATH) -> None:
                     job_type            TEXT,
                     posted_at           TEXT,
                     opened_at           TEXT DEFAULT NULL,
+                    description_source  TEXT NOT NULL DEFAULT 'full',
                     UNIQUE(source, source_id)
                 )
             """)
@@ -220,6 +221,7 @@ def init_db(db_path: str = _DEFAULT_DB_PATH) -> None:
                     job_type            TEXT,
                     posted_at           TEXT,
                     opened_at           TEXT DEFAULT NULL,
+                    description_source  TEXT NOT NULL DEFAULT 'full',
                     UNIQUE(source, source_id)
                 )
             """)
@@ -317,6 +319,7 @@ def init_db(db_path: str = _DEFAULT_DB_PATH) -> None:
                     job_type            TEXT,
                     posted_at           TEXT,
                     opened_at           TEXT DEFAULT NULL,
+                    description_source  TEXT NOT NULL DEFAULT 'full',
                     UNIQUE(source, source_id)
                 )
             """)
@@ -377,13 +380,14 @@ def init_db(db_path: str = _DEFAULT_DB_PATH) -> None:
             # acceptable for a single-user local tool.
             # ------------------------------------------------------------
             for column, typedef in (
-                ("tokens_input",  "INTEGER"),
-                ("tokens_output", "INTEGER"),
-                ("applied",       "INTEGER DEFAULT 0"),
-                ("job_type",      "TEXT"),
-                ("model_used",    "TEXT"),
-                ("posted_at",     "TEXT"),
-                ("opened_at",     "TEXT"),
+                ("tokens_input",       "INTEGER"),
+                ("tokens_output",      "INTEGER"),
+                ("applied",            "INTEGER DEFAULT 0"),
+                ("job_type",           "TEXT"),
+                ("model_used",         "TEXT"),
+                ("posted_at",          "TEXT"),
+                ("opened_at",          "TEXT"),
+                ("description_source", "TEXT NOT NULL DEFAULT 'full'"),
             ):
                 try:
                     conn.execute(
@@ -477,6 +481,7 @@ def insert_listing(listing: dict, db_path: str = _DEFAULT_DB_PATH) -> None:
     row.setdefault("source", "adzuna")
     row.setdefault("source_id", None)
     row.setdefault("posted_at", None)
+    row.setdefault("description_source", "full")
 
     conn = get_connection(db_path)
     try:
@@ -495,7 +500,8 @@ def insert_listing(listing: dict, db_path: str = _DEFAULT_DB_PATH) -> None:
                 applied,
                 job_type,
                 model_used,
-                posted_at
+                posted_at,
+                description_source
             ) VALUES (
                 :source, :source_id,
                 :title, :company, :location,
@@ -509,7 +515,8 @@ def insert_listing(listing: dict, db_path: str = _DEFAULT_DB_PATH) -> None:
                 :applied,
                 :job_type,
                 :model_used,
-                :posted_at
+                :posted_at,
+                :description_source
             )
             """,
             row,
@@ -530,12 +537,16 @@ def update_score(
     Addresses the target row by (source, source_id) rather than adzuna_id so
     that listings from any source can be rescored without special-casing.
 
+    Also updates ``description_source`` when provided in *score_data*, so that
+    a listing that was initially stored as ``'snippet'`` can be promoted to
+    ``'full'`` if a subsequent re-scrape succeeds.
+
     Args:
         source:     Source identifier string, e.g. ``"adzuna"``.
         source_id:  Source-specific listing ID string.
         score_data: Dict with keys: score, matched_skills, missing_skills,
                     concerns, verdict. Array fields may be Python lists or
-                    JSON strings.
+                    JSON strings.  Optionally includes ``description_source``.
         db_path:    Path to the SQLite database file.
     """
     data = dict(score_data)
@@ -551,15 +562,16 @@ def update_score(
         conn.execute(
             """
             UPDATE listings
-            SET score          = :score,
-                matched_skills = :matched_skills,
-                missing_skills = :missing_skills,
-                concerns       = :concerns,
-                verdict        = :verdict,
-                seen           = 1,
-                tokens_input   = :tokens_input,
-                tokens_output  = :tokens_output,
-                model_used     = :model_used
+            SET score              = :score,
+                matched_skills     = :matched_skills,
+                missing_skills     = :missing_skills,
+                concerns           = :concerns,
+                verdict            = :verdict,
+                seen               = 1,
+                tokens_input       = :tokens_input,
+                tokens_output      = :tokens_output,
+                model_used         = :model_used,
+                description_source = COALESCE(:description_source, description_source)
             WHERE source = :source AND source_id = :source_id
             """,
             {
@@ -569,6 +581,7 @@ def update_score(
                 "tokens_input": data.get("tokens_input"),
                 "tokens_output": data.get("tokens_output"),
                 "model_used": data.get("model_used"),
+                "description_source": data.get("description_source"),
             },
         )
         conn.commit()
@@ -624,7 +637,7 @@ def get_feed(
     """
     effective = min_score if min_score is not None else threshold
 
-    conditions = ["score >= ?", "dismissed = 0", "applied = 0"]
+    conditions = ["score >= ?", "dismissed = 0", "applied = 0", "description_source = 'full'"]
     params: list = [effective]
 
     if remote_only:
@@ -651,6 +664,42 @@ def get_feed(
         rows = conn.execute(
             f"SELECT * FROM listings WHERE {where_clause} ORDER BY {order_clause}",
             params,
+        ).fetchall()
+        return [_deserialise_row(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_snippet_feed(
+    sort: str | None = None,
+    db_path: str = _DEFAULT_DB_PATH,
+) -> list[dict]:
+    """Return scored, non-dismissed listings whose description came from an API snippet.
+
+    Snippet-scored listings are separated from the main feed because a score
+    derived from a 200–400 character API snippet is a weaker signal than one
+    derived from a full scraped job description.  This function returns them in
+    their own dedicated view so the user can review them separately.
+
+    Listings whose score is NULL are excluded (not yet scored).  Dismissed
+    listings are excluded.
+
+    Args:
+        sort:    Optional sort key.  ``'date_posted'`` orders by posted_at DESC;
+                 any other value (or None) falls back to score DESC.
+        db_path: Path to the SQLite database file.
+    """
+    if sort == "date_posted":
+        order_clause = "posted_at DESC"
+    else:
+        order_clause = "score DESC"
+
+    conn = get_connection(db_path)
+    try:
+        rows = conn.execute(
+            f"SELECT * FROM listings "
+            f"WHERE description_source = 'snippet' AND dismissed = 0 AND score IS NOT NULL "
+            f"ORDER BY {order_clause}",
         ).fetchall()
         return [_deserialise_row(r) for r in rows]
     finally:

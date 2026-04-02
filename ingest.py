@@ -722,6 +722,7 @@ def run(
                 # round-trip and use the API description directly.
                 if listing.get("skip_scrape"):
                     scraped_skipped += 1
+                    listing["description_source"] = "snippet"
                     logger.info("SCRAPE SKIP      [%s] %s", src_name, title)
                 else:
                     description, ok = scrape_description(
@@ -730,8 +731,10 @@ def run(
                     )
                     if ok:
                         scraped_ok += 1
+                        listing["description_source"] = "full"
                     else:
                         scraped_fallback += 1
+                        listing["description_source"] = "snippet"
                         logger.info("SCRAPE FALLBACK  [%s] %s", src_name, title)
                     listing["description"] = description
 

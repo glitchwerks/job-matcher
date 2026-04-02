@@ -23,10 +23,11 @@
 ┌──────────────────────────────────▼───────────────────────────────┐
 │                        app.py (Flask server)                     │
 │                                                                  │
-│  GET /                  → main feed (scored, not dismissed)      │
-│  GET /bookmarks         → bookmarked listings only               │
-│  GET /applied           → applied listings only                  │
-│  GET /stats             → usage and cost dashboard               │
+│  GET /                  → main feed (full-JD scored, not dismissed) │
+│  GET /bookmarks         → bookmarked listings only                 │
+│  GET /applied           → applied listings only                    │
+│  GET /snippets          → snippet-scored listings (separate tab)   │
+│  GET /stats             → usage and cost dashboard                 │
 │  GET/POST /settings     → LLM provider + job source credentials  │
 │  GET/POST /profile      → config.json editor                     │
 │  POST /bookmark/<id>    → HTMX toggle bookmark                   │
@@ -85,7 +86,8 @@ Owns all SQLite interactions. No other module opens the database file directly.
 | `listing_exists_by_url(conn, redirect_url)` | Secondary cross-source dedup check by URL |
 | `insert_listing(listing, db_path)` | Insert a new listing row; serialises JSON array columns |
 | `update_score(source, source_id, score_data, db_path)` | Write scoring results back to an existing row |
-| `get_feed(threshold, min_score, remote_only, search, job_type, sort, db_path)` | Listings scored ≥ threshold, not dismissed, not applied |
+| `get_feed(threshold, min_score, remote_only, search, job_type, sort, db_path)` | Full-JD listings scored ≥ threshold, not dismissed, not applied |
+| `get_snippet_feed(sort, db_path)` | Snippet-scored listings, not dismissed, score not NULL |
 | `get_bookmarks(db_path)` | All bookmarked listings ordered by score DESC |
 | `get_applied(db_path)` | All listings where `applied = 1`, ordered by `fetched_at DESC` |
 | `get_all_scored(db_path)` | All listings with `seen = 1`, used by the rescorer |
@@ -132,6 +134,7 @@ Owns all SQLite interactions. No other module opens the database file directly.
 | `applied` | INTEGER DEFAULT 0 | |
 | `job_type` | TEXT | Search query used during ingest (e.g. `"software engineer"`) |
 | `posted_at` | TEXT | ISO 8601 — populated from `created_at` when not set by source |
+| `description_source` | TEXT NOT NULL DEFAULT `'full'` | `'full'` = scored from a full scraped JD; `'snippet'` = scored from a short API description (200–400 chars) because scraping failed or was skipped (`skip_scrape=True`). Used to separate snippet-scored listings into the dedicated Snippets tab. |
 
 **Constraints and indexes:**
 - `UNIQUE(source, source_id)` — primary dedup constraint

@@ -501,6 +501,23 @@ def applied():
     )
 
 
+@app.route("/snippets")
+def snippets():
+    """Snippet-scored listings — roles scored from short API descriptions rather than full JDs.
+
+    Accepts an optional ``sort`` query param (``'date_posted'`` or omit for score DESC).
+    """
+    sort = request.args.get("sort", "").strip() or None
+    listings = db.get_snippet_feed(sort=sort, db_path=DB_PATH)
+    return render_template(
+        "snippets.html",
+        listings=listings,
+        view="snippets",
+        sort=sort,
+        config_warnings=_config_warnings(),
+    )
+
+
 @app.route("/stats")
 def stats():
     """API usage and cost statistics, plus runtime version information."""

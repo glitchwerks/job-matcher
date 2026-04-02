@@ -173,6 +173,7 @@ All badges share the pill shape: `border-radius: 20px`, `--font-mono`, padding `
 | `.badge-onsite` | — | On-site location tag (neutral) |
 | `.badge-jobtype` | — | Job type tag (neutral) |
 | `.badge-source` | — | Job source provider tag (neutral, dashed border to distinguish from job-type) |
+| `.badge-snippet` | — | Warning indicator shown on cards in the Snippets tab; uses full mid-tier triplet (`--score-mid-bg` / `--score-mid-text` / `--score-mid-border`) to signal that the score is from a short API description, not a full scraped JD; solid border distinguishes it from `.badge-source` |
 | `.badge-new` | — | "New" indicator on cards never opened by the user; amber border/text (`--text-accent`); removed via HTMX OOB swap on expand (CSS `[open]` selector kept as fallback); absent on reload once `opened_at` is persisted |
 | `.model-badge` | — | LLM model identifier (muted, 70% opacity) |
 | `.key-status` | `.configured`, `.not-set` | Settings credential status |
