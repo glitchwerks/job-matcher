@@ -85,7 +85,7 @@
     <span class="badge-source">{{ _source_label }}</span>
 
     {% if listing.opened_at is none %}
-      <span class="badge-new">New</span>
+      <span class="badge-new" id="badge-new-{{ listing.id }}">New</span>
     {% endif %}
 
   </summary>

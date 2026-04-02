@@ -258,8 +258,8 @@ def client(tmp_path, monkeypatch):
 
 
 class TestMarkListingOpenedRoute:
-    def test_returns_204(self, client):
-        """POST /listings/<id>/open returns 204 No Content."""
+    def test_returns_200(self, client):
+        """POST /listings/<id>/open returns 200 with an OOB swap fragment."""
         c, db_path = client
         db.insert_listing(make_listing(source_id="route-001"), db_path=db_path)
         conn = db.get_connection(db_path)
@@ -271,7 +271,7 @@ class TestMarkListingOpenedRoute:
             conn.close()
 
         resp = c.post(f"/listings/{listing_id}/open")
-        assert resp.status_code == 204
+        assert resp.status_code == 200
 
     def test_marks_listing_as_opened(self, client):
         """POST /listings/<id>/open sets opened_at on the listing."""
@@ -328,11 +328,28 @@ class TestMarkListingOpenedRoute:
 
         assert first_ts == second_ts
 
-    def test_nonexistent_listing_returns_204(self, client):
-        """POST /listings/<id>/open for a missing id still returns 204 (benign)."""
+    def test_nonexistent_listing_returns_200(self, client):
+        """POST /listings/<id>/open for a missing id still returns 200 (benign)."""
         c, _ = client
         resp = c.post("/listings/99999/open")
-        assert resp.status_code == 204
+        assert resp.status_code == 200
+
+    def test_response_contains_oob_fragment(self, client):
+        """POST /listings/<id>/open returns an OOB swap fragment for the badge."""
+        c, db_path = client
+        db.insert_listing(make_listing(source_id="route-oob"), db_path=db_path)
+        conn = db.get_connection(db_path)
+        try:
+            listing_id = conn.execute(
+                "SELECT id FROM listings WHERE source_id = ?", ("route-oob",)
+            ).fetchone()["id"]
+        finally:
+            conn.close()
+
+        resp = c.post(f"/listings/{listing_id}/open")
+        assert resp.status_code == 200
+        expected = f'<span id="badge-new-{listing_id}" hx-swap-oob="outerHTML"></span>'
+        assert expected.encode() in resp.data
 
 
 # ---------------------------------------------------------------------------

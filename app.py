@@ -510,11 +510,19 @@ def mark_listing_opened(listing_id: int):
 
     Called fire-and-forget by HTMX when the user expands a card for the first
     time.  The operation is idempotent — if the listing is already marked
-    opened, the DB write is a no-op.  Always returns 204 No Content regardless
-    of whether the listing exists, since a missing id is benign in this context.
+    opened, the DB write is a no-op.
+
+    Returns an HTMX out-of-band swap fragment that removes the badge-new element
+    from the DOM immediately.  The CSS rule `.card-details[open] .badge-new` is
+    kept as a belt-and-suspenders fallback, but some browsers do not trigger a
+    style recalculation for <summary> descendants when <details> gains [open],
+    so relying solely on CSS is not reliable across all browsers.
     """
     db.mark_opened(listing_id, db_path=DB_PATH)
-    return make_response("", 204)
+    # hx-swap-oob="outerHTML" replaces the target element entirely with the new
+    # element.  An empty <span> with the same id effectively removes the badge.
+    oob_fragment = f'<span id="badge-new-{listing_id}" hx-swap-oob="outerHTML"></span>'
+    return oob_fragment, 200
 
 
 def _mask_config_keys(data: dict) -> dict:
