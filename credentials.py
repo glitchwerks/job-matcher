@@ -314,9 +314,10 @@ def save_providers(
 ) -> None:
     """Deep-merge *updates* into ``providers.json`` and write atomically.
 
-    Only non-blank string values in *updates* are applied; blank strings
-    (``""`` or whitespace-only) are silently skipped so that an empty form
-    field never overwrites an existing credential.
+    All values present in *updates* are applied, including blank strings
+    (``""``).  Submitting a blank string for a credential field clears the
+    stored value, allowing users to remove credentials via the UI.  Only keys
+    that are absent from *updates* entirely are left unchanged.
 
     The write is atomic: data is written to ``providers.json.tmp`` first,
     then renamed with ``os.replace()``.  If the write fails the temp file
@@ -336,6 +337,7 @@ def save_providers(
 
                         Only the keys present in *updates* are touched;
                         everything else in the existing file is preserved.
+                        Pass ``""`` for a field to clear it.
 
         providers_path: Path to ``providers.json``; created from scratch
                         when absent.
@@ -361,17 +363,15 @@ def save_providers(
     def _deep_merge(base: dict, patch: dict) -> None:
         """Recursively apply *patch* values into *base* in-place.
 
-        A patch value is applied only when it is a non-empty string (or
-        any non-string truthy value).  Nested dicts are merged recursively.
+        All values are applied as-is, including blank strings so that
+        credential fields can be cleared via the UI.  Nested dicts are
+        merged recursively; only keys absent from *patch* are left unchanged.
         """
         for key, value in patch.items():
             if isinstance(value, dict):
                 base.setdefault(key, {})
                 _deep_merge(base[key], value)
             else:
-                # Skip blank strings — keep whatever is already in base.
-                if isinstance(value, str) and not value.strip():
-                    continue
                 base[key] = value
 
     _deep_merge(existing, updates)

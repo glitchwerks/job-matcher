@@ -597,9 +597,10 @@ def run(
             config_path=config_path,
         )
     except CredentialError as exc:
-        logger.error("Credential error: %s", exc)
-        import sys as _sys
-        _sys.exit(1)
+        logger.warning(
+            "No credentials found — skipping ingest run. %s", exc
+        )
+        return
 
     _inject_env_var_credentials(providers)
 
@@ -881,9 +882,10 @@ def rescore(
             config_path=config_path,
         )
     except CredentialError as exc:
-        logger.error("Credential error: %s", exc)
-        import sys as _sys
-        _sys.exit(1)
+        logger.warning(
+            "No credentials found — skipping rescore run. %s", exc
+        )
+        return
 
     chain = build_provider_chain(providers)
     dead_providers: set[str] = set()

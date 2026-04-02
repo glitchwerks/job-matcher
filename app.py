@@ -263,18 +263,28 @@ RUNTIME_VERSIONS: list[dict] = get_runtime_versions()
 def _config_warnings() -> list[str]:
     """Return a list of human-readable warnings for missing/empty config.
 
-    Adzuna credentials are now read from providers.json (via load_providers)
-    rather than config.json, consistent with how make_enabled_sources resolves them.
-    Env var overrides (ADZUNA_APP_ID / ADZUNA_APP_KEY) are also checked so that
-    containerised deployments do not show a spurious warning.
+    Adzuna credentials are read from providers.json (via load_providers),
+    consistent with how make_enabled_sources resolves them.  A warning is
+    shown only when Adzuna is explicitly enabled (``enabled: true`` in
+    providers.json) but its credentials are missing — if the user has
+    disabled Adzuna or left it unconfigured, no warning is raised.
+    Env var overrides (ADZUNA_APP_ID / ADZUNA_APP_KEY) are also honoured.
     """
     warnings = []
     try:
-        providers = load_providers()
+        providers = load_providers(providers_path=_PROVIDERS_PATH)
     except CredentialError:
         providers = {}
 
     adzuna_src: dict = (providers.get("job_sources") or {}).get("adzuna") or {}
+
+    # Only warn when Adzuna is explicitly enabled but missing credentials.
+    # If there is no entry at all, or enabled=False, the source is not expected
+    # to run so showing "not configured" would be a false alarm.
+    adzuna_explicitly_enabled = adzuna_src.get("enabled", False)
+    if not adzuna_explicitly_enabled:
+        return warnings
+
     adzuna_id  = str(adzuna_src.get("app_id",  "") or "").strip()
     adzuna_key = str(adzuna_src.get("app_key", "") or "").strip()
     # Also honour env var overrides (used in containerised / CI deployments).
@@ -284,7 +294,7 @@ def _config_warnings() -> list[str]:
         adzuna_key = os.environ.get("ADZUNA_APP_KEY", "").strip()
     if not adzuna_id or not adzuna_key:
         warnings.append(
-            "Adzuna credentials are not configured — ingest will not run. "
+            "Adzuna is enabled but credentials are not configured — it will be skipped. "
             "Add your App ID and App Key on the <a href=\"/settings\">Settings page</a>."
         )
     return warnings

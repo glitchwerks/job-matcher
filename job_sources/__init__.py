@@ -132,12 +132,32 @@ def make_enabled_sources(providers_data: dict, config: dict) -> list[JobSource]:
 
     for key, cls in SOURCES.items():
         src_cfg = sources_cfg.get(key) or {}
-        if not src_cfg.get("enabled", True):
-            continue
 
-        # For keyed sources, check required credentials are present.
+        # Determine the default enabled state.
+        # Keyless sources (no required credentials) default to enabled=True when
+        # absent from providers_data — they work without any configuration.
+        # Keyed sources (with required credentials) default to enabled=False when
+        # absent — activating them silently without credentials would only produce
+        # errors, so we skip them with a warning instead.
         schema = cls.settings_schema()
         required = [f["name"] for f in schema.get("fields", []) if f.get("required")]
+        default_enabled = len(required) == 0  # keyless → True, keyed → False
+
+        if key not in sources_cfg:
+            # Source has no entry at all in providers_data.
+            if required:
+                # Keyed source with no entry — credentials are always absent.
+                _log.warning(
+                    "Source '%s' has no entry in providers_data and requires credentials (%s) — skipping.",
+                    key, ", ".join(required),
+                )
+                continue
+            # Keyless source with no entry — treat as enabled.
+        else:
+            if not src_cfg.get("enabled", default_enabled):
+                continue
+
+        # For keyed sources, check required credentials are present.
         if required:
             missing = [f for f in required if not str(src_cfg.get(f, "")).strip()]
             if missing:

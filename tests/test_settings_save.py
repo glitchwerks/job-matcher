@@ -160,8 +160,13 @@ class TestSaveProvidersWritesNewValues:
         assert saved["llm"]["anthropic"]["api_key"] == "sk-brand-new"
 
 
-class TestSaveProvidersPreservesExistingOnBlank:
-    def test_blank_api_key_preserves_existing(self, tmp_path):
+class TestSaveProvidersBlankStringClears:
+    def test_blank_api_key_clears_existing(self, tmp_path):
+        """Submitting a blank string for a credential must clear the stored value.
+
+        This is the fix for issue #284 — previously blank strings were silently
+        ignored, making it impossible to clear a credential field via the UI.
+        """
         path = str(tmp_path / "providers.json")
         _write_providers(path)
         save_providers(
@@ -170,10 +175,11 @@ class TestSaveProvidersPreservesExistingOnBlank:
         )
         with open(path, encoding="utf-8") as fh:
             saved = json.load(fh)
-        # Existing value must not be overwritten with empty string.
-        assert saved["llm"]["anthropic"]["api_key"] == "sk-existing"
+        # Blank string must clear the existing credential.
+        assert saved["llm"]["anthropic"]["api_key"] == ""
 
-    def test_blank_job_source_field_preserves_existing(self, tmp_path):
+    def test_blank_job_source_field_clears_existing(self, tmp_path):
+        """Submitting a blank string for a source credential must clear it."""
         path = str(tmp_path / "providers.json")
         _write_providers(path)
         save_providers(
@@ -182,7 +188,7 @@ class TestSaveProvidersPreservesExistingOnBlank:
         )
         with open(path, encoding="utf-8") as fh:
             saved = json.load(fh)
-        assert saved["job_sources"]["adzuna"]["app_id"] == "existing-id"
+        assert saved["job_sources"]["adzuna"]["app_id"] == ""
 
     def test_unmentioned_keys_are_preserved(self, tmp_path):
         """Keys not present in updates dict at all must remain untouched."""
@@ -389,18 +395,23 @@ class TestSettingsPostWritesToProviders:
             saved = json.load(fh)
         assert saved["llm"]["anthropic"]["api_key"] == "sk-updated"
 
-    def test_blank_api_key_preserves_existing_in_providers_json(
+    def test_blank_api_key_clears_existing_in_providers_json(
         self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
     ):
+        """Submitting a blank api_key via the settings form must clear the stored value.
+
+        Regression test for issue #284: previously blank strings were silently
+        dropped so users could not clear credentials through the UI.
+        """
         _write_providers(tmp_providers_path)
         client.post("/settings", data={
-            "anthropic__api_key": "",   # blank — must NOT overwrite
+            "anthropic__api_key": "",   # blank — must clear existing value
             "anthropic__model": "claude-haiku-4-5-20251001",
             "tab": "llm",
         })
         with open(tmp_providers_path, encoding="utf-8") as fh:
             saved = json.load(fh)
-        assert saved["llm"]["anthropic"]["api_key"] == "sk-existing"
+        assert saved["llm"]["anthropic"]["api_key"] == ""
 
     def test_saves_job_source_credentials_to_providers_json(
         self, client, tmp_providers_path, tmp_keys_path, tmp_config_path

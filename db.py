@@ -25,6 +25,70 @@ _DEFAULT_DB_PATH: str = os.environ.get("DB_PATH", "jobs.db")
 _FALLBACK_INPUT_COST_PER_MTOK  = 0.80   # USD per million input tokens (Haiku)
 _FALLBACK_OUTPUT_COST_PER_MTOK = 4.00   # USD per million output tokens (Haiku)
 
+# ---------------------------------------------------------------------------
+# Per-provider/model pricing lookup used by get_usage_stats().
+# Mirrors the tables in providers/*_provider.py so that db.py has no import
+# dependency on the providers package.
+# Format: { provider_name: [ (model_prefix_or_id, input_mtok, output_mtok), ... ] }
+# For Anthropic, prefix matching is used; for OpenAI/Gemini, exact matching.
+# ---------------------------------------------------------------------------
+
+_PRICING_TABLE: dict[str, list[tuple[str, float, float]]] = {
+    "anthropic": [
+        # prefix-matched (longest prefix wins in order)
+        ("claude-opus-",   15.00, 75.00),
+        ("claude-sonnet-",  3.00, 15.00),
+        ("claude-haiku-",   0.80,  4.00),
+    ],
+    "openai": [
+        # exact-matched
+        ("gpt-4o-mini", 0.15,  0.60),
+        ("gpt-4o",      2.50, 10.00),
+    ],
+    "gemini": [
+        # exact-matched
+        ("gemini-1.5-flash", 0.075,  0.30),
+        ("gemini-1.5-pro",   3.50,  10.50),
+    ],
+}
+
+
+def _lookup_pricing(model_used: str | None) -> tuple[float, float] | None:
+    """Return ``(input_cost_per_mtok, output_cost_per_mtok)`` for a ``model_used`` string.
+
+    *model_used* is stored as ``"provider/model"`` (e.g.
+    ``"anthropic/claude-haiku-4-5-20251001"`` or ``"openai/gpt-4o-mini"``).
+    Returns ``None`` when the model is unknown or the string cannot be parsed,
+    so that callers can display ``"N/A"`` rather than a wrong number.
+
+    Args:
+        model_used: Value of the ``model_used`` DB column.
+
+    Returns:
+        ``(input_rate, output_rate)`` tuple, or ``None`` if unknown.
+    """
+    if not model_used:
+        return None
+    parts = model_used.split("/", 1)
+    if len(parts) != 2:
+        return None
+    provider, model = parts[0].lower(), parts[1]
+    entries = _PRICING_TABLE.get(provider)
+    if entries is None:
+        return None
+    if provider == "anthropic":
+        # prefix match
+        for prefix, inp, out in entries:
+            if model.startswith(prefix):
+                return inp, out
+        return None
+    else:
+        # exact match
+        for name, inp, out in entries:
+            if model == name:
+                return inp, out
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Connection
@@ -716,23 +780,33 @@ def get_usage_stats(
     All token columns are nullable — NULL values are treated as 0 via
     SQLite's COALESCE so the arithmetic is always well-defined.
 
+    Cost estimation uses per-model pricing from ``_lookup_pricing()``.  When
+    a row's ``model_used`` value maps to a known model, the actual rates for
+    that provider/model are used.  When the model is unknown or absent the
+    row's cost contribution is ``None`` (unknown), and the per-day and total
+    ``cost_usd`` / ``estimated_cost_usd`` fields are ``None`` when *any* row
+    in the aggregation has an unknown model — this signals to the UI that a
+    precise estimate cannot be shown rather than silently returning a wrong
+    number.
+
+    The ``input_cost_per_mtok`` / ``output_cost_per_mtok`` parameters are
+    kept for backward compatibility but are no longer used internally; all
+    cost calculations go through ``_lookup_pricing()``.
+
     Args:
         db_path:              Path to the SQLite database file.
-        input_cost_per_mtok:  USD cost per million input tokens.  Defaults to
-                              Haiku pricing for backward compatibility with
-                              callers that do not supply per-model rates.
-        output_cost_per_mtok: USD cost per million output tokens.  Defaults to
-                              Haiku pricing for the same reason.
+        input_cost_per_mtok:  Ignored — kept for backward-compatible callers.
+        output_cost_per_mtok: Ignored — kept for backward-compatible callers.
 
     Returns:
         Dict with keys:
             total_scored        -- count of listings with score IS NOT NULL
             total_tokens_input  -- sum of tokens_input across all rows
             total_tokens_output -- sum of tokens_output across all rows
-            estimated_cost_usd  -- float, calculated using supplied pricing
+            estimated_cost_usd  -- float total cost, or None if any model is unknown
             by_date             -- list of per-day dicts, most recent first;
                                    each dict has: date, scored, tokens_input,
-                                   tokens_output, cost_usd
+                                   tokens_output, cost_usd (float or None)
     """
     conn = get_connection(db_path)
     try:
@@ -749,10 +823,31 @@ def get_usage_stats(
         total_scored: int = totals_row["total_scored"]
         total_tokens_input: int = totals_row["total_tokens_input"]
         total_tokens_output: int = totals_row["total_tokens_output"]
-        estimated_cost_usd: float = (
-            total_tokens_input  / 1_000_000 * input_cost_per_mtok
-            + total_tokens_output / 1_000_000 * output_cost_per_mtok
-        )
+
+        # Fetch per-model token aggregates to compute accurate per-model costs.
+        model_rows = conn.execute(
+            """
+            SELECT
+                model_used,
+                COALESCE(SUM(tokens_input), 0)  AS tokens_input,
+                COALESCE(SUM(tokens_output), 0) AS tokens_output
+            FROM listings
+            GROUP BY model_used
+            """
+        ).fetchall()
+
+        total_cost: float | None = 0.0
+        for mrow in model_rows:
+            pricing = _lookup_pricing(mrow["model_used"])
+            if pricing is None:
+                # At least one model_used value is unknown — cost is indeterminate.
+                total_cost = None
+                break
+            in_rate, out_rate = pricing
+            total_cost += (
+                mrow["tokens_input"]  / 1_000_000 * in_rate
+                + mrow["tokens_output"] / 1_000_000 * out_rate
+            )
 
         day_rows = conn.execute(
             """
@@ -760,35 +855,56 @@ def get_usage_stats(
                 DATE(fetched_at)                                    AS date,
                 COUNT(CASE WHEN score IS NOT NULL THEN 1 END)       AS scored,
                 COALESCE(SUM(tokens_input), 0)                      AS tokens_input,
-                COALESCE(SUM(tokens_output), 0)                     AS tokens_output
+                COALESCE(SUM(tokens_output), 0)                     AS tokens_output,
+                model_used
             FROM listings
-            GROUP BY DATE(fetched_at)
+            GROUP BY DATE(fetched_at), model_used
             ORDER BY date DESC
             """
         ).fetchall()
 
-        by_date: list[dict] = []
+        # Aggregate per-date across all models that appeared on that day.
+        by_date_map: dict[str, dict] = {}
         for row in day_rows:
+            date_key = row["date"]
+            if date_key not in by_date_map:
+                by_date_map[date_key] = {
+                    "date": date_key,
+                    "scored": 0,
+                    "tokens_input": 0,
+                    "tokens_output": 0,
+                    "cost_usd": 0.0,
+                    "_has_unknown": False,
+                }
+            bucket = by_date_map[date_key]
+            bucket["scored"] += row["scored"]
             tok_in = row["tokens_input"]
             tok_out = row["tokens_output"]
-            by_date.append(
-                {
-                    "date": row["date"],
-                    "scored": row["scored"],
-                    "tokens_input": tok_in,
-                    "tokens_output": tok_out,
-                    "cost_usd": (
-                        tok_in  / 1_000_000 * input_cost_per_mtok
-                        + tok_out / 1_000_000 * output_cost_per_mtok
-                    ),
-                }
-            )
+            bucket["tokens_input"]  += tok_in
+            bucket["tokens_output"] += tok_out
+            pricing = _lookup_pricing(row["model_used"])
+            if pricing is None:
+                bucket["_has_unknown"] = True
+            elif not bucket["_has_unknown"]:
+                in_rate, out_rate = pricing
+                bucket["cost_usd"] += (
+                    tok_in  / 1_000_000 * in_rate
+                    + tok_out / 1_000_000 * out_rate
+                )
+
+        by_date: list[dict] = []
+        for bucket in by_date_map.values():
+            has_unknown = bucket.pop("_has_unknown")
+            bucket["cost_usd"] = None if has_unknown else bucket["cost_usd"]
+            by_date.append(bucket)
+        # Sort most-recent first (keys are ISO date strings — lexicographic DESC works).
+        by_date.sort(key=lambda d: d["date"], reverse=True)
 
         return {
             "total_scored": total_scored,
             "total_tokens_input": total_tokens_input,
             "total_tokens_output": total_tokens_output,
-            "estimated_cost_usd": estimated_cost_usd,
+            "estimated_cost_usd": total_cost,
             "by_date": by_date,
         }
     finally:
