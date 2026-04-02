@@ -348,8 +348,8 @@ class TestMarkListingOpenedRoute:
 
         resp = c.post(f"/listings/{listing_id}/open")
         assert resp.status_code == 200
-        assert f'id="badge-new-{listing_id}"'.encode() in resp.data
-        assert b'hx-swap-oob' in resp.data
+        expected = f'<span id="badge-new-{listing_id}" hx-swap-oob="outerHTML"></span>'
+        assert expected.encode() in resp.data
 
 
 # ---------------------------------------------------------------------------
