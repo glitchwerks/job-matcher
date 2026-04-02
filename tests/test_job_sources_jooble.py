@@ -518,3 +518,45 @@ class TestJoobleSettingsSchema:
         assert field["name"] == "api_key"
         assert field["type"] == "password"
         assert field["required"] is True
+
+
+# ---------------------------------------------------------------------------
+# JoobleClient — credential precedence
+# ---------------------------------------------------------------------------
+
+class TestJoobleClientCredentialPrecedence:
+    """Verify the three-way credential resolution: credentials > config > ValueError."""
+
+    def test_credentials_dict_used_when_provided(self):
+        """When credentials dict has api_key, it is used directly."""
+        client = JoobleClient(config={}, credentials={"api_key": "creds-key"})
+        assert client._api_key == "creds-key"
+
+    def test_credentials_dict_takes_precedence_over_config(self):
+        """credentials api_key wins over config['jooble']['api_key']."""
+        config = {"jooble": {"api_key": "config-key"}}
+        client = JoobleClient(config=config, credentials={"api_key": "creds-key"})
+        assert client._api_key == "creds-key"
+
+    def test_fallback_to_config_when_credentials_empty(self):
+        """When credentials is {}, api_key comes from config['jooble']."""
+        config = {"jooble": {"api_key": "config-key"}}
+        client = JoobleClient(config=config, credentials={})
+        assert client._api_key == "config-key"
+
+    def test_both_empty_raises_value_error(self):
+        """When neither credentials nor config has api_key, raises ValueError."""
+        try:
+            JoobleClient(config={}, credentials={})
+            assert False, "Expected ValueError"
+        except ValueError as exc:
+            assert "api_key" in str(exc).lower()
+
+    def test_empty_string_in_credentials_falls_back_to_config(self):
+        """credentials={"api_key": ""} is treated as absent and falls back to config.
+
+        The ``or`` chain evaluates "" as falsy and continues to config lookup.
+        """
+        config = {"jooble": {"api_key": "config-key"}}
+        client = JoobleClient(config=config, credentials={"api_key": ""})
+        assert client._api_key == "config-key"

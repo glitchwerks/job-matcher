@@ -60,14 +60,14 @@ class USAJobsClient(JobSource):
         # Legacy fallback: read from config["usajobs"] if present.
         legacy_cfg: dict = config.get("usajobs") or {}
 
-        api_key: str = creds.get("api_key") or legacy_cfg.get("api_key") or ""
+        api_key: str = str(creds.get("api_key") or legacy_cfg.get("api_key") or "")
         if not api_key:
             raise ValueError(
                 "USAJobs 'api_key' is required but was not found in credentials "
                 "or config['usajobs']."
             )
 
-        user_agent: str = creds.get("user_agent") or legacy_cfg.get("user_agent") or ""
+        user_agent: str = str(creds.get("user_agent") or legacy_cfg.get("user_agent") or "")
         if not user_agent:
             raise ValueError(
                 "USAJobs 'user_agent' (contact email) is required but was not found "

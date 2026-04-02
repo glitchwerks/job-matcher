@@ -331,3 +331,83 @@ class TestMakeSource:
         }
         source = make_source(config)
         assert isinstance(source, JobSource)
+
+
+# ---------------------------------------------------------------------------
+# AdzunaClient — credential precedence
+# ---------------------------------------------------------------------------
+
+class TestAdzunaClientCredentialPrecedence:
+    """Verify the three-way credential resolution: credentials > config > empty."""
+
+    _BASE_CONFIG = {
+        "search": {
+            "country": "us",
+            "what": "software engineer",
+            "results_per_page": 10,
+            "max_pages": 2,
+        },
+    }
+
+    def test_credentials_dict_used_when_provided(self):
+        """When credentials dict has app_id/app_key, they are used directly."""
+        client = AdzunaClient(
+            config=self._BASE_CONFIG,
+            credentials={"app_id": "creds-id", "app_key": "creds-key"},
+        )
+        assert client._app_id == "creds-id"
+        assert client._app_key == "creds-key"
+
+    def test_credentials_dict_takes_precedence_over_config(self):
+        """credentials dict values win over top-level config keys."""
+        config = {
+            **self._BASE_CONFIG,
+            "adzuna_app_id": "config-id",
+            "adzuna_app_key": "config-key",
+        }
+        client = AdzunaClient(
+            config=config,
+            credentials={"app_id": "creds-id", "app_key": "creds-key"},
+        )
+        assert client._app_id == "creds-id"
+        assert client._app_key == "creds-key"
+
+    def test_fallback_to_config_when_credentials_empty(self):
+        """When credentials is {} (or absent), values come from config top-level keys."""
+        config = {
+            **self._BASE_CONFIG,
+            "adzuna_app_id": "config-id",
+            "adzuna_app_key": "config-key",
+        }
+        client = AdzunaClient(config=config, credentials={})
+        assert client._app_id == "config-id"
+        assert client._app_key == "config-key"
+
+    def test_both_empty_gives_empty_strings(self):
+        """When neither credentials nor config has values, fields are empty strings.
+
+        AdzunaClient does not raise on missing credentials — it leaves them
+        as empty strings and lets the API call fail at runtime.  This matches
+        the legacy behaviour where app_id/app_key defaulted to ''.
+        """
+        client = AdzunaClient(config=self._BASE_CONFIG, credentials={})
+        assert client._app_id == ""
+        assert client._app_key == ""
+
+    def test_empty_string_in_credentials_falls_back_to_config(self):
+        """credentials={"app_id": ""} is treated as absent and falls back to config.
+
+        This is the 'empty string in credentials -> falls back' case: the ``or``
+        chain evaluates "" as falsy and continues to the config lookup.
+        """
+        config = {
+            **self._BASE_CONFIG,
+            "adzuna_app_id": "config-id",
+            "adzuna_app_key": "config-key",
+        }
+        client = AdzunaClient(
+            config=config,
+            credentials={"app_id": "", "app_key": ""},
+        )
+        assert client._app_id == "config-id"
+        assert client._app_key == "config-key"

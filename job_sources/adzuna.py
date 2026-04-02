@@ -55,11 +55,11 @@ class AdzunaClient(JobSource):
         if app_id is not None:
             self._app_id: str = app_id
         else:
-            self._app_id = creds.get("app_id") or config.get("adzuna_app_id", "")
+            self._app_id = str(creds.get("app_id") or config.get("adzuna_app_id") or "")
         if app_key is not None:
             self._app_key: str = app_key
         else:
-            self._app_key = creds.get("app_key") or config.get("adzuna_app_key", "")
+            self._app_key = str(creds.get("app_key") or config.get("adzuna_app_key") or "")
         self._search = config["search"]
 
     # ------------------------------------------------------------------

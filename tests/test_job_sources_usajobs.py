@@ -520,3 +520,65 @@ class TestMakeSourceUSAJobs:
         config = {"job_source": "usajobs"}
         with pytest.raises(ValueError):
             make_source(config)
+
+
+# ---------------------------------------------------------------------------
+# USAJobsClient — credential precedence
+# ---------------------------------------------------------------------------
+
+class TestUSAJobsClientCredentialPrecedence:
+    """Verify the three-way credential resolution: credentials > config > ValueError."""
+
+    _BASE_CONFIG: dict = {}
+
+    def test_credentials_dict_used_when_provided(self):
+        """When credentials dict has api_key/user_agent, they are used directly."""
+        client = USAJobsClient(
+            config=self._BASE_CONFIG,
+            credentials={"api_key": "creds-key", "user_agent": "creds@example.com"},
+        )
+        assert client._api_key == "creds-key"
+        assert client._user_agent == "creds@example.com"
+
+    def test_credentials_dict_takes_precedence_over_config(self):
+        """credentials values win over config['usajobs'] values."""
+        config = {"usajobs": {"api_key": "config-key", "user_agent": "config@example.com"}}
+        client = USAJobsClient(
+            config=config,
+            credentials={"api_key": "creds-key", "user_agent": "creds@example.com"},
+        )
+        assert client._api_key == "creds-key"
+        assert client._user_agent == "creds@example.com"
+
+    def test_fallback_to_config_when_credentials_empty(self):
+        """When credentials is {}, values come from config['usajobs']."""
+        config = {"usajobs": {"api_key": "config-key", "user_agent": "config@example.com"}}
+        client = USAJobsClient(config=config, credentials={})
+        assert client._api_key == "config-key"
+        assert client._user_agent == "config@example.com"
+
+    def test_both_empty_raises_value_error_for_api_key(self):
+        """When neither credentials nor config has api_key, raises ValueError."""
+        with pytest.raises(ValueError, match="api_key"):
+            USAJobsClient(config={}, credentials={})
+
+    def test_both_empty_raises_value_error_for_user_agent(self):
+        """When api_key is provided but user_agent is absent, raises ValueError."""
+        with pytest.raises(ValueError, match="user_agent"):
+            USAJobsClient(
+                config={},
+                credentials={"api_key": "some-key"},
+            )
+
+    def test_empty_string_in_credentials_falls_back_to_config(self):
+        """credentials={"api_key": "", "user_agent": ""} falls back to config.
+
+        The ``or`` chain evaluates "" as falsy, so the config lookup is used.
+        """
+        config = {"usajobs": {"api_key": "config-key", "user_agent": "config@example.com"}}
+        client = USAJobsClient(
+            config=config,
+            credentials={"api_key": "", "user_agent": ""},
+        )
+        assert client._api_key == "config-key"
+        assert client._user_agent == "config@example.com"

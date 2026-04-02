@@ -92,7 +92,7 @@ class JoobleClient(JobSource):
         # Legacy fallback: read from config["jooble"] if present.
         legacy_cfg: dict = config.get("jooble") or {}
 
-        api_key: str = creds.get("api_key") or legacy_cfg.get("api_key") or ""
+        api_key: str = str(creds.get("api_key") or legacy_cfg.get("api_key") or "")
         if not api_key:
             raise ValueError(
                 "Jooble 'api_key' is required but was not found in credentials "

@@ -521,3 +521,77 @@ class TestIngestRunDedup:
 
         dupes = int(m.group(2))
         assert dupes == 2, f"Expected 2 dupes skipped, got {dupes}"
+
+
+# ---------------------------------------------------------------------------
+# _inject_env_var_credentials() — env var injection helper
+# ---------------------------------------------------------------------------
+
+import pytest  # noqa: E402 — imported here to avoid changing the existing test style above
+
+
+class TestInjectEnvVarCredentials:
+    """Unit tests for ingest._inject_env_var_credentials()."""
+
+    def test_env_vars_written_into_providers_dict(self, monkeypatch):
+        """When both env vars are set, they appear under providers["job_sources"]["adzuna"]."""
+        monkeypatch.setenv("ADZUNA_APP_ID",  "env-app-id")
+        monkeypatch.setenv("ADZUNA_APP_KEY", "env-app-key")
+
+        providers: dict = {}
+        ingest._inject_env_var_credentials(providers)
+
+        assert providers["job_sources"]["adzuna"]["app_id"]  == "env-app-id"
+        assert providers["job_sources"]["adzuna"]["app_key"] == "env-app-key"
+
+    def test_existing_providers_json_values_not_overwritten(self, monkeypatch):
+        """setdefault semantics: env vars do NOT replace pre-existing credential values."""
+        monkeypatch.setenv("ADZUNA_APP_ID",  "env-app-id")
+        monkeypatch.setenv("ADZUNA_APP_KEY", "env-app-key")
+
+        providers: dict = {
+            "job_sources": {
+                "adzuna": {
+                    "app_id":  "file-app-id",
+                    "app_key": "file-app-key",
+                }
+            }
+        }
+        ingest._inject_env_var_credentials(providers)
+
+        # File values must be preserved.
+        assert providers["job_sources"]["adzuna"]["app_id"]  == "file-app-id"
+        assert providers["job_sources"]["adzuna"]["app_key"] == "file-app-key"
+
+    def test_only_app_id_env_var_set(self, monkeypatch):
+        """When only ADZUNA_APP_ID is set, only app_id is injected."""
+        monkeypatch.setenv("ADZUNA_APP_ID", "env-app-id")
+        monkeypatch.delenv("ADZUNA_APP_KEY", raising=False)
+
+        providers: dict = {}
+        ingest._inject_env_var_credentials(providers)
+
+        assert providers["job_sources"]["adzuna"]["app_id"] == "env-app-id"
+        assert "app_key" not in providers["job_sources"]["adzuna"]
+
+    def test_only_app_key_env_var_set(self, monkeypatch):
+        """When only ADZUNA_APP_KEY is set, only app_key is injected."""
+        monkeypatch.delenv("ADZUNA_APP_ID", raising=False)
+        monkeypatch.setenv("ADZUNA_APP_KEY", "env-app-key")
+
+        providers: dict = {}
+        ingest._inject_env_var_credentials(providers)
+
+        assert providers["job_sources"]["adzuna"]["app_key"] == "env-app-key"
+        assert "app_id" not in providers["job_sources"]["adzuna"]
+
+    def test_neither_env_var_set_leaves_providers_unchanged(self, monkeypatch):
+        """When neither env var is set, the providers dict is not modified."""
+        monkeypatch.delenv("ADZUNA_APP_ID",  raising=False)
+        monkeypatch.delenv("ADZUNA_APP_KEY", raising=False)
+
+        providers: dict = {}
+        ingest._inject_env_var_credentials(providers)
+
+        # No "job_sources" key should have been created.
+        assert "job_sources" not in providers
