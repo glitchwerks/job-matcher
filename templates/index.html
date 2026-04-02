@@ -6,6 +6,8 @@
   <title>Job Matcher{% if view == "bookmarks" %} · Bookmarks{% elif view == "applied" %} · Applied{% elif view == "stats" %} · Stats{% endif %}</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/style.css">
+  <!-- htmx 1.9.10 — to update: bump the version in the URL, then regenerate the hash with:
+       curl -fsSL https://unpkg.com/htmx.org@<VERSION>/dist/htmx.min.js | openssl dgst -sha384 -binary | openssl base64 -A -->
   <script src="https://unpkg.com/htmx.org@1.9.10" integrity="sha384-YwQSRkoBOUtKKVfHQ8C2zCPslUZHuxiPHts6X/xQCuGHipTtRXd7ImqS1VTLlpiT" crossorigin="anonymous"></script>
 </head>
 <body>
