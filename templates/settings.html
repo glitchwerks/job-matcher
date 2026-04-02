@@ -331,7 +331,7 @@
         </div>
       {% endfor %}
 
-      <div class="save-bar" id="save-bar-llm" aria-live="polite">
+      <div class="save-bar" id="save-bar-llm" aria-live="polite" aria-hidden="true">
         <span class="save-bar-label">Unsaved changes</span>
         <button type="button" class="btn btn-save">Save</button>
       </div>
@@ -433,7 +433,7 @@
         </div>
       {% endfor %}
 
-      <div class="save-bar" id="save-bar-sources" aria-live="polite">
+      <div class="save-bar" id="save-bar-sources" aria-live="polite" aria-hidden="true">
         <span class="save-bar-label">Unsaved changes</span>
         <button type="button" class="btn btn-save">Save</button>
       </div>
@@ -488,6 +488,7 @@
       var t = e.target;
       if (t.tagName === 'INPUT' && (t.type === 'text' || t.type === 'password')) {
         bar.classList.add('save-bar--visible');
+        bar.removeAttribute('aria-hidden');
       }
     });
 
@@ -498,6 +499,7 @@
     // Hide bar on successful form submission
     form.addEventListener('submit', function () {
       bar.classList.remove('save-bar--visible');
+      bar.setAttribute('aria-hidden', 'true');
     });
   });
 }());
