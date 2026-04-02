@@ -13,8 +13,8 @@ import time
 
 from google import genai
 
-from .base import LLMProvider
-from .anthropic_provider import _parse_json_response, _sanitise_detail
+from .base import LLMProvider, _sanitise_detail
+from .anthropic_provider import _parse_json_response
 
 logger = logging.getLogger(__name__)
 

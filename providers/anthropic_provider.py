@@ -14,29 +14,9 @@ import time
 
 import anthropic
 
-from .base import LLMProvider
+from .base import LLMProvider, _sanitise_detail
 
 logger = logging.getLogger(__name__)
-
-
-def _sanitise_detail(raw: str, api_key: str) -> str:
-    """Return a clean, truncated error detail string safe for display.
-
-    Strips newlines, trims to 200 chars, and replaces any occurrence of
-    *api_key* in the result with ``'[REDACTED]'`` so keys are never surfaced
-    in the UI.
-
-    Args:
-        raw:     Raw exception message string.
-        api_key: Provider API key — redacted if it appears in *raw*.
-
-    Returns:
-        Sanitised detail string (at most 200 characters).
-    """
-    detail = raw.replace("\n", " ").replace("\r", " ").strip()
-    if api_key and api_key in detail:
-        detail = detail.replace(api_key, "[REDACTED]")
-    return detail[:200]
 
 
 # ---------------------------------------------------------------------------
