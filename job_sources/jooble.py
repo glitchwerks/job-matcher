@@ -260,6 +260,12 @@ class JoobleClient(JobSource):
         from the Jooble API.  The ``type`` field is mapped to the canonical
         ``contract_time`` value where possible.
 
+        ``skip_scrape`` is set to ``True`` because Jooble's ``link`` values
+        point to ``/jdp/<id>`` detail pages on jooble.org, which require a
+        browser session cookie and return HTTP 403 to any cold scrape request.
+        The API ``snippet`` is the only description text available; attempting
+        to scrape wastes a network round-trip and produces a noisy 403 warning.
+
         Args:
             raw: A single entry from the Jooble ``jobs`` array.
 
@@ -286,4 +292,5 @@ class JoobleClient(JobSource):
             "description": strip_html(raw.get("snippet", "") or ""),
             "redirect_url": raw.get("link", "") or "",
             "created_at": raw.get("updated", "") or "",
+            "skip_scrape": True,  # Jooble /jdp/ pages return HTTP 403 to cold requests
         }

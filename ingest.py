@@ -710,17 +710,24 @@ def run(
                     continue
 
                 # --- Scrape ---
-                description, ok = scrape_description(
-                    listing["redirect_url"],
-                    fallback=listing["description"],
-                )
-                if ok:
-                    scraped_ok += 1
-                else:
+                # Sources that set skip_scrape=True (e.g. Jooble, whose /jdp/
+                # pages return HTTP 403 to cold requests) have already provided
+                # the best available description via the API.  Skip the HTTP
+                # round-trip and use the API description directly.
+                if listing.get("skip_scrape"):
                     scraped_fallback += 1
-                    logger.info("SCRAPE FALLBACK  [%s] %s", src_name, title)
-
-                listing["description"] = description
+                    logger.info("SCRAPE SKIP      [%s] %s", src_name, title)
+                else:
+                    description, ok = scrape_description(
+                        listing["redirect_url"],
+                        fallback=listing["description"],
+                    )
+                    if ok:
+                        scraped_ok += 1
+                    else:
+                        scraped_fallback += 1
+                        logger.info("SCRAPE FALLBACK  [%s] %s", src_name, title)
+                    listing["description"] = description
 
                 # --- Score ---
                 score_result = score_listing_with_fallback(
