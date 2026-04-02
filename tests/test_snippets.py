@@ -531,10 +531,13 @@ class TestSnippetsRoute:
         assert b"route-full" not in response.data
 
     def test_snippets_nav_tab_is_active(self):
-        """GET /snippets marks the snippets nav tab as active."""
+        """GET /snippets marks the feed top-level tab and snippets sub-tab as active."""
         response = self.client.get("/snippets")
-        # The active tab has class "nav-tab active" and text "snippets"
-        assert b"nav-tab active" in response.data
+        body = response.data.decode("utf-8")
+        # Top-level "feed" nav-tab must be active (snippets is now a sub-tab, not top-level)
+        assert 'class="nav-tab active">feed</a>' in body
+        # Sub-navigation "snippets" tab must be active
+        assert 'class="feed-sub-tab active">snippets</a>' in body
 
     def test_main_feed_excludes_snippet(self):
         """GET / (main feed) does not show snippet-source listings."""
