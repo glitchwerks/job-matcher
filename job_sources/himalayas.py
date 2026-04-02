@@ -186,7 +186,7 @@ class HimalayasClient(JobSource):
             listing = self.normalise(raw)
             if not listing.get("redirect_url"):
                 title = listing.get("title") or ""
-                source_id = raw.get("id") or ""
+                source_id = raw.get("guid") or ""
                 identifier = (
                     f"{title} (ID: {source_id})" if title and source_id
                     else title or source_id or "<unknown>"
@@ -258,23 +258,16 @@ class HimalayasClient(JobSource):
 
         return {
             "source": self.SOURCE,
-            "source_id": str(raw.get("id", "")),
+            "source_id": str(raw.get("guid", "")),
             "title": raw.get("title", "") or "",
             "company": raw.get("companyName", "") or "",
             "location": location,
-            "salary_min": raw.get("salaryMin"),
-            "salary_max": raw.get("salaryMax"),
+            "salary_min": raw.get("minSalary"),
+            "salary_max": raw.get("maxSalary"),
             "salary_period": None,  # Himalayas API does not expose a pay-period field
             "contract_type": None,
-            "contract_time": _map_job_type(raw.get("jobType")),
+            "contract_time": _map_job_type(raw.get("employmentType")),
             "description": description,
-            "redirect_url": (
-                raw.get("applicationUrl")
-                or (
-                    f"https://himalayas.app/jobs/{raw.get('slug')}"
-                    if raw.get("slug")
-                    else ""
-                )
-            ),
-            "created_at": _parse_created_at(raw.get("createdAt")),
+            "redirect_url": raw.get("applicationLink") or "",
+            "created_at": _parse_created_at(raw.get("pubDate")),
         }

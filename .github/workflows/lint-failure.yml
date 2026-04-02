@@ -1,18 +1,23 @@
 name: Lint Failure
 
 on:
+  # Runs after CI completes so we can inspect its outcome and fix lint errors automatically
   workflow_run:
     workflows: ["CI"]
     types: [completed]
 
+# preflight only needs actions: read; write permissions are scoped to the lint-fix job below
 permissions:
-  contents: write
-  pull-requests: write
+  actions: read
 
 jobs:
-  handle:
+  preflight:
     runs-on: ubuntu-latest
+    # Guard here so the job exits fast when CI passed — avoids unnecessary API calls
     if: github.event.workflow_run.conclusion == 'failure'
+    outputs:
+      pr_number: ${{ steps.pr.outputs.number }}
+      lint_failed: ${{ steps.check.outputs.lint_failed }}
 
     steps:
       - name: Get PR number
@@ -36,12 +41,20 @@ jobs:
             && echo "lint_failed=true" >> $GITHUB_OUTPUT \
             || echo "lint_failed=false" >> $GITHUB_OUTPUT
 
-      - name: Run lint-failure action
-        if: steps.pr.outputs.number != '' && steps.check.outputs.lint_failed == 'true'
-        uses: cbeaulieu-gt/github-actions/lint-failure@v1.6.0
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          gh_pat: ${{ secrets.GH_PAT }}
-          pr_number: ${{ steps.pr.outputs.number }}
-          run_id: ${{ github.event.workflow_run.id }}
-          auto_apply: 'true'
+  # Separate job required: reusable workflows cannot be called from the same job that sets outputs
+  lint-fix:
+    needs: preflight
+    if: needs.preflight.outputs.pr_number != '' && needs.preflight.outputs.lint_failed == 'true'
+    uses: cbeaulieu-gt/github-actions/.github/workflows/claude-lint-fix.yml@v1.6.0
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    with:
+      pr_number: ${{ needs.preflight.outputs.pr_number }}
+      # github.run_id would be this workflow's ID; we need the triggering CI run's ID
+      run_id: ${{ github.event.workflow_run.id }}
+      auto_apply: true
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      gh_pat: ${{ secrets.GH_PAT }}

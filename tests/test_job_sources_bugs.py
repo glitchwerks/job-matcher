@@ -110,10 +110,10 @@ class TestPagesIteratorBehaviour:
         client._total = 10  # one page
 
         raw_job = {
-            "id": "h1",
+            "guid": "https://himalayas.app/companies/co/jobs/h1",
             "title": "Eng",
             "companyName": "Co",
-            "applicationUrl": "https://example.com",
+            "applicationLink": "https://example.com",
         }
         mock_resp = _make_mock_response(200, {"jobs": [raw_job], "total": 10})
 
@@ -262,9 +262,9 @@ class TestCreatedAtPopulated:
     def test_himalayas_created_at_from_created_at_field(self):
         client = HimalayasClient(config={})
         raw = {
-            "id": "h1",
+            "guid": "https://himalayas.app/companies/co/jobs/h1",
             "title": "Dev",
-            "createdAt": "2026-03-01T10:00:00Z",
+            "pubDate": "2026-03-01T10:00:00Z",
         }
         result = client.normalise(raw)
         assert result["created_at"] == "2026-03-01T10:00:00Z"

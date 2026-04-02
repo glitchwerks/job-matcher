@@ -38,16 +38,16 @@ _BASE_CONFIG: dict = {}  # Himalayas needs no API keys
 _HIMALAYAS_CONFIG_WITH_LIMIT: dict = {"himalayas": {"limit": 10}}
 
 _RAW_JOB: dict = {
-    "id": "abc123",
+    "guid": "https://himalayas.app/companies/remote-co/jobs/abc123",
     "title": "Senior Python Engineer",
     "companyName": "Remote Co",
     "locationRestrictions": ["USA", "Canada"],
-    "salaryMin": 120000,
-    "salaryMax": 160000,
-    "jobType": "FULL_TIME",
+    "minSalary": 120000,
+    "maxSalary": 160000,
+    "employmentType": "FULL_TIME",
     "description": "<p>We need a <strong>Python</strong> expert.</p>",
-    "applicationUrl": "https://himalayas.app/jobs/abc123/apply",
-    "createdAt": "2026-01-15T09:00:00Z",
+    "applicationLink": "https://himalayas.app/jobs/abc123/apply",
+    "pubDate": "2026-01-15T09:00:00Z",
 }
 
 
@@ -160,7 +160,7 @@ class TestHimalayasClientNormalise:
         client = self._client()
         result = client.normalise(_RAW_JOB)
 
-        assert result["source_id"] == "abc123"
+        assert result["source_id"] == "https://himalayas.app/companies/remote-co/jobs/abc123"
         assert result["title"] == "Senior Python Engineer"
         assert result["company"] == "Remote Co"
         assert result["location"] == "USA, Canada"
@@ -215,32 +215,32 @@ class TestHimalayasClientNormalise:
 
     def test_normalise_created_at_unix_ms_int(self):
         client = self._client()
-        raw = {**_RAW_JOB, "createdAt": 1_700_000_000_000}
+        raw = {**_RAW_JOB, "pubDate": 1_700_000_000_000}
         result = client.normalise(raw)
         assert result["created_at"] == "2023-11-14T22:13:20Z"
 
     def test_normalise_created_at_none(self):
         client = self._client()
-        raw = {**_RAW_JOB, "createdAt": None}
+        raw = {**_RAW_JOB, "pubDate": None}
         result = client.normalise(raw)
         assert result["created_at"] is None
 
     def test_normalise_created_at_missing_is_none(self):
         client = self._client()
-        raw = {k: v for k, v in _RAW_JOB.items() if k != "createdAt"}
+        raw = {k: v for k, v in _RAW_JOB.items() if k != "pubDate"}
         result = client.normalise(raw)
         assert result["created_at"] is None
 
     def test_normalise_null_salary_fields_are_none(self):
         client = self._client()
-        raw = {**_RAW_JOB, "salaryMin": None, "salaryMax": None}
+        raw = {**_RAW_JOB, "minSalary": None, "maxSalary": None}
         result = client.normalise(raw)
         assert result["salary_min"] is None
         assert result["salary_max"] is None
 
     def test_normalise_missing_salary_fields_are_none(self):
         client = self._client()
-        raw = {k: v for k, v in _RAW_JOB.items() if k not in ("salaryMin", "salaryMax")}
+        raw = {k: v for k, v in _RAW_JOB.items() if k not in ("minSalary", "maxSalary")}
         result = client.normalise(raw)
         assert result["salary_min"] is None
         assert result["salary_max"] is None
@@ -253,19 +253,19 @@ class TestHimalayasClientNormalise:
 
     def test_normalise_unknown_job_type_lowercased(self):
         client = self._client()
-        raw = {**_RAW_JOB, "jobType": "TEMPORARY"}
+        raw = {**_RAW_JOB, "employmentType": "TEMPORARY"}
         result = client.normalise(raw)
         assert result["contract_time"] == "temporary"
 
     def test_normalise_null_job_type_is_none(self):
         client = self._client()
-        raw = {**_RAW_JOB, "jobType": None}
+        raw = {**_RAW_JOB, "employmentType": None}
         result = client.normalise(raw)
         assert result["contract_time"] is None
 
     def test_normalise_part_time_job_type(self):
         client = self._client()
-        raw = {**_RAW_JOB, "jobType": "PART_TIME"}
+        raw = {**_RAW_JOB, "employmentType": "PART_TIME"}
         result = client.normalise(raw)
         assert result["contract_time"] == "part_time"
 
@@ -341,7 +341,7 @@ class TestHimalayasClientFetchPage:
 
         assert len(results) == 1
         assert results[0]["source"] == "himalayas"
-        assert results[0]["source_id"] == "abc123"
+        assert results[0]["source_id"] == "https://himalayas.app/companies/remote-co/jobs/abc123"
 
     def test_fetch_page_caches_total(self):
         """fetch_page() stores the total so total_pages() can use it."""
@@ -402,14 +402,21 @@ class TestHimalayasClientFetchPage:
     def test_fetch_page_multiple_jobs(self):
         """Multiple jobs in the response are all normalised."""
         client = self._client()
-        raw2 = {**_RAW_JOB, "id": "xyz789", "title": "Junior Engineer"}
+        raw2 = {
+            **_RAW_JOB,
+            "guid": "https://himalayas.app/companies/remote-co/jobs/xyz789",
+            "title": "Junior Engineer",
+        }
         mock_resp = _mock_response(200, {"jobs": [_RAW_JOB, raw2], "total": 2})
 
         with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert len(results) == 2
-        assert {r["source_id"] for r in results} == {"abc123", "xyz789"}
+        assert {r["source_id"] for r in results} == {
+            "https://himalayas.app/companies/remote-co/jobs/abc123",
+            "https://himalayas.app/companies/remote-co/jobs/xyz789",
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -544,61 +551,53 @@ class TestMakeSourceHimalayas:
 
 
 # ---------------------------------------------------------------------------
-# Issue #175: empty/missing redirect_url — listing must be skipped
+# Issue #175 / #289: empty/missing redirect_url — listing must be skipped
 # ---------------------------------------------------------------------------
 
 class TestHimalayasMissingRedirectUrl:
-    """fetch_page() must skip listings with no usable URL instead of yielding them."""
+    """fetch_page() must skip listings with no usable URL instead of yielding them.
+
+    As of the API schema change tracked in issue #289, redirect_url is mapped
+    solely from ``applicationLink``; the old ``applicationUrl`` field and slug
+    fallback no longer exist.
+    """
 
     def _client(self) -> HimalayasClient:
         return HimalayasClient(config=_BASE_CONFIG)
 
-    def test_normalise_uses_application_url_when_present(self):
-        """normalise() uses applicationUrl when it is non-empty."""
+    # -- regression test for issue #289 ------------------------------------
+
+    def test_normalise_uses_application_link(self):
+        """Regression (#289): normalise() reads redirect_url from applicationLink."""
         client = self._client()
         result = client.normalise(_RAW_JOB)
         assert result["redirect_url"] == "https://himalayas.app/jobs/abc123/apply"
 
-    def test_normalise_falls_back_to_slug_url_when_application_url_missing(self):
-        """normalise() constructs a URL from slug when applicationUrl is absent."""
+    def test_normalise_redirect_url_empty_when_application_link_missing(self):
+        """normalise() yields empty redirect_url when applicationLink is absent."""
         client = self._client()
-        raw = {**_RAW_JOB, "slug": "senior-python-engineer-remote-co"}
-        raw.pop("applicationUrl", None)
-        result = client.normalise(raw)
-        assert result["redirect_url"] == "https://himalayas.app/jobs/senior-python-engineer-remote-co"
-
-    def test_normalise_falls_back_to_slug_url_when_application_url_empty(self):
-        """normalise() constructs a URL from slug when applicationUrl is an empty string."""
-        client = self._client()
-        raw = {**_RAW_JOB, "applicationUrl": "", "slug": "senior-python-engineer-remote-co"}
-        result = client.normalise(raw)
-        assert result["redirect_url"] == "https://himalayas.app/jobs/senior-python-engineer-remote-co"
-
-    def test_normalise_falls_back_to_slug_url_when_application_url_null(self):
-        """normalise() constructs a URL from slug when applicationUrl is null."""
-        client = self._client()
-        raw = {**_RAW_JOB, "applicationUrl": None, "slug": "senior-python-engineer-remote-co"}
-        result = client.normalise(raw)
-        assert result["redirect_url"] == "https://himalayas.app/jobs/senior-python-engineer-remote-co"
-
-    def test_normalise_redirect_url_empty_when_no_application_url_and_no_slug(self):
-        """normalise() yields empty redirect_url when both applicationUrl and slug are absent."""
-        client = self._client()
-        raw = {k: v for k, v in _RAW_JOB.items() if k != "applicationUrl"}
+        raw = {k: v for k, v in _RAW_JOB.items() if k != "applicationLink"}
         result = client.normalise(raw)
         assert result["redirect_url"] == ""
 
-    def test_normalise_redirect_url_empty_when_slug_is_empty_string(self):
-        """normalise() yields empty redirect_url when slug is an empty string (falsy)."""
+    def test_normalise_redirect_url_empty_when_application_link_null(self):
+        """normalise() yields empty redirect_url when applicationLink is null."""
         client = self._client()
-        raw = {**_RAW_JOB, "applicationUrl": None, "slug": ""}
+        raw = {**_RAW_JOB, "applicationLink": None}
+        result = client.normalise(raw)
+        assert result["redirect_url"] == ""
+
+    def test_normalise_redirect_url_empty_when_application_link_empty_string(self):
+        """normalise() yields empty redirect_url when applicationLink is an empty string."""
+        client = self._client()
+        raw = {**_RAW_JOB, "applicationLink": ""}
         result = client.normalise(raw)
         assert result["redirect_url"] == ""
 
     def test_fetch_page_skips_listing_with_empty_redirect_url(self):
-        """fetch_page() does not yield a listing whose redirect_url is empty."""
+        """fetch_page() does not yield a listing whose applicationLink is missing."""
         client = self._client()
-        raw_no_url = {k: v for k, v in _RAW_JOB.items() if k != "applicationUrl"}
+        raw_no_url = {k: v for k, v in _RAW_JOB.items() if k != "applicationLink"}
         mock_resp = _mock_response(200, {"jobs": [raw_no_url], "total": 1})
 
         with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
@@ -607,9 +606,9 @@ class TestHimalayasMissingRedirectUrl:
         assert results == []
 
     def test_fetch_page_skips_listing_with_null_redirect_url(self):
-        """fetch_page() does not yield a listing whose applicationUrl is null."""
+        """fetch_page() does not yield a listing whose applicationLink is null."""
         client = self._client()
-        raw_null_url = {**_RAW_JOB, "applicationUrl": None}
+        raw_null_url = {**_RAW_JOB, "applicationLink": None}
         mock_resp = _mock_response(200, {"jobs": [raw_null_url], "total": 1})
 
         with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
@@ -620,39 +619,26 @@ class TestHimalayasMissingRedirectUrl:
     def test_fetch_page_keeps_valid_listings_alongside_skipped_ones(self):
         """fetch_page() yields only the listings that have a usable URL."""
         client = self._client()
-        raw_no_url = {k: v for k, v in _RAW_JOB.items() if k != "applicationUrl"}
-        raw_no_url["id"] = "no-url-id"
-        valid_raw = {**_RAW_JOB, "id": "valid-id"}
+        raw_no_url = {k: v for k, v in _RAW_JOB.items() if k != "applicationLink"}
+        raw_no_url["guid"] = "https://himalayas.app/companies/remote-co/jobs/no-url-id"
+        valid_raw = {
+            **_RAW_JOB,
+            "guid": "https://himalayas.app/companies/remote-co/jobs/valid-id",
+        }
         mock_resp = _mock_response(200, {"jobs": [raw_no_url, valid_raw], "total": 2})
 
         with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert len(results) == 1
-        assert results[0]["source_id"] == "valid-id"
-
-    def test_fetch_page_uses_slug_fallback_url_and_does_not_skip(self):
-        """A listing with no applicationUrl but a slug is kept (URL built from slug)."""
-        client = self._client()
-        raw_with_slug = {
-            **_RAW_JOB,
-            "applicationUrl": "",
-            "slug": "senior-python-engineer-remote-co",
-        }
-        mock_resp = _mock_response(200, {"jobs": [raw_with_slug], "total": 1})
-
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
-            results = client.fetch_page(1)
-
-        assert len(results) == 1
-        assert results[0]["redirect_url"] == "https://himalayas.app/jobs/senior-python-engineer-remote-co"
+        assert results[0]["source_id"] == "https://himalayas.app/companies/remote-co/jobs/valid-id"
 
     def test_fetch_page_skipped_listing_emits_warning(self, caplog):
         """fetch_page() logs a warning when it skips a listing with no URL."""
         import logging
 
         client = self._client()
-        raw_no_url = {**_RAW_JOB, "applicationUrl": None, "title": "Skipped Job"}
+        raw_no_url = {**_RAW_JOB, "applicationLink": None, "title": "Skipped Job"}
         mock_resp = _mock_response(200, {"jobs": [raw_no_url], "total": 1})
 
         with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
