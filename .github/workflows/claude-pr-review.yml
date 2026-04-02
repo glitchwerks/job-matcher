@@ -6,7 +6,7 @@ on:
 
 jobs:
   review:
-    uses: cbeaulieu-gt/github-actions/.github/workflows/claude-pr-review.yml@v1.6.1
+    uses: cbeaulieu-gt/github-actions/.github/workflows/claude-pr-review.yml@v1.6.3
     permissions:
       contents: read
       issues: write
