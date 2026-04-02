@@ -84,6 +84,11 @@
     {% set _source_label = _source_map.get(listing.source, listing.source | title) %}
     <span class="badge-source">{{ _source_label }}</span>
 
+    {#- Optional: renders an amber "snippet" badge when the card is shown on the snippets page. -#}
+    {% if show_snippet_badge | default(false) %}
+      <span class="badge-snippet">snippet</span>
+    {% endif %}
+
     {% if listing.opened_at is none %}
       <span class="badge-new" id="badge-new-{{ listing.id }}">New</span>
     {% endif %}

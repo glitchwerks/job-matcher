@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Job Matcher{% if view == "bookmarks" %} · Bookmarks{% elif view == "applied" %} · Applied{% elif view == "stats" %} · Stats{% endif %}</title>
+  <title>Job Matcher{% if view == "bookmarks" %} · Bookmarks{% elif view == "applied" %} · Applied{% elif view == "snippets" %} · Snippets{% elif view == "stats" %} · Stats{% endif %}</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/style.css">
   <!-- htmx 1.9.10 — to update: bump the version in the URL, then regenerate the hash with:
@@ -18,11 +18,13 @@
     <span class="site-logo">job<span>_</span>matcher</span>
     <nav class="site-nav">
       <a href="/"
-         class="nav-tab{% if view == 'feed' %} active{% endif %}">feed</a>
+         class="nav-tab{% if view == 'feed' %} active{% endif %}">listings</a>
       <a href="/bookmarks"
          class="nav-tab{% if view == 'bookmarks' %} active{% endif %}">bookmarks</a>
       <a href="/applied"
          class="nav-tab{% if view == 'applied' %} active{% endif %}">applied</a>
+      <a href="/snippets"
+         class="nav-tab{% if view == 'snippets' %} active{% endif %}">snippets</a>
       <a href="/stats"
          class="nav-tab{% if view == 'stats' %} active{% endif %}">stats</a>
       <a href="/profile"
@@ -146,7 +148,7 @@
         </p>
       {% else %}
         <span class="empty-state-icon">◎</span>
-        <p class="empty-state-title">Feed is empty</p>
+        <p class="empty-state-title">No listings yet</p>
         <p class="empty-state-body">
           Run <code>python ingest.py</code> to fetch and score new listings.<br>
           Results scored {{ threshold | round(1) }}+ will appear here.

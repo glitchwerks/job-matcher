@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Matcher · Snippets</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/htmx.org@1.9.10" crossorigin="anonymous"></script>
+</head>
+<body>
+<div class="page-wrap">
+
+  {# ── Header ─────────────────────────────────────────────────── #}
+  <header class="site-header">
+    <span class="site-logo">job<span>_</span>matcher</span>
+    <nav class="site-nav">
+      <a href="/"
+         class="nav-tab">listings</a>
+      <a href="/bookmarks"
+         class="nav-tab">bookmarks</a>
+      <a href="/applied"
+         class="nav-tab">applied</a>
+      <a href="/snippets"
+         class="nav-tab active">snippets</a>
+      <a href="/stats"
+         class="nav-tab">stats</a>
+      <a href="/profile"
+         class="nav-tab">profile</a>
+      <a href="/settings"
+         class="nav-tab">settings</a>
+    </nav>
+  </header>
+
+  {# ── Subtitle ────────────────────────────────────────────────── #}
+  <div class="feed-meta">
+    <strong>{{ listings | length }}</strong>
+    {%- if listings | length == 1 %} snippet-scored role{% else %} snippet-scored roles{% endif %}
+    &nbsp;·&nbsp; sorted by {% if sort == 'date_posted' %}date posted{% else %}score{% endif %}
+  </div>
+
+  {# ── Info banner ─────────────────────────────────────────────── #}
+  <div class="setup-banner">
+    <p>
+      These listings were scored from short API snippets (200&#8211;400 chars) rather than full job descriptions.
+      Scores here are weaker signals &#8212; a 7/10 from a snippet is not the same as a 7/10 from a full JD.
+    </p>
+  </div>
+
+  {# ── Setup banner ────────────────────────────────────────────── #}
+  {% if config_warnings %}
+  <div class="setup-banner">
+    {% for warning in config_warnings %}
+    <p>&#9888; {{ warning|safe }}</p>
+    {% endfor %}
+    <p>LLM provider keys can be configured on the <a href="/settings">Settings page</a>.</p>
+  </div>
+  {% endif %}
+
+  {# ── Sort bar ────────────────────────────────────────────────── #}
+  <form class="filter-bar" method="get" action="/snippets">
+    <select name="sort" class="filter-select" onchange="this.form.submit()">
+      <option value="" {% if not sort %}selected{% endif %}>Sort: score</option>
+      <option value="date_posted" {% if sort == 'date_posted' %}selected{% endif %}>Sort: date posted</option>
+    </select>
+    <button type="submit" class="btn filter-btn">Filter</button>
+    {% if sort %}
+      <a href="/snippets" class="filter-clear">Clear</a>
+    {% endif %}
+  </form>
+
+  {# ── Listing cards ───────────────────────────────────────────── #}
+  {% if listings %}
+    <div class="card-list">
+      {% for listing in listings %}
+        {#- Pass show_snippet_badge=true so _card.html renders the amber snippet badge. -#}
+        {% with show_snippet_badge = true %}
+          {% include "_card.html" %}
+        {% endwith %}
+      {% endfor %}
+    </div>
+
+  {# ── Empty state ─────────────────────────────────────────────── #}
+  {% else %}
+    <div class="empty-state">
+      <span class="empty-state-icon">◎</span>
+      <p class="empty-state-title">No snippet-scored listings</p>
+      <p class="empty-state-body">
+        Listings scored from API snippets will appear here.<br>
+        They are separated from the main feed because short descriptions produce weaker scores.
+      </p>
+    </div>
+  {% endif %}
+
+</div>
+</body>
+</html>

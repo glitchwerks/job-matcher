@@ -1074,6 +1074,26 @@ body {
   margin-top: 2px;
 }
 
+/* Snippet badge — shown in the Snippets tab to signal that this listing's score
+   was derived from a short API description (200–400 chars) rather than a full
+   scraped JD.  Uses the mid-tier amber palette (warning signal) per the style
+   guide: mid-tier = warning / weaker signal.  Solid border (not dashed) to
+   distinguish it from the source badge; background tint makes it scannable. */
+.badge-snippet {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 20px;
+  border: 1px solid var(--score-mid-border);
+  background: var(--score-mid-bg);
+  color: var(--score-mid-text);
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
 /* New badge — shown on cards the user has never opened.
    Uses --text-accent (amber) for the border and text to draw attention without
    competing with score-tier semantic colors (green/amber-tier/red).
