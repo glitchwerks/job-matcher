@@ -18,6 +18,27 @@ from .base import LLMProvider
 
 logger = logging.getLogger(__name__)
 
+
+def _sanitise_detail(raw: str, api_key: str) -> str:
+    """Return a clean, truncated error detail string safe for display.
+
+    Strips newlines, trims to 200 chars, and replaces any occurrence of
+    *api_key* in the result with ``'[REDACTED]'`` so keys are never surfaced
+    in the UI.
+
+    Args:
+        raw:     Raw exception message string.
+        api_key: Provider API key — redacted if it appears in *raw*.
+
+    Returns:
+        Sanitised detail string (at most 200 characters).
+    """
+    detail = raw.replace("\n", " ").replace("\r", " ").strip()
+    if api_key and api_key in detail:
+        detail = detail.replace(api_key, "[REDACTED]")
+    return detail[:200]
+
+
 # ---------------------------------------------------------------------------
 # Pricing table (USD per million tokens, as of 2025-03)
 # Keys are prefix-matched against the model name so that dated variants
@@ -109,19 +130,20 @@ class AnthropicProvider(LLMProvider):
         }
 
     @classmethod
-    def validate_credentials(cls, api_key: str, model: str) -> str:
-        """Send a 1-token test call to Anthropic and return a state string.
+    def validate_credentials(cls, api_key: str, model: str) -> tuple[str, str | None]:
+        """Send a 1-token test call to Anthropic and return a ``(state, detail)`` tuple.
 
-        Returns one of: ``'valid'``, ``'invalid_key'``, ``'unknown_model'``,
-        ``'unreachable'``.  The api_key is never logged or included in any
-        return value.
+        *state* is one of: ``'valid'``, ``'invalid_key'``, ``'unknown_model'``,
+        ``'unreachable'``.  *detail* is a short human-readable error description
+        (trimmed to 200 chars, newlines removed) or ``None`` on success.
+        The api_key is never logged or included in any return value.
 
         Args:
             api_key: Anthropic API key.
             model:   Anthropic model ID.
 
         Returns:
-            State string describing the validation outcome.
+            ``(state, detail)`` tuple describing the validation outcome.
         """
         try:
             client = anthropic.Anthropic(api_key=api_key)
@@ -130,15 +152,15 @@ class AnthropicProvider(LLMProvider):
                 max_tokens=1,
                 messages=[{"role": "user", "content": "hi"}],
             )
-            return "valid"
-        except anthropic.AuthenticationError:
-            return "invalid_key"
-        except anthropic.PermissionDeniedError:
-            return "invalid_key"
-        except anthropic.NotFoundError:
-            return "unknown_model"
-        except Exception:
-            return "unreachable"
+            return ("valid", None)
+        except anthropic.AuthenticationError as exc:
+            return ("invalid_key", _sanitise_detail(str(exc), api_key))
+        except anthropic.PermissionDeniedError as exc:
+            return ("invalid_key", _sanitise_detail(str(exc), api_key))
+        except anthropic.NotFoundError as exc:
+            return ("unknown_model", _sanitise_detail(str(exc), api_key))
+        except Exception as exc:
+            return ("unreachable", _sanitise_detail(str(exc), api_key))
 
     @property
     def input_cost_per_mtok(self) -> float:

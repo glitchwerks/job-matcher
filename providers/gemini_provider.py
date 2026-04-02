@@ -14,7 +14,7 @@ import time
 from google import genai
 
 from .base import LLMProvider
-from .anthropic_provider import _parse_json_response
+from .anthropic_provider import _parse_json_response, _sanitise_detail
 
 logger = logging.getLogger(__name__)
 
@@ -102,12 +102,13 @@ class GeminiProvider(LLMProvider):
         }
 
     @classmethod
-    def validate_credentials(cls, api_key: str, model: str) -> str:
-        """Send a 1-token test call to Google Gemini and return a state string.
+    def validate_credentials(cls, api_key: str, model: str) -> tuple[str, str | None]:
+        """Send a 1-token test call to Google Gemini and return a ``(state, detail)`` tuple.
 
-        Returns one of: ``'valid'``, ``'invalid_key'``, ``'unknown_model'``,
-        ``'unreachable'``.  The api_key is never logged or included in any
-        return value.
+        *state* is one of: ``'valid'``, ``'invalid_key'``, ``'unknown_model'``,
+        ``'unreachable'``.  *detail* is a short human-readable error description
+        (trimmed to 200 chars, newlines removed) or ``None`` on success.
+        The api_key is never logged or included in any return value.
 
         Google's SDK raises varied exception types depending on failure mode;
         the lowercased exception message is inspected to distinguish auth vs
@@ -118,7 +119,7 @@ class GeminiProvider(LLMProvider):
             model:   Gemini model ID.
 
         Returns:
-            State string describing the validation outcome.
+            ``(state, detail)`` tuple describing the validation outcome.
         """
         try:
             client = genai.Client(api_key=api_key)
@@ -126,16 +127,17 @@ class GeminiProvider(LLMProvider):
                 model=model,
                 contents="hi",
             )
-            return "valid"
+            return ("valid", None)
         except Exception as exc:
             exc_str = str(exc).lower()
+            detail = _sanitise_detail(str(exc), api_key)
             # Google signals auth failures with specific keywords in the message.
             if any(kw in exc_str for kw in ("api_key_invalid", "invalid api key", "unauthenticated", "permission denied")):
-                return "invalid_key"
+                return ("invalid_key", detail)
             # Model-not-found errors include "not found" or "404" in the message.
             if "not found" in exc_str or "404" in exc_str:
-                return "unknown_model"
-            return "unreachable"
+                return ("unknown_model", detail)
+            return ("unreachable", detail)
 
     @property
     def input_cost_per_mtok(self) -> float:

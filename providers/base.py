@@ -84,7 +84,7 @@ class LLMProvider(ABC):
 
     @classmethod
     @abstractmethod
-    def validate_credentials(cls, api_key: str, model: str) -> str:
+    def validate_credentials(cls, api_key: str, model: str) -> tuple[str, str | None]:
         """Validate *api_key* and *model* by making a minimal live API call.
 
         Implementations should make the cheapest possible test call (e.g.
@@ -97,12 +97,16 @@ class LLMProvider(ABC):
             model:   Provider model name string.
 
         Returns:
-            One of the following state strings:
+            A ``(state, detail)`` tuple where *state* is one of:
 
             * ``"valid"``          — key and model accepted.
             * ``"invalid_key"``    — authentication or permission error.
             * ``"unknown_model"``  — key valid but model not found.
             * ``"unreachable"``    — network error or unexpected exception.
+
+            *detail* is a short human-readable string describing the failure
+            (trimmed to 200 chars, newlines removed), or ``None`` on success.
+            The raw api_key value must never appear in *detail*.
 
         Raises:
             NotImplementedError: If not overridden by the concrete subclass.

@@ -1006,36 +1006,38 @@ _VALIDATE_TIMEOUT_SECONDS = 5
 """Per-provider timeout for key validation API calls."""
 
 
-def _validate_with_timeout(validator, api_key: str, model: str) -> str:
+def _validate_with_timeout(validator, api_key: str, model: str) -> tuple[str, str | None]:
     """Run *validator(api_key, model)* in a daemon thread with a fixed timeout.
 
-    Returns the validator's state string, or ``'unreachable'`` if the call
-    does not complete within ``_VALIDATE_TIMEOUT_SECONDS``.
+    Returns the validator's ``(state, detail)`` tuple, or a synthetic
+    ``('unreachable', ...)`` tuple if the call does not complete within
+    ``_VALIDATE_TIMEOUT_SECONDS``.
 
     Args:
-        validator: Callable ``(api_key, model) -> str``.
+        validator: Callable ``(api_key, model) -> tuple[str, str | None]``.
         api_key:   Provider API key string.
         model:     Provider model name string.
 
     Returns:
-        One of: ``'valid'``, ``'invalid_key'``, ``'unknown_model'``,
-        ``'unreachable'``.
+        ``(state, detail)`` where *state* is one of: ``'valid'``,
+        ``'invalid_key'``, ``'unknown_model'``, ``'unreachable'``.
+        *detail* is ``None`` on success or a short error string on failure.
     """
-    result_holder: list[str] = []
+    result_holder: list[tuple[str, str | None]] = []
 
     def _target() -> None:
         try:
             result_holder.append(validator(api_key, model))
-        except Exception:
-            result_holder.append("unreachable")
+        except Exception as exc:
+            result_holder.append(("unreachable", str(exc)[:200]))
 
     t = threading.Thread(target=_target, daemon=True)
     t.start()
     t.join(timeout=_VALIDATE_TIMEOUT_SECONDS)
     if t.is_alive():
         # Thread is still blocked (network hang) — treat as unreachable.
-        return "unreachable"
-    return result_holder[0] if result_holder else "unreachable"
+        return ("unreachable", f"Timed out after {_VALIDATE_TIMEOUT_SECONDS}s")
+    return result_holder[0] if result_holder else ("unreachable", None)
 
 
 @app.route("/api/validate-keys", methods=["POST"])
@@ -1066,13 +1068,15 @@ def validate_keys():
 
         if not api_key:
             state = "not_configured"
+            detail = None
         else:
-            state = _validate_with_timeout(cls.validate_credentials, api_key, model)
+            state, detail = _validate_with_timeout(cls.validate_credentials, api_key, model)
 
         providers_list.append({
             "key":          provider_key,
             "display_name": display_name,
             "state":        state,
+            "detail":       detail,
         })
 
     return render_template("_validation_results.html", providers=providers_list)

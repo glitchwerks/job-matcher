@@ -14,7 +14,7 @@ import time
 import openai
 
 from .base import LLMProvider
-from .anthropic_provider import _parse_json_response
+from .anthropic_provider import _parse_json_response, _sanitise_detail
 
 logger = logging.getLogger(__name__)
 
@@ -102,19 +102,20 @@ class OpenAIProvider(LLMProvider):
         }
 
     @classmethod
-    def validate_credentials(cls, api_key: str, model: str) -> str:
-        """Send a 1-token test call to OpenAI and return a state string.
+    def validate_credentials(cls, api_key: str, model: str) -> tuple[str, str | None]:
+        """Send a 1-token test call to OpenAI and return a ``(state, detail)`` tuple.
 
-        Returns one of: ``'valid'``, ``'invalid_key'``, ``'unknown_model'``,
-        ``'unreachable'``.  The api_key is never logged or included in any
-        return value.
+        *state* is one of: ``'valid'``, ``'invalid_key'``, ``'unknown_model'``,
+        ``'unreachable'``.  *detail* is a short human-readable error description
+        (trimmed to 200 chars, newlines removed) or ``None`` on success.
+        The api_key is never logged or included in any return value.
 
         Args:
             api_key: OpenAI API key.
             model:   OpenAI model ID.
 
         Returns:
-            State string describing the validation outcome.
+            ``(state, detail)`` tuple describing the validation outcome.
         """
         try:
             client = openai.OpenAI(api_key=api_key)
@@ -123,15 +124,15 @@ class OpenAIProvider(LLMProvider):
                 max_tokens=1,
                 messages=[{"role": "user", "content": "hi"}],
             )
-            return "valid"
-        except openai.AuthenticationError:
-            return "invalid_key"
-        except openai.PermissionDeniedError:
-            return "invalid_key"
-        except openai.NotFoundError:
-            return "unknown_model"
-        except Exception:
-            return "unreachable"
+            return ("valid", None)
+        except openai.AuthenticationError as exc:
+            return ("invalid_key", _sanitise_detail(str(exc), api_key))
+        except openai.PermissionDeniedError as exc:
+            return ("invalid_key", _sanitise_detail(str(exc), api_key))
+        except openai.NotFoundError as exc:
+            return ("unknown_model", _sanitise_detail(str(exc), api_key))
+        except Exception as exc:
+            return ("unreachable", _sanitise_detail(str(exc), api_key))
 
     @property
     def input_cost_per_mtok(self) -> float:

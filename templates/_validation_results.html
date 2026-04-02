@@ -4,7 +4,7 @@
 
    Context variable:
      providers — list of dicts, one per entry in _PROVIDER_CLASS_MAP:
-       { "key": str, "display_name": str, "state": str }
+       { "key": str, "display_name": str, "state": str, "detail": str | None }
    Valid state values: valid, invalid_key, unknown_model, unreachable, not_configured.
 #}
 
@@ -27,6 +27,9 @@
   <div class="validation-row">
     <span class="validation-provider">{{ provider.display_name }}</span>
     {{ state_badge(provider.state) }}
+    {% if provider.detail and provider.state not in ("valid", "not_configured") %}
+      <span class="validation-detail">{{ provider.detail }}</span>
+    {% endif %}
   </div>
   {% endfor %}
 </div>

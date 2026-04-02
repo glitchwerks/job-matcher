@@ -177,6 +177,7 @@ All badges share the pill shape: `border-radius: 20px`, `--font-mono`, padding `
 | `.model-badge` | — | LLM model identifier (muted, 70% opacity) |
 | `.key-status` | `.configured`, `.not-set` | Settings credential status |
 | `.validation-badge` | `.validation-valid`, `.validation-invalid`, `.validation-warning`, `.validation-muted` | API key validation results |
+| `.validation-detail` | — | Muted helper text rendered after a `.validation-badge` for non-`valid`, non-`not_configured` states; `--font-body` 0.8rem, `--text-muted` |
 | `.chip` | `.matched`, `.missing` | Skill chips in card body |
 
 ### Buttons

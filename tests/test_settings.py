@@ -614,9 +614,9 @@ class TestValidateKeys:
 
     def test_returns_200(self, client, tmp_providers_path, tmp_keys_path, monkeypatch):
         self._write_providers_for_validate(tmp_providers_path)
-        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
+        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
         resp = client.post("/api/validate-keys")
         assert resp.status_code == 200
 
@@ -625,9 +625,9 @@ class TestValidateKeys:
     ):
         """HTMX expects HTML — the endpoint must not return a JSON object."""
         self._write_providers_for_validate(tmp_providers_path)
-        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
+        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
         resp = client.post("/api/validate-keys")
         body = resp.data.decode()
         assert "<" in body
@@ -637,9 +637,9 @@ class TestValidateKeys:
         self, client, tmp_providers_path, tmp_keys_path, monkeypatch
     ):
         self._write_providers_for_validate(tmp_providers_path)
-        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
+        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
         resp = client.post("/api/validate-keys")
         body = resp.data.decode()
         assert "Anthropic" in body
@@ -654,9 +654,9 @@ class TestValidateKeys:
         self, client, tmp_providers_path, tmp_keys_path, monkeypatch
     ):
         self._write_providers_for_validate(tmp_providers_path)
-        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
+        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
         resp = client.post("/api/validate-keys")
         body = resp.data.decode()
         assert "validation-valid" in body
@@ -670,9 +670,9 @@ class TestValidateKeys:
         self, client, tmp_providers_path, tmp_keys_path, monkeypatch
     ):
         self._write_providers_for_validate(tmp_providers_path)
-        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: "invalid_key"))
-        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
+        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: ("invalid_key", "Test invalid key detail")))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
         resp = client.post("/api/validate-keys")
         body = resp.data.decode()
         assert "validation-invalid" in body
@@ -686,9 +686,9 @@ class TestValidateKeys:
         self, client, tmp_providers_path, tmp_keys_path, monkeypatch
     ):
         self._write_providers_for_validate(tmp_providers_path)
-        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: "unknown_model"))
-        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
+        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("unknown_model", "Test unknown model detail")))
+        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
         resp = client.post("/api/validate-keys")
         body = resp.data.decode()
         assert "validation-warning" in body
@@ -702,9 +702,9 @@ class TestValidateKeys:
         self, client, tmp_providers_path, tmp_keys_path, monkeypatch
     ):
         self._write_providers_for_validate(tmp_providers_path)
-        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: "unreachable"))
+        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("unreachable", "Test unreachable detail")))
         resp = client.post("/api/validate-keys")
         body = resp.data.decode()
         assert "validation-warning" in body
@@ -737,9 +737,9 @@ class TestValidateKeys:
     ):
         """When providers.json is absent all providers must show not_configured."""
         assert not os.path.exists(tmp_providers_path)
-        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
+        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
         resp = client.post("/api/validate-keys")
         body = resp.data.decode()
         assert "validation-muted" in body
@@ -759,13 +759,74 @@ class TestValidateKeys:
             raise RuntimeError("network exploded")
 
         monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(_bad_validator))
-        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
         resp = client.post("/api/validate-keys")
         assert resp.status_code == 200
         body = resp.data.decode()
         assert "Unreachable" in body
         assert "validation-valid" in body
+
+    # ------------------------------------------------------------------
+    # Detail string — rendered for failure states, hidden for valid/not_configured
+    # ------------------------------------------------------------------
+
+    def test_detail_string_rendered_for_invalid_key(
+        self, client, tmp_providers_path, tmp_keys_path, monkeypatch
+    ):
+        """A non-None detail on invalid_key must appear in the HTML partial."""
+        self._write_providers_for_validate(tmp_providers_path)
+        monkeypatch.setattr(
+            AnthropicProvider,
+            "validate_credentials",
+            classmethod(lambda cls, k, m: ("invalid_key", "401 — Bad credentials")),
+        )
+        monkeypatch.setattr(OpenAIProvider,  "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(GeminiProvider,  "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        resp = client.post("/api/validate-keys")
+        body = resp.data.decode()
+        assert "401 — Bad credentials" in body
+        assert '<span class="validation-detail">' in body
+
+    def test_detail_string_rendered_for_unreachable(
+        self, client, tmp_providers_path, tmp_keys_path, monkeypatch
+    ):
+        """A non-None detail on unreachable must appear in the HTML partial."""
+        self._write_providers_for_validate(tmp_providers_path)
+        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(
+            GeminiProvider,
+            "validate_credentials",
+            classmethod(lambda cls, k, m: ("unreachable", "Connection refused")),
+        )
+        resp = client.post("/api/validate-keys")
+        body = resp.data.decode()
+        assert "Connection refused" in body
+        assert '<span class="validation-detail">' in body
+
+    def test_detail_not_rendered_for_valid_state(
+        self, client, tmp_providers_path, tmp_keys_path, monkeypatch
+    ):
+        """The validation-detail span must not appear when all providers are valid."""
+        self._write_providers_for_validate(tmp_providers_path)
+        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        resp = client.post("/api/validate-keys")
+        body = resp.data.decode()
+        assert '<span class="validation-detail">' not in body
+
+    def test_detail_not_rendered_for_not_configured(
+        self, client, tmp_providers_path, tmp_keys_path, monkeypatch
+    ):
+        """The validation-detail span must not appear when providers are not_configured."""
+        self._write_providers_for_validate(
+            tmp_providers_path, anthropic_key="", openai_key="", gemini_key=""
+        )
+        resp = client.post("/api/validate-keys")
+        body = resp.data.decode()
+        assert '<span class="validation-detail">' not in body
 
     # ------------------------------------------------------------------
     # Security — no key values in response
@@ -781,9 +842,9 @@ class TestValidateKeys:
             openai_key="sk-oai-supersecret",
             gemini_key="gm-supersecret",
         )
-        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
+        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
         resp = client.post("/api/validate-keys")
         body = resp.data.decode()
         assert "sk-ant-supersecret" not in body
@@ -839,8 +900,8 @@ class TestValidateKeysDynamic:
                 return {"display_name": "TestProvider", "fields": []}
 
             @classmethod
-            def validate_credentials(cls, api_key: str, model: str) -> str:
-                return "valid"
+            def validate_credentials(cls, api_key: str, model: str) -> tuple:
+                return ("valid", None)
 
             def complete(self, prompt):
                 raise NotImplementedError
@@ -854,9 +915,9 @@ class TestValidateKeysDynamic:
                 return 0.0
 
         # Patch the three real providers so no network calls are made.
-        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
+        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
 
         # Register the fake provider in the map.
         _PROVIDER_CLASS_MAP["testprovider"] = _FakeProviderCls
@@ -884,8 +945,8 @@ class TestValidateKeysDynamic:
                 return {"display_name": "TestProvider", "fields": []}
 
             @classmethod
-            def validate_credentials(cls, api_key: str, model: str) -> str:
-                return "valid"
+            def validate_credentials(cls, api_key: str, model: str) -> tuple:
+                return ("valid", None)
 
             def complete(self, prompt):
                 raise NotImplementedError
@@ -898,9 +959,9 @@ class TestValidateKeysDynamic:
             def output_cost_per_mtok(self):
                 return 0.0
 
-        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
+        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
 
         _PROVIDER_CLASS_MAP["testprovider"] = _FakeProviderCls
         try:
@@ -932,9 +993,9 @@ class TestValidateKeysDynamic:
                 return {"display_name": "TrackedProvider", "fields": []}
 
             @classmethod
-            def validate_credentials(cls, api_key: str, model: str) -> str:
+            def validate_credentials(cls, api_key: str, model: str) -> tuple:
                 calls.append((api_key, model))
-                return "valid"
+                return ("valid", None)
 
             def complete(self, prompt):
                 raise NotImplementedError
@@ -947,9 +1008,9 @@ class TestValidateKeysDynamic:
             def output_cost_per_mtok(self):
                 return 0.0
 
-        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
+        monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
 
         _PROVIDER_CLASS_MAP["tracked"] = _TrackedProvider
         try:
@@ -988,11 +1049,11 @@ class TestValidateWithTimeout:
     """
 
     def test_returns_validator_result_when_fast(self):
-        """A fast validator's return value passes through unchanged."""
+        """A fast validator's (state, detail) tuple passes through unchanged."""
         result = app_module._validate_with_timeout(
-            lambda k, m: "valid", "key", "model"
+            lambda k, m: ("valid", None), "key", "model"
         )
-        assert result == "valid"
+        assert result == ("valid", None)
 
     def test_returns_unreachable_on_timeout(self, monkeypatch):
         """A validator that never returns is treated as unreachable after timeout."""
@@ -1003,26 +1064,28 @@ class TestValidateWithTimeout:
 
         def _hanging_validator(k, m):
             time.sleep(10)  # much longer than the patched timeout
-            return "valid"
+            return ("valid", None)
 
-        result = app_module._validate_with_timeout(_hanging_validator, "key", "model")
-        assert result == "unreachable"
+        state, detail = app_module._validate_with_timeout(_hanging_validator, "key", "model")
+        assert state == "unreachable"
+        assert "0.05" in detail
 
     def test_returns_unreachable_when_validator_raises(self):
         """An exception inside the validator is caught and mapped to unreachable."""
         def _exploding(k, m):
             raise RuntimeError("boom")
 
-        result = app_module._validate_with_timeout(_exploding, "key", "model")
-        assert result == "unreachable"
+        state, detail = app_module._validate_with_timeout(_exploding, "key", "model")
+        assert state == "unreachable"
+        assert "boom" in detail
 
-    def test_validator_state_strings_pass_through(self):
-        """All non-timeout state strings are forwarded verbatim."""
+    def test_validator_state_tuples_pass_through(self):
+        """All non-timeout state tuples are forwarded verbatim."""
         for state in ("valid", "invalid_key", "unknown_model", "unreachable"):
             result = app_module._validate_with_timeout(
-                lambda k, m, s=state: s, "key", "model"
+                lambda k, m, s=state: (s, None), "key", "model"
             )
-            assert result == state
+            assert result == (state, None)
 
 
 # ---------------------------------------------------------------------------
@@ -1058,11 +1121,11 @@ class TestValidateKeysTimeout:
 
         def _slow_validator(cls, k, m):
             time.sleep(10)  # exceeds patched timeout
-            return "valid"
+            return ("valid", None)
 
         monkeypatch.setattr(AnthropicProvider, "validate_credentials", classmethod(_slow_validator))
-        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
-        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: "valid"))
+        monkeypatch.setattr(OpenAIProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
+        monkeypatch.setattr(GeminiProvider,    "validate_credentials", classmethod(lambda cls, k, m: ("valid", None)))
 
         resp = client.post("/api/validate-keys")
         assert resp.status_code == 200
@@ -1104,11 +1167,12 @@ class TestValidateHelpers:
             messages = _FakeMessages()
 
         monkeypatch.setattr(_anthropic, "Anthropic", lambda api_key: _FakeClient())
-        result = AnthropicProvider.validate_credentials("sk-key", "claude-haiku-4-5-20251001")
-        assert result == "valid"
+        state, detail = AnthropicProvider.validate_credentials("sk-key", "claude-haiku-4-5-20251001")
+        assert state == "valid"
+        assert detail is None
 
     def test_anthropic_invalid_key(self, monkeypatch):
-        """AuthenticationError maps to 'invalid_key'."""
+        """AuthenticationError maps to 'invalid_key' with a non-None detail string."""
         import anthropic as _anthropic
 
         # Patch AuthenticationError to a plain Exception subclass so we can
@@ -1118,7 +1182,7 @@ class TestValidateHelpers:
 
         class _FakeMessages:
             def create(self, **kwargs):
-                raise _FakeAuthError()
+                raise _FakeAuthError("401 — Invalid API key")
 
         class _FakeClient:
             messages = _FakeMessages()
@@ -1127,11 +1191,13 @@ class TestValidateHelpers:
         monkeypatch.setattr(_anthropic, "AuthenticationError", _FakeAuthError)
         monkeypatch.setattr(_anthropic, "PermissionDeniedError", type("_NeverRaised", (Exception,), {}))
         monkeypatch.setattr(_anthropic, "NotFoundError", type("_NeverRaised2", (Exception,), {}))
-        result = AnthropicProvider.validate_credentials("sk-bad", "claude-haiku-4-5-20251001")
-        assert result == "invalid_key"
+        state, detail = AnthropicProvider.validate_credentials("sk-bad", "claude-haiku-4-5-20251001")
+        assert state == "invalid_key"
+        assert detail is not None
+        assert len(detail) > 0
 
     def test_anthropic_permission_denied_maps_to_invalid_key(self, monkeypatch):
-        """PermissionDeniedError (403) also maps to 'invalid_key'."""
+        """PermissionDeniedError (403) also maps to 'invalid_key' with detail."""
         import anthropic as _anthropic
 
         class _FakePermError(Exception):
@@ -1139,7 +1205,7 @@ class TestValidateHelpers:
 
         class _FakeMessages:
             def create(self, **kwargs):
-                raise _FakePermError()
+                raise _FakePermError("403 — Permission denied")
 
         class _FakeClient:
             messages = _FakeMessages()
@@ -1148,8 +1214,9 @@ class TestValidateHelpers:
         monkeypatch.setattr(_anthropic, "AuthenticationError", type("_NeverRaised", (Exception,), {}))
         monkeypatch.setattr(_anthropic, "PermissionDeniedError", _FakePermError)
         monkeypatch.setattr(_anthropic, "NotFoundError", type("_NeverRaised2", (Exception,), {}))
-        result = AnthropicProvider.validate_credentials("sk-bad", "claude-haiku-4-5-20251001")
-        assert result == "invalid_key"
+        state, detail = AnthropicProvider.validate_credentials("sk-bad", "claude-haiku-4-5-20251001")
+        assert state == "invalid_key"
+        assert detail is not None
 
     def test_anthropic_unknown_model(self, monkeypatch):
         import anthropic as _anthropic
@@ -1159,7 +1226,7 @@ class TestValidateHelpers:
 
         class _FakeMessages:
             def create(self, **kwargs):
-                raise _FakeNotFoundError()
+                raise _FakeNotFoundError("404 — Model not found")
 
         class _FakeClient:
             messages = _FakeMessages()
@@ -1168,8 +1235,9 @@ class TestValidateHelpers:
         monkeypatch.setattr(_anthropic, "AuthenticationError", type("_NeverRaised", (Exception,), {}))
         monkeypatch.setattr(_anthropic, "PermissionDeniedError", type("_NeverRaised2", (Exception,), {}))
         monkeypatch.setattr(_anthropic, "NotFoundError", _FakeNotFoundError)
-        result = AnthropicProvider.validate_credentials("sk-key", "claude-unknown-xyz")
-        assert result == "unknown_model"
+        state, detail = AnthropicProvider.validate_credentials("sk-key", "claude-unknown-xyz")
+        assert state == "unknown_model"
+        assert detail is not None
 
     def test_anthropic_unreachable(self, monkeypatch):
         import anthropic as _anthropic
@@ -1183,8 +1251,63 @@ class TestValidateHelpers:
 
         monkeypatch.setattr(_anthropic, "Anthropic", lambda api_key: _FakeClient())
         # Real SDK error classes left in place — ConnectionError won't match them.
-        result = AnthropicProvider.validate_credentials("sk-key", "claude-haiku-4-5-20251001")
-        assert result == "unreachable"
+        state, detail = AnthropicProvider.validate_credentials("sk-key", "claude-haiku-4-5-20251001")
+        assert state == "unreachable"
+        assert detail is not None
+        assert "timeout" in detail
+
+    def test_anthropic_detail_never_contains_api_key(self, monkeypatch):
+        """The api_key value must be redacted from any detail string."""
+        import anthropic as _anthropic
+
+        secret_key = "sk-ant-supersecret-12345"
+
+        class _FakeAuthError(Exception):
+            pass
+
+        class _FakeMessages:
+            def create(self, **kwargs):
+                # Simulate an exception message that inadvertently contains the key.
+                raise _FakeAuthError(f"Request failed for key {secret_key}")
+
+        class _FakeClient:
+            messages = _FakeMessages()
+
+        monkeypatch.setattr(_anthropic, "Anthropic", lambda api_key: _FakeClient())
+        monkeypatch.setattr(_anthropic, "AuthenticationError", _FakeAuthError)
+        monkeypatch.setattr(_anthropic, "PermissionDeniedError", type("_NeverRaised", (Exception,), {}))
+        monkeypatch.setattr(_anthropic, "NotFoundError", type("_NeverRaised2", (Exception,), {}))
+        state, detail = AnthropicProvider.validate_credentials(secret_key, "claude-haiku-4-5-20251001")
+        assert state == "invalid_key"
+        assert secret_key not in (detail or "")
+        assert "[REDACTED]" in (detail or "")
+
+    def test_anthropic_detail_redacts_key_after_200_chars(self, monkeypatch):
+        """Key appearing after char 200 must still be fully redacted after truncation."""
+        import anthropic as _anthropic
+
+        secret_key = "sk-ant-supersecret"
+        prefix = "A" * 185  # push key past the 200-char mark
+
+        class _FakeAuthError(Exception):
+            pass
+
+        class _FakeMessages:
+            def create(self, **kwargs):
+                raise _FakeAuthError(f"{prefix} key={secret_key}")
+
+        class _FakeClient:
+            messages = _FakeMessages()
+
+        monkeypatch.setattr(_anthropic, "Anthropic", lambda api_key: _FakeClient())
+        monkeypatch.setattr(_anthropic, "AuthenticationError", _FakeAuthError)
+        monkeypatch.setattr(_anthropic, "PermissionDeniedError", type("_NeverRaised", (Exception,), {}))
+        monkeypatch.setattr(_anthropic, "NotFoundError", type("_NeverRaised2", (Exception,), {}))
+        state, detail = AnthropicProvider.validate_credentials(secret_key, "claude-haiku-4-5-20251001")
+        assert state == "invalid_key"
+        assert secret_key not in (detail or "")
+        assert "[REDACTED]" in (detail or "")
+        assert len(detail or "") <= 200
 
     # ------------------------------------------------------------------
     # OpenAI
@@ -1204,8 +1327,9 @@ class TestValidateHelpers:
             chat = _FakeChat()
 
         monkeypatch.setattr(_openai, "OpenAI", lambda api_key: _FakeClient())
-        result = OpenAIProvider.validate_credentials("sk-oai", "gpt-4o-mini")
-        assert result == "valid"
+        state, detail = OpenAIProvider.validate_credentials("sk-oai", "gpt-4o-mini")
+        assert state == "valid"
+        assert detail is None
 
     def test_openai_invalid_key(self, monkeypatch):
         import openai as _openai
@@ -1215,7 +1339,7 @@ class TestValidateHelpers:
 
         class _FakeCompletions:
             def create(self, **kwargs):
-                raise _FakeAuthError()
+                raise _FakeAuthError("401 — Incorrect API key")
 
         class _FakeChat:
             completions = _FakeCompletions()
@@ -1227,8 +1351,10 @@ class TestValidateHelpers:
         monkeypatch.setattr(_openai, "AuthenticationError", _FakeAuthError)
         monkeypatch.setattr(_openai, "PermissionDeniedError", type("_NeverRaised", (Exception,), {}))
         monkeypatch.setattr(_openai, "NotFoundError", type("_NeverRaised2", (Exception,), {}))
-        result = OpenAIProvider.validate_credentials("sk-bad", "gpt-4o-mini")
-        assert result == "invalid_key"
+        state, detail = OpenAIProvider.validate_credentials("sk-bad", "gpt-4o-mini")
+        assert state == "invalid_key"
+        assert detail is not None
+        assert len(detail) > 0
 
     def test_openai_unknown_model(self, monkeypatch):
         import openai as _openai
@@ -1238,7 +1364,7 @@ class TestValidateHelpers:
 
         class _FakeCompletions:
             def create(self, **kwargs):
-                raise _FakeNotFoundError()
+                raise _FakeNotFoundError("404 — Model not found")
 
         class _FakeChat:
             completions = _FakeCompletions()
@@ -1250,8 +1376,9 @@ class TestValidateHelpers:
         monkeypatch.setattr(_openai, "AuthenticationError", type("_NeverRaised", (Exception,), {}))
         monkeypatch.setattr(_openai, "PermissionDeniedError", type("_NeverRaised2", (Exception,), {}))
         monkeypatch.setattr(_openai, "NotFoundError", _FakeNotFoundError)
-        result = OpenAIProvider.validate_credentials("sk-oai", "gpt-unknown-xyz")
-        assert result == "unknown_model"
+        state, detail = OpenAIProvider.validate_credentials("sk-oai", "gpt-unknown-xyz")
+        assert state == "unknown_model"
+        assert detail is not None
 
     def test_openai_unreachable(self, monkeypatch):
         import openai as _openai
@@ -1267,8 +1394,68 @@ class TestValidateHelpers:
             chat = _FakeChat()
 
         monkeypatch.setattr(_openai, "OpenAI", lambda api_key: _FakeClient())
-        result = OpenAIProvider.validate_credentials("sk-oai", "gpt-4o-mini")
-        assert result == "unreachable"
+        state, detail = OpenAIProvider.validate_credentials("sk-oai", "gpt-4o-mini")
+        assert state == "unreachable"
+        assert detail is not None
+        assert "timeout" in detail
+
+    def test_openai_detail_never_contains_api_key(self, monkeypatch):
+        """The api_key value must be redacted from any detail string."""
+        import openai as _openai
+
+        secret_key = "sk-oai-supersecret-12345"
+
+        class _FakeAuthError(Exception):
+            pass
+
+        class _FakeCompletions:
+            def create(self, **kwargs):
+                raise _FakeAuthError(f"Auth failed for key {secret_key}")
+
+        class _FakeChat:
+            completions = _FakeCompletions()
+
+        class _FakeClient:
+            chat = _FakeChat()
+
+        monkeypatch.setattr(_openai, "OpenAI", lambda api_key: _FakeClient())
+        monkeypatch.setattr(_openai, "AuthenticationError", _FakeAuthError)
+        monkeypatch.setattr(_openai, "PermissionDeniedError", type("_NeverRaised", (Exception,), {}))
+        monkeypatch.setattr(_openai, "NotFoundError", type("_NeverRaised2", (Exception,), {}))
+        state, detail = OpenAIProvider.validate_credentials(secret_key, "gpt-4o-mini")
+        assert state == "invalid_key"
+        assert secret_key not in (detail or "")
+        assert "[REDACTED]" in (detail or "")
+
+    def test_openai_detail_redacts_key_after_200_chars(self, monkeypatch):
+        """Key appearing after char 200 must still be fully redacted after truncation."""
+        import openai as _openai
+
+        secret_key = "sk-oai-supersecret"
+        prefix = "A" * 185  # push key past the 200-char mark
+
+        class _FakeAuthError(Exception):
+            pass
+
+        class _FakeCompletions:
+            def create(self, **kwargs):
+                raise _FakeAuthError(f"{prefix} key={secret_key}")
+
+        class _FakeChat:
+            completions = _FakeCompletions()
+
+        class _FakeClient:
+            chat = _FakeChat()
+
+        monkeypatch.setattr(_openai, "OpenAI", lambda api_key: _FakeClient())
+        monkeypatch.setattr(_openai, "AuthenticationError", _FakeAuthError)
+        monkeypatch.setattr(_openai, "PermissionDeniedError", type("_NeverRaised", (Exception,), {}))
+        monkeypatch.setattr(_openai, "NotFoundError", type("_NeverRaised2", (Exception,), {}))
+        state, detail = OpenAIProvider.validate_credentials(secret_key, "gpt-4o-mini")
+        assert state == "invalid_key"
+        assert secret_key not in (detail or "")
+        assert "[REDACTED]" in (detail or "")
+        assert len(detail or "") <= 200
 
     # ------------------------------------------------------------------
     # Gemini
@@ -1285,8 +1472,9 @@ class TestValidateHelpers:
             models = _FakeModels()
 
         monkeypatch.setattr(_genai, "Client", lambda api_key: _FakeClient())
-        result = GeminiProvider.validate_credentials("gm-key", "gemini-1.5-flash")
-        assert result == "valid"
+        state, detail = GeminiProvider.validate_credentials("gm-key", "gemini-1.5-flash")
+        assert state == "valid"
+        assert detail is None
 
     def test_gemini_invalid_key(self, monkeypatch):
         from google import genai as _genai
@@ -1299,8 +1487,10 @@ class TestValidateHelpers:
             models = _FakeModels()
 
         monkeypatch.setattr(_genai, "Client", lambda api_key: _FakeClient())
-        result = GeminiProvider.validate_credentials("gm-bad", "gemini-1.5-flash")
-        assert result == "invalid_key"
+        state, detail = GeminiProvider.validate_credentials("gm-bad", "gemini-1.5-flash")
+        assert state == "invalid_key"
+        assert detail is not None
+        assert len(detail) > 0
 
     def test_gemini_unreachable(self, monkeypatch):
         from google import genai as _genai
@@ -1313,8 +1503,10 @@ class TestValidateHelpers:
             models = _FakeModels()
 
         monkeypatch.setattr(_genai, "Client", lambda api_key: _FakeClient())
-        result = GeminiProvider.validate_credentials("gm-key", "gemini-1.5-flash")
-        assert result == "unreachable"
+        state, detail = GeminiProvider.validate_credentials("gm-key", "gemini-1.5-flash")
+        assert state == "unreachable"
+        assert detail is not None
+        assert "timeout" in detail
 
     def test_gemini_not_found(self, monkeypatch):
         from google import genai as _genai
@@ -1327,5 +1519,45 @@ class TestValidateHelpers:
             models = _FakeModels()
 
         monkeypatch.setattr(_genai, "Client", lambda api_key: _FakeClient())
-        result = GeminiProvider.validate_credentials("gm-key", "gemini-bogus")
-        assert result == "unknown_model"
+        state, detail = GeminiProvider.validate_credentials("gm-key", "gemini-bogus")
+        assert state == "unknown_model"
+        assert detail is not None
+
+    def test_gemini_detail_never_contains_api_key(self, monkeypatch):
+        """The api_key value must be redacted from any Gemini detail string."""
+        from google import genai as _genai
+
+        secret_key = "gm-supersecret-12345"
+
+        class _FakeModels:
+            def generate_content(self, model, contents):
+                raise Exception(f"unauthenticated: key {secret_key} is invalid")
+
+        class _FakeClient:
+            models = _FakeModels()
+
+        monkeypatch.setattr(_genai, "Client", lambda api_key: _FakeClient())
+        state, detail = GeminiProvider.validate_credentials(secret_key, "gemini-1.5-flash")
+        assert state == "invalid_key"
+        assert secret_key not in (detail or "")
+        assert "[REDACTED]" in (detail or "")
+
+    def test_gemini_detail_redacts_key_after_200_chars(self, monkeypatch):
+        """Key appearing after char 200 must still be fully redacted after truncation."""
+        from google import genai as _genai
+
+        secret_key = "gm-supersecret"
+        prefix = "A" * 185  # push key past the 200-char mark
+
+        class _FakeModels:
+            def generate_content(self, model, contents):
+                raise Exception(f"{prefix} key={secret_key}")
+
+        class _FakeClient:
+            models = _FakeModels()
+
+        monkeypatch.setattr(_genai, "Client", lambda api_key: _FakeClient())
+        state, detail = GeminiProvider.validate_credentials(secret_key, "gemini-1.5-flash")
+        assert secret_key not in (detail or "")
+        assert "[REDACTED]" in (detail or "")
+        assert len(detail or "") <= 200
