@@ -12,7 +12,7 @@
 │                         ingest.py (CLI)                          │
 │                                                                  │
 │  job_sources/        credentials.py   providers/                │
-│  (7 pluggable    ──► load_providers() ──► build_provider_chain() │
+│  (9 pluggable    ──► load_providers() ──► build_provider_chain() │
 │   sources)               │                       │               │
 │       │                  ▼                       ▼               │
 │  PreFilter ──► Scraper ──► score_listing_with_fallback() ──► DB  │
@@ -330,9 +330,11 @@ All `normalise()` implementations must return a dict with these keys: `source`,
 | `arbeitnow` | `ArbeitnowClient` | No credentials required |
 | `himalayas` | `HimalayasClient` | No credentials required |
 | `remoteok` | `RemoteOKClient` | No credentials required |
-| `remotive` | `RemotiveClient` | No credentials required |
-| `the_muse` | `TheMuseClient` | No credentials required |
 | `usajobs` | `USAJobsClient` | Requires `user_agent` header value |
+| `the_muse` | `TheMuseClient` | No credentials required |
+| `remotive` | `RemotiveClient` | No credentials required |
+| `jobicy` | `JobicyClient` | No credentials required |
+| `jooble` | `JoobleClient` | Requires `api_key` |
 
 **Factory functions:**
 
@@ -494,7 +496,7 @@ Credentials change more often and are more sensitive than search parameters.
 Separation allows tighter file-level access controls.
 
 ### Why a pluggable job_sources module
-Multiple sources (7 at present) run without any branching in the orchestrator.
+Multiple sources (9 at present) run without any branching in the orchestrator.
 Adding a new source requires only a new file implementing `JobSource` plus a registry
 entry — no changes to `ingest.py`.
 
@@ -569,9 +571,11 @@ job_matcher/
 │   ├── arbeitnow.py
 │   ├── himalayas.py
 │   ├── remoteok.py
-│   ├── remotive.py
+│   ├── usajobs.py
 │   ├── the_muse.py
-│   └── usajobs.py
+│   ├── remotive.py
+│   ├── jobicy.py
+│   └── jooble.py
 ├── providers/                   # LLM provider backends
 │   ├── __init__.py              # build_provider_chain(), _PROVIDER_CLASS_MAP
 │   ├── base.py                  # LLMProvider abstract base class

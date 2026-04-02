@@ -1,6 +1,6 @@
 # Job Matcher
 
-A locally-run job search tool that aggregates listings from multiple sources (Adzuna, Remotive, RemoteOK, Arbeitnow, Himalayas, The Muse, USAJobs), scores each one against your personal skills profile using an LLM, and surfaces ranked results in a browser-based feed. Run the ingestion script on demand or on a schedule, then open the UI to review, bookmark, or dismiss listings.
+A locally-run job search tool that aggregates listings from multiple sources (Adzuna, Remotive, RemoteOK, Arbeitnow, Himalayas, The Muse, USAJobs, Jobicy, Jooble), scores each one against your personal skills profile using an LLM, and surfaces ranked results in a browser-based feed. Run the ingestion script on demand or on a schedule, then open the UI to review, bookmark, or dismiss listings.
 
 ---
 
@@ -18,7 +18,7 @@ A locally-run job search tool that aggregates listings from multiple sources (Ad
 
 ```bash
 git clone <repo-url>
-cd job_aggregator
+cd job_matcher
 ```
 
 **2. Create and activate a virtual environment**
@@ -176,7 +176,7 @@ The web server and ingestion script are fully decoupled — `app.py` does not ne
 To run ingestion nightly at 07:00:
 
 ```cron
-0 7 * * * /usr/bin/python3 /path/to/job_aggregator/ingest.py >> /path/to/job_aggregator/ingest.log 2>&1
+0 7 * * * /usr/bin/python3 /path/to/job_matcher/ingest.py >> /path/to/job_matcher/ingest.log 2>&1
 ```
 
 **Windows Task Scheduler**
@@ -217,6 +217,7 @@ Which sources are enabled, and any source-specific API keys or settings, are con
 | `seniority` | String | e.g. `"Senior / Staff"`. Used to flag seniority mismatches. |
 | `preferred_industries` | Array of strings | Optional. Used to note industry fit. |
 | `location_preference` | String | e.g. `"remote or Miami, FL"`. Used to flag location concerns. |
+| `scoring_notes` | String or array of strings | Optional freeform instructions injected verbatim into the LLM scoring prompt. Use this to tune scoring behaviour — e.g. `"Senior roles should score 1–2 points higher than equivalent Mid-level roles"` or `"Flag any role requiring on-site work as a concern"`. The LLM treats these as hard guidance alongside your skills and anti-preferences. |
 
 Changes to `config/profile.json` take effect on the next ingestion run. Previously scored listings are not rescored automatically.
 

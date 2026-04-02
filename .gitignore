@@ -7,6 +7,9 @@ config/providers.json
 # Database
 jobs.db
 
+# Ingest log files
+logs/
+
 # Python artifacts
 __pycache__/
 *.pyc

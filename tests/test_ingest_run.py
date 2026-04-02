@@ -8,9 +8,9 @@ requests, LLM API calls, or reading real config files from disk.  They use:
   - A real temp SQLite database via pytest's ``tmp_path`` fixture.
   - Patched ``scrape_description`` and ``score_listing_with_fallback`` at the
     ``ingest`` module level so no network or LLM calls are made.
-  - Temp JSON files for config, profile, and keys so ``load_config()``,
-    ``load_profile()``, and ``load_keys()`` succeed without touching the
-    real project files.
+  - Temp JSON files for config, profile, and providers so ``load_config()``,
+    ``load_profile()``, and ``credentials.load_providers()`` succeed without
+    touching the real project files.
 
 The summary line printed by ``run()`` is validated against the same regex
 that ``app.py``'s ``_INGEST_SUMMARY_RE`` uses, ensuring the two stay in sync.

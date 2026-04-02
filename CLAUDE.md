@@ -42,14 +42,14 @@ Any step can short-circuit the listing with a logged reason (`FILTERED`, `DUPE`,
 
 ### LLM provider integration
 
-`load_keys()` reads `config/keys.json` (falling back to env vars `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` if the file is absent). `build_provider_chain()` returns an ordered list of `LLMProvider` instances based on the `preferred_provider` field and dict insertion order. `score_listing_with_fallback()` tries providers in sequence: auth failures (401/403) permanently remove a provider for the run; transient failures skip only the current listing. The scoring prompt expects a JSON response with exactly: `score` (0–10), `matched_skills`, `missing_skills`, `concerns`, `verdict`. Markdown code fences are stripped before parsing.
+`credentials.load_providers()` reads `config/providers.json` (falling back to legacy `config/keys.json` migration, then env vars `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` if the file is absent). `build_provider_chain()` returns an ordered list of `LLMProvider` instances based on `provider_order` and the `llm` sub-dict in `providers.json`. `score_listing_with_fallback()` tries providers in sequence: auth failures (401/403) permanently remove a provider for the run; transient failures skip only the current listing. The scoring prompt expects a JSON response with exactly: `score` (0–10), `matched_skills`, `missing_skills`, `concerns`, `verdict`. Markdown code fences are stripped before parsing.
 
 Results include a `model_used` field stored as `"provider/model"` per listing. Scoring threshold is set in `config/config.json` under `scoring`. Token counts and estimated cost are stored per listing and aggregated in the `/stats` view.
 
 ### Config & profile
 
 - **`config/config.json`** — Search params (`country`, `what`, `where`, `distance`, `max_days_old`, `results_per_page`, `max_pages`), scoring threshold, and optional `prefilter` block (title include/exclude patterns, contract type/time). Adzuna credentials have moved to `config/providers.json`.
-- **`config/keys.json`** — LLM provider API keys and model selection. Each provider entry has `api_key` and `model`. Dict insertion order defines fallback sequence; `preferred_provider` names the first-choice provider. Managed via the `/settings` UI. Gitignored — copy from `config/keys.example.json` to get started. If absent, `load_keys()` constructs a keys dict from env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`) for backward compatibility.
+- **`config/keys.json`** — Legacy LLM credential file. Superseded by `config/providers.json`. `credentials.load_providers()` will auto-migrate it to `providers.json` on first run if `providers.json` is absent.
 - **`config/profile.json`** — Candidate skills and preferences injected verbatim into the scoring prompt. Fields: `primary_skills`, `anti_preferences`, `seniority`, `preferred_industries`, `location_preference`, `scoring_notes`.
 - **`config/providers.json`** — Unified credential store for all sources, including Adzuna (`job_sources.adzuna.app_id` / `app_key`), Jooble, and USAJobs, as well as LLM providers (replaces `config/keys.json`). Managed via the `/settings` UI. Gitignored — copy from `config/providers.example.json` to get started.
 - All files are gitignored. Copy from `*.example.json` to get started.
@@ -86,4 +86,4 @@ All UI work must follow `docs/STYLE_GUIDE.md`. Read it before touching any HTML 
 | HTMX, no JS framework | Zero build tooling for a read-mostly UI with two write actions |
 | Decouple ingest from serve | Ingest takes minutes (scraping + LLM); it cannot run inside a web request |
 | `config/profile.json` flat file | Edited manually as a whole unit; easier to version-control than a DB record |
-| `config/keys.json` separate from `config/config.json` | API keys change more often and are more sensitive than search params; separation allows tighter file ACLs on `config/keys.json` |
+| `config/providers.json` separate from `config/config.json` | API keys and source credentials change more often and are more sensitive than search params; separation allows tighter file ACLs on `config/providers.json` |

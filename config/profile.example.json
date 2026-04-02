@@ -24,6 +24,7 @@
     "fintech"
   ],
   "location_preference": "remote, or on-site / hybrid in [your city]",
+  "_scoring_notes_help": "scoring_notes is injected verbatim into the LLM scoring prompt. Use it to give the model hard guidance that overrides or supplements the other fields — e.g. seniority weighting rules, industries to deprioritise, or any other scoring policy. Accepts a string or an array of strings.",
   "scoring_notes": [
     "Senior-level roles are strongly preferred. If two roles are otherwise equal, a Senior role should score 1-2 points higher than a Mid-level role.",
     "Mid-level roles are acceptable and should not be excluded, but must be noted in concerns.",

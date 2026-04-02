@@ -101,8 +101,8 @@ def load_config(path: str = _DEFAULT_CONFIG_PATH) -> dict:
     Raises SystemExit with a descriptive message if the file cannot be read
     or any required key is missing.
 
-    LLM provider API keys are no longer validated here — they have moved to
-    ``keys.json`` and are loaded by :func:`load_keys`.
+    LLM provider API keys are no longer validated here — they are loaded from
+    ``config/providers.json`` via :func:`credentials.load_providers`.
     """
     try:
         with open(path, encoding="utf-8") as fh:
@@ -572,9 +572,13 @@ def run(
         hours:          If provided, only process listings whose ``created_at``
                         timestamp is within the last N hours. Overrides
                         ``search.max_days_old`` in config with ``ceil(hours/24)``.
-        keys_path:      Path to legacy keys.json (used by migration; default
-                        ``"config/keys.json"``).
-        providers_path: Path to providers.json (default ``"config/providers.json"``).
+        keys_path:      Path to legacy ``keys.json`` passed to
+                        :func:`credentials.load_providers` for one-time migration;
+                        not used when ``providers.json`` is already present.
+                        Default: ``"config/keys.json"``.
+        providers_path: Path to ``providers.json`` — the unified credential store
+                        for LLM providers and job source credentials.
+                        Default: ``"config/providers.json"``.
                         Override in tests to inject a temp file.
     """
     config = load_config(config_path)
@@ -859,9 +863,13 @@ def rescore(
     Args:
         config_path:    Path to config.json (default ``"config/config.json"``).
         profile_path:   Path to profile.json (default ``"config/profile.json"``).
-        keys_path:      Path to legacy keys.json (used by migration; default
-                        ``"config/keys.json"``).
-        providers_path: Path to providers.json (default ``"config/providers.json"``).
+        keys_path:      Path to legacy ``keys.json`` passed to
+                        :func:`credentials.load_providers` for one-time migration;
+                        not used when ``providers.json`` is already present.
+                        Default: ``"config/keys.json"``.
+        providers_path: Path to ``providers.json`` — the unified credential store
+                        for LLM providers and job source credentials.
+                        Default: ``"config/providers.json"``.
                         Override in tests to inject a temp file.
     """
     profile = load_profile(profile_path)
