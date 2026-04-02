@@ -1267,20 +1267,23 @@ body {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  margin-top: 1rem;
   background: var(--bg-surface);
   border-top: 1px solid var(--border-mid);
   border-radius: 0 0 var(--radius-md) var(--radius-md);
+  max-height: 0;
+  overflow: hidden;
+  padding: 0 1rem;
+  margin-top: 0;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(4px);
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: max-height 0.2s ease, opacity 0.2s ease, padding 0.2s ease, margin-top 0.2s ease;
 }
 .save-bar--visible {
+  max-height: 4rem;
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(0);
+  padding: 0.75rem 1rem;
+  margin-top: 1rem;
 }
 .save-bar-label {
   font-size: 0.8rem;

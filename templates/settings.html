@@ -484,11 +484,33 @@
     var bar  = document.getElementById(cfg.barId);
     if (!form || !bar) return;
 
+    var originalSubmit = form.querySelector('button[type="submit"].btn-save');
+    if (originalSubmit) { originalSubmit.style.display = 'none'; }
+
+    // Capture original field values on page load
+    var fields = Array.from(form.querySelectorAll('input[type="text"], input[type="password"]'));
+    var originalValues = {};
+    fields.forEach(function (input) {
+      originalValues[input.name] = input.value;
+    });
+
+    function updateBarVisibility() {
+      var isDirty = fields.some(function (input) {
+        return input.value !== originalValues[input.name];
+      });
+      if (isDirty) {
+        bar.classList.add('save-bar--visible');
+        bar.removeAttribute('aria-hidden');
+      } else {
+        bar.classList.remove('save-bar--visible');
+        bar.setAttribute('aria-hidden', 'true');
+      }
+    }
+
     form.addEventListener('input', function (e) {
       var t = e.target;
       if (t.tagName === 'INPUT' && (t.type === 'text' || t.type === 'password')) {
-        bar.classList.add('save-bar--visible');
-        bar.removeAttribute('aria-hidden');
+        updateBarVisibility();
       }
     });
 

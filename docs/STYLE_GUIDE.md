@@ -211,7 +211,7 @@ All buttons extend `.btn` (base). Add a modifier class for semantic variants.
 | `.provider-home-link` | `<a>` | External link icon (↗) placed next to provider names on the Settings → Job Sources tab; `font-size: 0.8rem`, `var(--text-muted)` at rest, `var(--text-accent)` on hover, `transition: color 0.15s` |
 | `.source-description` | `<p>` | Short blurb below `.provider-header` on each source card; `--font-body` 0.82rem, `--text-muted`, `line-height: 1.5`; rendered only when `schema.description` is set |
 | `.save-bar` | `<div>` | Sticky unsaved-changes bar; see §5 Save Bar below |
-| `.save-bar--visible` | modifier on `.save-bar` | Added by JS when a text/password input changes; animates in via opacity + translateY |
+| `.save-bar--visible` | modifier on `.save-bar` | Added by JS when a text/password field is dirty; animates in via `max-height` + `opacity`; removed when all fields are restored to original values |
 | `.save-bar-label` | `<span>` | "Unsaved changes" text; `--font-mono` 0.8rem, `--score-mid-text` (amber — warning semantics) |
 
 ### Save Bar
@@ -231,8 +231,8 @@ Visibility is controlled by toggling `.save-bar--visible` via a delegated `input
 
 | Class | Element | Notes |
 |---|---|---|
-| `.save-bar` | `<div>` | `position: sticky; bottom: 0`; hidden at rest (`opacity: 0`, `pointer-events: none`, `translateY(4px)`) |
-| `.save-bar--visible` | modifier | Makes bar fully opaque and interactive; added/removed by JS |
+| `.save-bar` | `<div>` | `position: sticky; bottom: 0`; collapses when hidden via `max-height: 0` + `overflow: hidden` (zero padding, zero margin-top, `opacity: 0`, `pointer-events: none`) — takes up no layout space at rest |
+| `.save-bar--visible` | modifier | Expands bar (`max-height: 4rem`, full padding, `margin-top: 1rem`) and makes it opaque and interactive; added/removed by JS |
 | `.save-bar-label` | `<span>` | `--font-mono`, `--score-mid-text`; amber signals a pending-action state |
 
 ### Toggle Switch
