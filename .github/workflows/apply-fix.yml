@@ -25,7 +25,7 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.GH_TOKEN }}
           ref: refs/pull/${{ inputs.pr_number }}/head
           fetch-depth: 0
 
@@ -48,4 +48,4 @@ jobs:
           BRANCH=$(gh api repos/${{ github.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.ref')
           git push origin HEAD:$BRANCH
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
