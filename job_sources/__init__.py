@@ -147,6 +147,12 @@ def make_enabled_sources(providers_data: dict, config: dict) -> list[JobSource]:
                 )
                 continue
 
-        result.append(cls(config=config))
+        try:
+            result.append(cls(config=config))
+        except ValueError as exc:
+            _log.warning(
+                "Source '%s' failed to initialise — skipping: %s",
+                key, exc,
+            )
 
     return result

@@ -263,3 +263,73 @@ class TestMakeEnabledSourcesWithFakeRegistry:
         result = make_enabled_sources(_providers({}), _BASE_CONFIG)
         assert len(result) == 1
         assert isinstance(result[0], _KeylessSource)
+
+
+# ---------------------------------------------------------------------------
+# Helper: a source whose __init__ always raises ValueError (missing config block)
+# ---------------------------------------------------------------------------
+
+class _FailingSource(JobSource):
+    """Source that raises ValueError during __init__ (e.g. missing config block)."""
+    SOURCE = "_failing_test"
+
+    def __init__(self, config=None, **kwargs):
+        raise ValueError("_failing_test config block is absent.")
+
+    def fetch_page(self, page):
+        return []
+
+    def total_pages(self):
+        return 1
+
+    def normalise(self, raw):
+        return {}
+
+    @classmethod
+    def settings_schema(cls) -> dict:
+        return {"display_name": "Failing Test", "fields": []}
+
+
+class TestMakeEnabledSourcesInitFailure:
+    """Source raises ValueError during __init__ — should be skipped, not crash."""
+
+    def test_failing_source_is_skipped(self, monkeypatch):
+        """A source raising ValueError in __init__ is excluded from the result."""
+        fake_sources = {"_failing_test": _FailingSource}
+        monkeypatch.setattr("job_sources.SOURCES", fake_sources)
+
+        providers = _providers({"_failing_test": {"enabled": True}})
+        result = make_enabled_sources(providers, _BASE_CONFIG)
+
+        assert result == []
+
+    def test_warning_logged_with_source_name(self, monkeypatch, caplog):
+        """A warning naming the failing source is emitted."""
+        fake_sources = {"_failing_test": _FailingSource}
+        monkeypatch.setattr("job_sources.SOURCES", fake_sources)
+
+        providers = _providers({"_failing_test": {"enabled": True}})
+        with caplog.at_level(logging.WARNING, logger="ingest.sources"):
+            make_enabled_sources(providers, _BASE_CONFIG)
+
+        assert any(
+            "failed to initialise" in rec.message and "_failing_test" in rec.message
+            for rec in caplog.records
+        )
+
+    def test_other_sources_unaffected_by_failing_source(self, monkeypatch):
+        """A failing source does not prevent other sources from initialising."""
+        fake_sources = {
+            "_failing_test": _FailingSource,
+            "_keyless_test": _KeylessSource,
+        }
+        monkeypatch.setattr("job_sources.SOURCES", fake_sources)
+
+        providers = _providers({
+            "_failing_test": {"enabled": True},
+            "_keyless_test": {"enabled": True},
+        })
+        result = make_enabled_sources(providers, _BASE_CONFIG)
+
+        assert len(result) == 1
+        assert isinstance(result[0], _KeylessSource)
