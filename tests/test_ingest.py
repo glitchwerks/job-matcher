@@ -2,7 +2,7 @@
 tests/test_ingest.py — Tests for pure/testable functions in ingest.py and app.py.
 
 Covers:
-  - Markdown fence stripping (replicates the logic inside score_listing)
+  - Markdown fence stripping (strip_fences from providers.anthropic_provider)
   - salary_fmt template filter
   - prefilter() return type contract
   - score_listing_with_fallback() provider-chain fallback logic
@@ -17,25 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from ingest import prefilter, score_listing_with_fallback
 from app import salary_fmt, timeago
-
-
-# ---------------------------------------------------------------------------
-# Fence-stripping helper
-#
-# This replicates the exact logic found in score_listing() so we can test
-# it in isolation without making API calls.  If the source logic ever
-# changes this helper must be kept in sync.
-# ---------------------------------------------------------------------------
-
-def strip_fences(raw_content: str) -> str:
-    """Replicate the markdown fence-stripping logic from score_listing()."""
-    stripped = raw_content.strip()
-    lines = stripped.splitlines()
-    if lines and lines[0].startswith("```"):
-        lines = lines[1:]
-    if lines and lines[-1].strip() == "```":
-        lines = lines[:-1]
-    return "\n".join(lines).strip()
+from providers.anthropic_provider import strip_fences
 
 
 # ---------------------------------------------------------------------------
