@@ -588,7 +588,7 @@ _last_run: dict | None = None
 
 # Matches the summary line that ingest.py prints at the end of each run:
 #   Run complete: 2 source(s) | 25 fetched | 10 pre-filtered | 5 dupes skipped |
-#                7 scored (3 failed) | 0 scrape fallbacks | ~1,234 tok | ~$0.0012
+#                7 scored (3 failed) | 0 scrape skipped | 0 scrape fallbacks | ~1,234 tok | ~$0.0012
 _INGEST_SUMMARY_RE = re.compile(
     r"Run complete:\s*\d+\s*source\(s\)\s*\|"  # source count prefix
     r"\s*(\d+)\s*fetched\s*\|"                  # group 1 = fetched
@@ -603,7 +603,7 @@ def _parse_ingest_summary(output: str) -> dict:
 
     Expected format (single line emitted by ingest.py ``run()``):
       Run complete: 25 fetched | 10 pre-filtered | 5 dupes skipped |
-                    7 scored (3 failed) | 0 scrape fallbacks | ~1,234 tok | ~$0.0012
+                    7 scored (3 failed) | 0 scrape skipped | 0 scrape fallbacks | ~1,234 tok | ~$0.0012
 
     Extracted fields:
       new      — listings fetched from Adzuna this run

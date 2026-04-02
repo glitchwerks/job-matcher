@@ -645,6 +645,7 @@ def run(
     deduped = 0
     scraped_ok = 0
     scraped_fallback = 0
+    scraped_skipped = 0
     scored = 0
     score_failed = 0
     total_tokens_input = 0
@@ -710,17 +711,24 @@ def run(
                     continue
 
                 # --- Scrape ---
-                description, ok = scrape_description(
-                    listing["redirect_url"],
-                    fallback=listing["description"],
-                )
-                if ok:
-                    scraped_ok += 1
+                # Sources that set skip_scrape=True (e.g. Jooble, whose /jdp/
+                # pages return HTTP 403 to cold requests) have already provided
+                # the best available description via the API.  Skip the HTTP
+                # round-trip and use the API description directly.
+                if listing.get("skip_scrape"):
+                    scraped_skipped += 1
+                    logger.info("SCRAPE SKIP      [%s] %s", src_name, title)
                 else:
-                    scraped_fallback += 1
-                    logger.info("SCRAPE FALLBACK  [%s] %s", src_name, title)
-
-                listing["description"] = description
+                    description, ok = scrape_description(
+                        listing["redirect_url"],
+                        fallback=listing["description"],
+                    )
+                    if ok:
+                        scraped_ok += 1
+                    else:
+                        scraped_fallback += 1
+                        logger.info("SCRAPE FALLBACK  [%s] %s", src_name, title)
+                    listing["description"] = description
 
                 # --- Score ---
                 score_result = score_listing_with_fallback(
@@ -814,10 +822,10 @@ def run(
     logger.info(
         "Run complete: %d source(s) | %d fetched | %d pre-filtered | "
         "%d dupes skipped | %d scored (%d failed) | "
-        "%d scrape fallbacks | ~%s tok | ~$%.4f",
+        "%d scrape skipped | %d scrape fallbacks | ~%s tok | ~$%.4f",
         len(sources), fetched, prefiltered,
         deduped, scored, score_failed,
-        scraped_fallback, f"{total_tokens:,}", run_cost,
+        scraped_skipped, scraped_fallback, f"{total_tokens:,}", run_cost,
     )
     if len(provider_costs) > 1:
         breakdown = " | ".join(

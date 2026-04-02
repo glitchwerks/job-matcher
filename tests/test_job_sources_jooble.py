@@ -287,6 +287,12 @@ class TestJoobleNormalise:
         assert result["title"] == ""
         assert result["description"] == ""
 
+    def test_skip_scrape_is_true(self):
+        """normalise() sets skip_scrape=True because Jooble /jdp/ pages return HTTP 403."""
+        client = _client()
+        result = client.normalise(_RAW_JOB)
+        assert result.get("skip_scrape") is True
+
     def test_result_contains_all_canonical_keys(self):
         """normalise() output contains all required canonical schema keys."""
         required_keys = {

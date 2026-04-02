@@ -19,6 +19,7 @@ that ``app.py``'s ``_INGEST_SUMMARY_RE`` uses, ensuring the two stay in sync.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import sys
@@ -266,7 +267,6 @@ class TestIngestRunHappyPath:
 
     def test_summary_line_matches_app_regex(self, tmp_path, caplog):
         """The logged summary line matches ``app._INGEST_SUMMARY_RE``."""
-        import logging
         db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
@@ -414,7 +414,6 @@ class TestIngestRunScoringFailure:
 
     def test_score_failure_summary_reports_one_failed(self, tmp_path, caplog):
         """The summary line records score_failed=1 when one listing fails scoring."""
-        import logging
         db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
@@ -484,7 +483,6 @@ class TestIngestRunDedup:
 
     def test_duplicate_reflected_in_summary(self, tmp_path, caplog):
         """Second run reports 2 dupes skipped in its summary line."""
-        import logging
         db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
@@ -526,6 +524,119 @@ class TestIngestRunDedup:
 # ---------------------------------------------------------------------------
 # _inject_env_var_credentials() — env var injection helper
 # ---------------------------------------------------------------------------
+
+class TestIngestRunSkipScrape:
+    """Listings with skip_scrape=True bypass scrape_description()."""
+
+    def test_skip_scrape_listing_not_scraped(self, tmp_path):
+        """scrape_description is never called when a listing sets skip_scrape=True."""
+        db_path = str(tmp_path / "jobs.db")
+        config_path = _make_temp_config(tmp_path)
+        profile_path = _make_temp_profile(tmp_path)
+        keys_path = _make_temp_keys(tmp_path)
+
+        db.init_db(db_path=db_path)
+
+        skip_listing = {
+            **_LISTING_1,
+            "source": "jooble",
+            "source_id": "jooble-001",
+            "redirect_url": "https://jooble.org/jdp/-806082613597143857",
+            "skip_scrape": True,
+        }
+        mock_source = MockJobSource(listings=[skip_listing])
+
+        scrape_mock = patch("ingest.scrape_description", return_value=("Should not be called.", True))
+        with (
+            patch("ingest.make_enabled_sources", return_value=[mock_source]),
+            scrape_mock as mock_scrape,
+            patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
+            patch.object(ingest, "_DB_PATH", db_path),
+        ):
+            ingest.run(
+                config_path=config_path,
+                profile_path=profile_path,
+                keys_path=keys_path,
+            )
+
+        mock_scrape.assert_not_called()
+
+    def test_skip_scrape_listing_is_inserted(self, tmp_path):
+        """A listing with skip_scrape=True is still scored and inserted into the DB."""
+        db_path = str(tmp_path / "jobs.db")
+        config_path = _make_temp_config(tmp_path)
+        profile_path = _make_temp_profile(tmp_path)
+        keys_path = _make_temp_keys(tmp_path)
+
+        db.init_db(db_path=db_path)
+
+        skip_listing = {
+            **_LISTING_1,
+            "source": "jooble",
+            "source_id": "jooble-001",
+            "redirect_url": "https://jooble.org/jdp/-806082613597143857",
+            "skip_scrape": True,
+        }
+        mock_source = MockJobSource(listings=[skip_listing])
+
+        with (
+            patch("ingest.make_enabled_sources", return_value=[mock_source]),
+            patch("ingest.scrape_description", return_value=("Should not be called.", True)),
+            patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
+            patch.object(ingest, "_DB_PATH", db_path),
+        ):
+            ingest.run(
+                config_path=config_path,
+                profile_path=profile_path,
+                keys_path=keys_path,
+            )
+
+        conn = db.get_connection(db_path)
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
+        finally:
+            conn.close()
+
+        assert count == 1, f"Expected 1 inserted row, got {count}"
+
+    def test_skip_scrape_logs_scrape_skip(self, tmp_path, caplog):
+        """A listing with skip_scrape=True logs 'SCRAPE SKIP' instead of 'SCRAPE FALLBACK'."""
+        db_path = str(tmp_path / "jobs.db")
+        config_path = _make_temp_config(tmp_path)
+        profile_path = _make_temp_profile(tmp_path)
+        keys_path = _make_temp_keys(tmp_path)
+
+        db.init_db(db_path=db_path)
+
+        skip_listing = {
+            **_LISTING_1,
+            "source": "jooble",
+            "source_id": "jooble-001",
+            "redirect_url": "https://jooble.org/jdp/-806082613597143857",
+            "skip_scrape": True,
+        }
+        mock_source = MockJobSource(listings=[skip_listing])
+
+        with (
+            patch("ingest.make_enabled_sources", return_value=[mock_source]),
+            patch("ingest.scrape_description", return_value=("Should not be called.", True)),
+            patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
+            patch.object(ingest, "_DB_PATH", db_path),
+            caplog.at_level(logging.INFO, logger="ingest"),
+        ):
+            ingest.run(
+                config_path=config_path,
+                profile_path=profile_path,
+                keys_path=keys_path,
+            )
+
+        assert "SCRAPE SKIP" in caplog.text, (
+            f"Expected 'SCRAPE SKIP' in log output; got:\n{caplog.text}"
+        )
+        assert "SCRAPE FALLBACK" not in caplog.text, (
+            f"'SCRAPE FALLBACK' must not appear for skip_scrape listings; got:\n{caplog.text}"
+        )
+
 
 class TestInjectEnvVarCredentials:
     """Unit tests for ingest._inject_env_var_credentials()."""

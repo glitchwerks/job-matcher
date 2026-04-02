@@ -22,6 +22,10 @@ Canonical listing schema
     description     str|None     — snippet or None; full JD scraped later
     redirect_url    str
     created_at      str|None     — ISO 8601 string, e.g. "2026-01-02T12:34:56Z"
+    skip_scrape     bool         — optional (default False); set True when the source
+                                   URL is known to block scrapers (e.g. Jooble /jdp/
+                                   pages return 403). The pipeline skips the HTTP
+                                   scrape step and uses the API description directly.
 """
 
 from __future__ import annotations
