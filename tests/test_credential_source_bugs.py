@@ -13,7 +13,6 @@ import logging
 import os
 import sqlite3
 import sys
-import tempfile
 
 import pytest
 
@@ -22,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import app as app_module
 import db
 from app import app as flask_app
-from credentials import CredentialError, save_providers
+from credentials import save_providers
 from job_sources import make_enabled_sources, JobSource
 
 
