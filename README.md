@@ -44,22 +44,24 @@ uv pip install -r requirements.txt
 ```bash
 # bash / macOS / Linux
 cp config/config.example.json config/config.json
-cp config/keys.example.json config/keys.json
+cp config/providers.example.json config/providers.json
 cp config/profile.example.json config/profile.json
 
 # PowerShell
 Copy-Item config\config.example.json config\config.json
-Copy-Item config\keys.example.json config\keys.json
+Copy-Item config\providers.example.json config\providers.json
 Copy-Item config\profile.example.json config\profile.json
 ```
 
-`config/keys.json` holds LLM provider API keys and model selection. You can fill it in directly or configure it through the `/settings` UI after starting the web server.
+`config/providers.json` is the unified credential store for all LLM providers (Anthropic, OpenAI, Gemini) and job sources (Adzuna, Jooble, etc.). The easiest way to configure it is through the `/settings` UI after starting the web server — it validates keys and saves them for you. You can also edit the file directly by following the structure in `config/providers.example.json`.
+
+> **Migrating from `keys.json`?** If you have an existing `config/keys.json` from a previous install, it will be auto-migrated to `providers.json` on first run — no manual action needed.
 
 **5. Fill in `config/config.json`**
 
-`config/config.json` holds Adzuna-specific search settings and global scoring/filter options. Which sources are enabled and any source-specific credentials (other than Adzuna) are configured via the `/settings` UI after starting the web server.
+`config/config.json` holds Adzuna-specific search parameters (`country`, `what`, `where`, etc.) and global scoring/filter options. Which sources are enabled and all source credentials (including Adzuna) are configured via the `/settings` UI after starting the web server.
 
-LLM provider keys (Anthropic, OpenAI, Gemini) are configured separately via `config/keys.json` and the `/settings` UI.
+LLM provider keys (Anthropic, OpenAI, Gemini) are configured via `config/providers.json` and the `/settings` UI.
 
 **Adzuna source settings (optional — only needed if you want to use the Adzuna source)**
 
@@ -240,13 +242,13 @@ What it does:
 - Prompts for the data directory path and daily ingest time (infrastructure only — no credential prompts)
 - Sets system environment variables (`DB_PATH`, `FLASK_DEBUG`)
 - Creates the data directory and a `logs/` subfolder
-- Copies `config/keys.example.json` → `config/keys.json` and restricts its ACL to the current user
-- Copies `config/config.example.json` → `config/config.json` (if absent) — edit it to add Adzuna credentials (optional — only needed for the Adzuna source)
+- Copies `config/providers.example.json` → `config/providers.json` and restricts its ACL to the current user
+- Copies `config/config.example.json` → `config/config.json` (if absent)
 - Registers the `JobMatcher` Windows service (waitress via NSSM) set to auto-start
 - Registers the `JobMatcherIngest` daily Task Scheduler task
 - Opens Windows Firewall inbound TCP port 5000 so the UI is reachable from the network
 
-After the script completes, navigate to `http://localhost:5000/settings` to enter your LLM provider API keys, then edit `config/config.json` to add your Adzuna App ID and App Key.
+After the script completes, navigate to `http://localhost:5000/settings` to configure your LLM provider API keys and any job source credentials (including Adzuna App ID and App Key).
 
 ### Prerequisites
 
@@ -268,7 +270,7 @@ Set the database path as a machine-level environment variable so both the servic
 
 Restart your terminal after setting machine-level variables for them to take effect.
 
-LLM provider API keys (Anthropic, OpenAI, Gemini) are managed through `config/keys.json` and the `/settings` UI — do not set them as environment variables.
+LLM provider API keys (Anthropic, OpenAI, Gemini) are managed through `config/providers.json` and the `/settings` UI — do not set them as environment variables.
 
 ### Web service — NSSM (reference)
 
@@ -330,7 +332,7 @@ The SQLite database (`jobs.db`) is created there automatically on the first run.
 
 ### API keys (LLM providers)
 
-LLM provider keys (Anthropic, OpenAI, Gemini, etc.) are stored in `config/keys.json` and managed through the `/settings` UI — they are not set as environment variables. `config/keys.json` is gitignored and never committed. After running `scripts/setup.ps1`, navigate to `http://localhost:5000/settings` to enter your API keys.
+LLM provider keys (Anthropic, OpenAI, Gemini, etc.) are stored in `config/providers.json` alongside job source credentials. The file is gitignored and never committed. After running `scripts/setup.ps1`, navigate to `http://localhost:5000/settings` to enter your API keys — the Settings UI validates each key before saving.
 
 ### Ops commands
 
@@ -372,7 +374,7 @@ The self-hosted runner must be registered on the server before automated deploym
 
 ### Secrets and config
 
-`config/config.json`, `config/keys.json`, and `config/profile.json` are gitignored and are never touched by the workflow. API keys live only in `config/keys.json` on the server — the deployment workflow does not use or require any GitHub Actions secrets for application credentials.
+`config/config.json`, `config/providers.json`, and `config/profile.json` are gitignored and are never touched by the workflow. API keys live only in `config/providers.json` on the server — the deployment workflow does not use or require any GitHub Actions secrets for application credentials.
 
 ### Required secrets
 
