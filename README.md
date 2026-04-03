@@ -218,8 +218,25 @@ Which sources are enabled, and any source-specific API keys or settings, are con
 | `anti_preferences` | Array of strings | Roles or technologies you want flagged as concerns even if you technically have the skills. |
 | `seniority` | String | e.g. `"Senior / Staff"`. Used to flag seniority mismatches. |
 | `preferred_industries` | Array of strings | Optional. Used to note industry fit. |
-| `location_preference` | String | e.g. `"remote or Miami, FL"`. Used to flag location concerns. |
+| `location` | Object | Nested location block. See fields below. |
+| `location.center` | String | Geocodable string, e.g. `"Miami, FL"`. Used as the center point for the geospatial pre-filter. |
+| `location.radius_km` | Number | Hard-filter radius in km. Listings outside this radius are dropped before LLM scoring. |
+| `location.geocode_fallback` | `"pass"` or `"discard"` | What to do when a listing location cannot be geocoded. Defaults to `"pass"`. |
+| `location.notes` | String | Free-text injected into the LLM scoring prompt (e.g. `"Open to remote or on-site / hybrid in South Florida"`). Auto-generated from `center` + `radius_km` when absent. |
 | `scoring_notes` | String or array of strings | Optional freeform instructions injected verbatim into the LLM scoring prompt. Use this to tune scoring behaviour — e.g. `"Senior roles should score 1–2 points higher than equivalent Mid-level roles"` or `"Flag any role requiring on-site work as a concern"`. The LLM treats these as hard guidance alongside your skills and anti-preferences. |
+
+Example `location` block:
+
+```json
+"location": {
+  "center": "Miami, FL",
+  "radius_km": 80,
+  "geocode_fallback": "pass",
+  "notes": "Open to remote or on-site / hybrid in South Florida"
+}
+```
+
+> **Migrating from the old flat location fields?** The flat fields `location_preference`, `location_center`, `location_radius_km`, and `location_geocode_fallback` are no longer read. Update your `config/profile.json` to use the nested `location` block shown above.
 
 Changes to `config/profile.json` take effect on the next ingestion run. Previously scored listings are not rescored automatically.
 

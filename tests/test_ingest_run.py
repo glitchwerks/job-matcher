@@ -158,7 +158,11 @@ def _make_temp_profile(tmp_path) -> str:
         "anti_preferences": [],
         "seniority": "senior",
         "preferred_industries": ["tech"],
-        "location_preference": "remote",
+        "location": {
+            "center": "Miami, FL",
+            "radius_km": 80,
+            "geocode_fallback": "pass",
+        },
         "scoring_notes": "Prefer remote-first companies.",
     }
     path = str(tmp_path / "profile.json")

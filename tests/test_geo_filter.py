@@ -392,6 +392,11 @@ class TestGeoFilterClass:
 from ingest import _generate_location_notes  # noqa: E402
 
 
+def test_generate_location_notes_exact_format():
+    result = _generate_location_notes("Miami, FL", 80)
+    assert result == "Within 80 km of Miami, FL"
+
+
 def test_generate_location_notes_with_center_and_radius():
     """Auto-generated notes include both the radius and center."""
     notes = _generate_location_notes("Miami, FL", 80)

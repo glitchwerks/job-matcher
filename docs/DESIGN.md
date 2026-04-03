@@ -259,10 +259,17 @@ Gitignored — copy from `config/profile.example.json`.
   ],
   "seniority": "Senior / Staff",
   "preferred_industries": ["fintech", "developer tooling", "infrastructure"],
-  "location_preference": "remote or Miami, FL",
+  "location": {
+    "center": "Miami, FL",
+    "radius_km": 80,
+    "geocode_fallback": "pass",
+    "notes": "Open to remote or on-site / hybrid in South Florida"
+  },
   "scoring_notes": ""
 }
 ```
+
+> **Migration note:** The flat fields `location_preference`, `location_center`, `location_radius_km`, and `location_geocode_fallback` are no longer read. Update any existing `config/profile.json` to use the nested `location` block shown above.
 
 ---
 
