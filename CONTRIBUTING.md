@@ -22,7 +22,7 @@ Copy the example config files — these are gitignored and must never be committ
 
 ```powershell
 Copy-Item config\config.example.json config\config.json
-Copy-Item config\providers.example.json config\providers.json
+Copy-Item config\keys.example.json config\keys.json
 Copy-Item config\profile.example.json config\profile.json
 ```
 
