@@ -36,6 +36,7 @@
   <div class="feed-meta">
     <strong>{{ listings | length }}</strong>
     {%- if listings | length == 1 %} snippet-scored role{% else %} snippet-scored roles{% endif %}
+    &nbsp;·&nbsp; score {{ threshold | round(1) }}+
     &nbsp;·&nbsp; sorted by {% if sort == 'date_posted' %}date posted{% else %}score{% endif %}
   </div>
 

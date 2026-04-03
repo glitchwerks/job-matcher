@@ -785,6 +785,7 @@ def get_feed(
 
 
 def get_snippet_feed(
+    threshold: float = 7.0,
     sort: str | None = None,
     db_path: str = _DEFAULT_DB_PATH,
 ) -> list[dict]:
@@ -796,12 +797,14 @@ def get_snippet_feed(
     their own dedicated view so the user can review them separately.
 
     Listings whose score is NULL are excluded (not yet scored).  Dismissed
-    listings are excluded.
+    listings are excluded.  Only listings with ``score >= threshold`` are
+    returned, mirroring the behaviour of :func:`get_feed`.
 
     Args:
-        sort:    Optional sort key.  ``'date_posted'`` orders by posted_at DESC;
-                 any other value (or None) falls back to score DESC.
-        db_path: Path to the SQLite database file.
+        threshold: Score floor (inclusive).  Defaults to 7.0.
+        sort:      Optional sort key.  ``'date_posted'`` orders by posted_at DESC;
+                   any other value (or None) falls back to score DESC.
+        db_path:   Path to the SQLite database file.
     """
     order_clause = _ALLOWED_SORT_COLUMNS.get(sort, _DEFAULT_SORT_CLAUSE)
 
@@ -809,8 +812,9 @@ def get_snippet_feed(
     try:
         rows = conn.execute(
             f"SELECT * FROM listings "
-            f"WHERE description_source = 'snippet' AND dismissed = 0 AND score IS NOT NULL "
+            f"WHERE description_source = 'snippet' AND dismissed = 0 AND score >= ? "
             f"ORDER BY {order_clause}",
+            (threshold,),
         ).fetchall()
         return [_deserialise_row(r) for r in rows]
     finally:

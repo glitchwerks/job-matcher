@@ -316,15 +316,37 @@ class TestGetSnippetFeed:
             assert "sf-null" not in ids
 
     def test_includes_non_dismissed_snippet(self):
-        """get_snippet_feed() includes non-dismissed, scored snippet listings."""
+        """get_snippet_feed() includes non-dismissed, scored snippet listings at or above threshold."""
         with TempDB() as path:
             db.insert_listing(
                 make_listing(source_id="sf-ok", description_source="snippet", score=7.0, dismissed=0),
                 db_path=path,
             )
-            results = db.get_snippet_feed(db_path=path)
+            results = db.get_snippet_feed(threshold=7.0, db_path=path)
             ids = [r["source_id"] for r in results]
             assert "sf-ok" in ids
+
+    def test_excludes_below_threshold(self):
+        """get_snippet_feed() excludes listings whose score is below the threshold."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source_id="sf-low", description_source="snippet", score=5.0, dismissed=0),
+                db_path=path,
+            )
+            results = db.get_snippet_feed(threshold=7.0, db_path=path)
+            ids = [r["source_id"] for r in results]
+            assert "sf-low" not in ids
+
+    def test_includes_at_threshold_boundary(self):
+        """get_snippet_feed() includes listings whose score equals the threshold exactly."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source_id="sf-boundary", description_source="snippet", score=7.0, dismissed=0),
+                db_path=path,
+            )
+            results = db.get_snippet_feed(threshold=7.0, db_path=path)
+            ids = [r["source_id"] for r in results]
+            assert "sf-boundary" in ids
 
     def test_sort_by_date_posted(self):
         """get_snippet_feed(sort='date_posted') returns results in posted_at DESC order."""
@@ -336,12 +358,12 @@ class TestGetSnippetFeed:
                 db_path=path,
             )
             db.insert_listing(
-                make_listing(source_id="sf-new", description_source="snippet", score=6.0,
+                make_listing(source_id="sf-new", description_source="snippet", score=7.0,
                              posted_at="2026-02-01T00:00:00Z",
                              redirect_url="https://example.com/b"),
                 db_path=path,
             )
-            results = db.get_snippet_feed(sort="date_posted", db_path=path)
+            results = db.get_snippet_feed(threshold=5.0, sort="date_posted", db_path=path)
             ids = [r["source_id"] for r in results]
             assert ids.index("sf-new") < ids.index("sf-old")
 
@@ -349,7 +371,7 @@ class TestGetSnippetFeed:
         """get_snippet_feed() defaults to score DESC when sort is not specified."""
         with TempDB() as path:
             db.insert_listing(
-                make_listing(source_id="sf-lo", description_source="snippet", score=5.0,
+                make_listing(source_id="sf-lo", description_source="snippet", score=7.5,
                              redirect_url="https://example.com/c"),
                 db_path=path,
             )
@@ -358,7 +380,7 @@ class TestGetSnippetFeed:
                              redirect_url="https://example.com/d"),
                 db_path=path,
             )
-            results = db.get_snippet_feed(db_path=path)
+            results = db.get_snippet_feed(threshold=7.0, db_path=path)
             ids = [r["source_id"] for r in results]
             assert ids.index("sf-hi") < ids.index("sf-lo")
 
@@ -512,9 +534,9 @@ class TestSnippetsRoute:
         assert b"No snippet-scored listings" in response.data
 
     def test_snippets_route_shows_snippet_badge(self):
-        """GET /snippets renders the snippet badge on each card."""
+        """GET /snippets renders the snippet badge on each card (listing at threshold)."""
         db.insert_listing(
-            make_listing(source_id="route-001", description_source="snippet", score=7.0),
+            make_listing(source_id="route-001", description_source="snippet", score=8.0),
             db_path=self.db_path,
         )
         response = self.client.get("/snippets")
@@ -529,6 +551,39 @@ class TestSnippetsRoute:
         )
         response = self.client.get("/snippets")
         assert b"route-full" not in response.data
+
+    def test_snippets_route_hides_below_threshold(self):
+        """GET /snippets does not render snippet listings whose score is below the threshold."""
+        import app as flask_app
+        # Insert one listing below CONFIG threshold and one above it.
+        # Use distinct redirect URLs so we can locate each card in the HTML.
+        threshold = flask_app.CONFIG["scoring"]["threshold"]
+        db.insert_listing(
+            make_listing(source_id="route-below", description_source="snippet",
+                         score=threshold - 1.0,
+                         redirect_url="https://example.com/job-below-threshold"),
+            db_path=self.db_path,
+        )
+        db.insert_listing(
+            make_listing(source_id="route-above", description_source="snippet",
+                         score=threshold + 1.0,
+                         redirect_url="https://example.com/job-above-threshold"),
+            db_path=self.db_path,
+        )
+        response = self.client.get("/snippets")
+        # The redirect_url is rendered in each card's "view listing" anchor href.
+        assert b"job-below-threshold" not in response.data
+        assert b"job-above-threshold" in response.data
+
+    def test_snippets_route_shows_threshold_in_subtitle(self):
+        """GET /snippets renders the score threshold in the subtitle line."""
+        import app as flask_app
+        threshold = flask_app.CONFIG["scoring"]["threshold"]
+        response = self.client.get("/snippets")
+        body = response.data.decode("utf-8")
+        # The subtitle renders e.g. "score 7.0+"
+        expected = f"score {threshold:.1f}+"
+        assert expected in body
 
     def test_snippets_nav_tab_is_active(self):
         """GET /snippets marks the feed top-level tab and snippets sub-tab as active."""

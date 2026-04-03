@@ -508,12 +508,14 @@ def snippets():
     Accepts an optional ``sort`` query param (``'date_posted'`` or omit for score DESC).
     """
     sort = request.args.get("sort", "").strip() or None
-    listings = db.get_snippet_feed(sort=sort, db_path=DB_PATH)
+    threshold = CONFIG["scoring"]["threshold"]
+    listings = db.get_snippet_feed(threshold=threshold, sort=sort, db_path=DB_PATH)
     return render_template(
         "snippets.html",
         listings=listings,
         view="snippets",
         sort=sort,
+        threshold=threshold,
         config_warnings=_config_warnings(),
     )
 
