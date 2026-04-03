@@ -715,6 +715,11 @@ class TestSnippetsRoute:
         assert 'name="remote_only"' in body
         # Filter button
         assert 'class="btn filter-btn"' in body
+        # Filter bar structural attributes
+        assert 'class="filter-bar"' in body
+        assert 'method="get"' in body
+        assert 'action="/snippets"' in body
+        assert 'class="filter-input"' in body
 
     def test_snippets_clear_link_shown_when_filter_active(self):
         """GET /snippets with an active filter renders the Clear link."""

@@ -816,7 +816,7 @@ def get_snippet_feed(
     """
     effective = min_score if min_score is not None else threshold
 
-    conditions = ["description_source = 'snippet'", "dismissed = 0", "score >= ?"]
+    conditions = ["score >= ?", "dismissed = 0", "description_source = 'snippet'"]
     params: list = [effective]
 
     if remote_only:

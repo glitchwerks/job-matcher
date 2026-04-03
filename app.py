@@ -513,9 +513,16 @@ def snippets():
     remote_only = request.args.get("remote_only") == "1"
     job_type = request.args.get("job_type", "").strip() or None
     raw_min_score = request.args.get("min_score", "").strip()
-    min_score: float | None = float(raw_min_score) if raw_min_score else None
+    min_score: float | None = None
+    if raw_min_score:
+        try:
+            min_score = float(raw_min_score)
+        except ValueError:
+            min_score = None
 
     threshold = CONFIG["scoring"]["threshold"]
+    if not isinstance(threshold, (int, float)) or threshold < 0:
+        threshold = 7.0
     job_types = db.get_job_types(db_path=DB_PATH)
     listings = db.get_snippet_feed(
         threshold=threshold,

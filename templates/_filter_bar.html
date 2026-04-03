@@ -46,7 +46,7 @@
   </label>
 
   <button type="submit" class="btn filter-btn">Filter</button>
-  {% if search or min_score or remote_only or job_type or sort %}
+  {% if search or (min_score is not none) or remote_only or job_type or sort %}
     <a href="{{ action }}" class="filter-clear">Clear</a>
   {% endif %}
 </form>
