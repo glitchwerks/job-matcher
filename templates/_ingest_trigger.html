@@ -24,7 +24,7 @@
       Rescore all
     </label>
     <script>
-      (function() {
+      document.addEventListener('DOMContentLoaded', function() {
         var rescoreCheckbox = document.getElementById('rescore-toggle');
         var periodLabel = document.getElementById('ingest-period-label');
         var periodSelect = document.getElementById('ingest-hours');
@@ -35,8 +35,8 @@
           periodLabel.style.pointerEvents = checked ? 'none' : '';
         }
         rescoreCheckbox.addEventListener('change', function() { applyRescoreState(this.checked); });
-        document.addEventListener('DOMContentLoaded', function() { applyRescoreState(rescoreCheckbox.checked); });
-      })();
+        applyRescoreState(rescoreCheckbox.checked);
+      });
     </script>
     <div class="ingest-rescore-hint">Re-scores existing listings against your current profile. Does not fetch new jobs.</div>
     <label class="filter-toggle ingest-opt" for="ingest-hours" id="ingest-period-label">
