@@ -20,22 +20,24 @@
       Run Ingestion
     </button>
     <label class="filter-toggle ingest-opt">
-      <input type="checkbox" name="rescore" value="1" id="rescore-toggle"
-             onchange="(function(cb){
-               var periodLabel = document.getElementById('ingest-period-label');
-               var periodSelect = document.getElementById('ingest-hours');
-               if (cb.checked) {
-                 periodLabel.style.opacity = '0.4';
-                 periodLabel.style.pointerEvents = 'none';
-                 periodSelect.disabled = true;
-               } else {
-                 periodLabel.style.opacity = '';
-                 periodLabel.style.pointerEvents = '';
-                 periodSelect.disabled = false;
-               }
-             })(this)">
+      <input type="checkbox" name="rescore" value="1" id="rescore-toggle">
       Rescore all
     </label>
+    <script>
+      (function() {
+        var rescoreCheckbox = document.getElementById('rescore-toggle');
+        var periodLabel = document.getElementById('ingest-period-label');
+        var periodSelect = document.getElementById('ingest-hours');
+        function applyRescoreState(checked) {
+          periodSelect.disabled = checked;
+          periodSelect.style.opacity = checked ? '0.5' : '';
+          periodLabel.style.opacity = checked ? '0.5' : '';
+          periodLabel.style.pointerEvents = checked ? 'none' : '';
+        }
+        rescoreCheckbox.addEventListener('change', function() { applyRescoreState(this.checked); });
+        document.addEventListener('DOMContentLoaded', function() { applyRescoreState(rescoreCheckbox.checked); });
+      })();
+    </script>
     <span class="ingest-rescore-hint">Re-scores existing listings against your current profile. Does not fetch new jobs.</span>
     <label class="filter-toggle ingest-opt" for="ingest-hours" id="ingest-period-label">
       Period:&nbsp;<select id="ingest-hours" name="hours" class="filter-select ingest-period-select">
