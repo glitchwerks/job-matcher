@@ -37,6 +37,7 @@ def make_listing(
     redirect_url: str = "https://example.com/job/1",
     score: float | None = 8.0,
     dismissed: int = 0,
+    applied: int = 0,
     seen: int = 1,
     description_source: str = "full",
     source: str = "adzuna",
@@ -67,7 +68,7 @@ def make_listing(
         "bookmarked": 0,
         "dismissed": dismissed,
         "seen": seen,
-        "applied": 0,
+        "applied": applied,
         "job_type": job_type,
         "model_used": None,
         "posted_at": posted_at,
@@ -304,6 +305,17 @@ class TestGetSnippetFeed:
             results = db.get_snippet_feed(db_path=path)
             ids = [r["source_id"] for r in results]
             assert "sf-dis" not in ids
+
+    def test_excludes_applied_listings(self):
+        """get_snippet_feed() does not return applied snippet listings."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source_id="sf-applied", description_source="snippet", applied=1),
+                db_path=path,
+            )
+            results = db.get_snippet_feed(db_path=path)
+            ids = [r["source_id"] for r in results]
+            assert "sf-applied" not in ids
 
     def test_excludes_null_score(self):
         """get_snippet_feed() excludes unscored (score=NULL) snippet listings."""

@@ -408,6 +408,8 @@ def feed():
       - search: text matched against title and company
     """
     threshold = CONFIG["scoring"]["threshold"]
+    if not isinstance(threshold, (int, float)) or threshold < 0:
+        threshold = 7.0
 
     min_score_raw = request.args.get("min_score")
     try:
