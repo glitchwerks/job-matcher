@@ -786,6 +786,10 @@ def get_feed(
 
 def get_snippet_feed(
     threshold: float = 7.0,
+    min_score: float | None = None,
+    remote_only: bool = False,
+    search: str | None = None,
+    job_type: str | None = None,
     sort: str | None = None,
     db_path: str = _DEFAULT_DB_PATH,
 ) -> list[dict]:
@@ -797,24 +801,44 @@ def get_snippet_feed(
     their own dedicated view so the user can review them separately.
 
     Listings whose score is NULL are excluded (not yet scored).  Dismissed
-    listings are excluded.  Only listings with ``score >= threshold`` are
-    returned, mirroring the behaviour of :func:`get_feed`.
+    listings are excluded.  Only listings with ``score >= effective threshold``
+    are returned, mirroring the behaviour of :func:`get_feed`.
 
     Args:
-        threshold: Score floor (inclusive).  Defaults to 7.0.
-        sort:      Optional sort key.  ``'date_posted'`` orders by posted_at DESC;
-                   any other value (or None) falls back to score DESC.
-        db_path:   Path to the SQLite database file.
+        threshold:   Default score floor used when min_score is not provided.
+        min_score:   If provided, overrides threshold as the score floor.
+        remote_only: If True, restricts to listings whose location contains "remote".
+        search:      If provided, filters by title or company containing the search string.
+        job_type:    If provided, restricts to listings whose job_type matches (case-insensitive).
+        sort:        Optional sort key.  ``'date_posted'`` orders by posted_at DESC;
+                     any other value (or None) falls back to score DESC.
+        db_path:     Path to the SQLite database file.
     """
+    effective = min_score if min_score is not None else threshold
+
+    conditions = ["score >= ?", "dismissed = 0", "applied = 0", "description_source = 'snippet'"]
+    params: list = [effective]
+
+    if remote_only:
+        conditions.append("LOWER(location) LIKE '%remote%'")
+
+    if search:
+        conditions.append("(LOWER(title) LIKE ? OR LOWER(company) LIKE ?)")
+        term = f"%{search.lower()}%"
+        params.extend([term, term])
+
+    if job_type:
+        conditions.append("LOWER(job_type) = LOWER(?)")
+        params.append(job_type)
+
+    where_clause = " AND ".join(conditions)
     order_clause = _ALLOWED_SORT_COLUMNS.get(sort, _DEFAULT_SORT_CLAUSE)
 
     conn = get_connection(db_path)
     try:
         rows = conn.execute(
-            f"SELECT * FROM listings "
-            f"WHERE description_source = 'snippet' AND dismissed = 0 AND score >= ? "
-            f"ORDER BY {order_clause}",
-            (threshold,),
+            f"SELECT * FROM listings WHERE {where_clause} ORDER BY {order_clause}",
+            params,
         ).fetchall()
         return [_deserialise_row(r) for r in rows]
     finally:

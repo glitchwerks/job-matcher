@@ -1,0 +1,52 @@
+{# ── Shared filter bar partial ───────────────────────────────────────────── #}
+{#                                                                            #}
+{# Variables (passed via {% with %}):                                         #}
+{#   action      — form action URL, e.g. "/" or "/snippets"                   #}
+{#   search      — current search string, or None                             #}
+{#   sort        — current sort value, or None                                #}
+{#   remote_only — bool                                                       #}
+{#   job_type    — current job_type value, or None                            #}
+{#   job_types   — list of available job type strings (for the dropdown)      #}
+{#   threshold   — configured score floor (float)                             #}
+{#   min_score   — current min_score override (float or None)                 #}
+<form class="filter-bar" method="get" action="{{ action }}">
+  <input type="text" name="search" placeholder="Search title or company"
+         value="{{ search or '' }}" class="filter-input">
+
+  <select name="min_score" class="filter-select" onchange="this.form.submit()">
+    <option value="">Score: any</option>
+    <option value="5" {% if min_score == 5.0 %}selected{% endif %}>5+</option>
+    <option value="6" {% if min_score == 6.0 %}selected{% endif %}>6+</option>
+    <option value="7" {% if min_score == 7.0 %}selected{% endif %}>7+</option>
+    <option value="8" {% if min_score == 8.0 %}selected{% endif %}>8+</option>
+    <option value="9" {% if min_score == 9.0 %}selected{% endif %}>9+</option>
+  </select>
+
+  <select name="sort" class="filter-select" onchange="this.form.submit()">
+    <option value="" {% if not sort %}selected{% endif %}>Sort: score</option>
+    <option value="date_posted" {% if sort == 'date_posted' %}selected{% endif %}>Sort: date posted</option>
+  </select>
+
+  {% if job_types %}
+  <select name="job_type" class="filter-select" onchange="this.form.submit()">
+    <option value="">Role: all</option>
+    {% for jt in job_types %}
+      <option value="{{ jt }}" {% if job_type == jt %}selected{% endif %}>
+        {{ jt | title }}
+      </option>
+    {% endfor %}
+  </select>
+  {% endif %}
+
+  <label class="filter-toggle">
+    <input type="checkbox" name="remote_only" value="1"
+           {% if remote_only %}checked{% endif %}
+           onchange="this.form.submit()">
+    Remote only
+  </label>
+
+  <button type="submit" class="btn filter-btn">Filter</button>
+  {% if search or (min_score is not none) or remote_only or job_type or sort %}
+    <a href="{{ action }}" class="filter-clear">Clear</a>
+  {% endif %}
+</form>

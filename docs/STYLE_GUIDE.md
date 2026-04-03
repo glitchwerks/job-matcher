@@ -405,6 +405,42 @@ Used on the Settings page **Danger Zone** to gate irreversible operations (e.g. 
 | `.stats-table` | `--font-mono` 0.78rem; border-collapse; cells border-bottom `--border-subtle` |
 | `.stats-section-heading` | `--font-mono` 0.68rem uppercase weight 600, `--text-muted` |
 
+### Filter Bar (`_filter_bar.html` partial)
+
+The filter bar is extracted into `templates/_filter_bar.html` so both the Listings page (`/`) and the Snippets page (`/snippets`) share a single implementation. Include it via `{% with %}` to pass context:
+
+```jinja
+{% with action="/snippets", search=search, sort=sort, remote_only=remote_only,
+        job_type=job_type, job_types=job_types, threshold=threshold, min_score=min_score %}
+  {% include "_filter_bar.html" %}
+{% endwith %}
+```
+
+**Variables required by the partial:**
+
+| Variable | Type | Notes |
+|---|---|---|
+| `action` | `str` | Form `action` URL — `"/"` for Listings, `"/snippets"` for Snippets |
+| `search` | `str \| None` | Current text search value; `None` or empty string renders a blank input |
+| `sort` | `str \| None` | Current sort value; `None` = score DESC, `"date_posted"` = newest first |
+| `remote_only` | `bool` | Whether the remote-only checkbox is checked |
+| `job_type` | `str \| None` | Currently selected job type filter; `None` = all types |
+| `job_types` | `list[str]` | Available job types for the dropdown; the dropdown is omitted when empty |
+| `threshold` | `float` | Configured score floor; used by the Clear link logic |
+| `min_score` | `float \| None` | Current min_score override; `None` = no override (uses threshold) |
+
+**Controls rendered:**
+
+1. Text input (`.filter-input`) — search by title or company
+2. Min-score select (`.filter-select`) — 5+/6+/7+/8+/9+ options; auto-submits on change
+3. Sort select (`.filter-select`) — Score / Date posted; auto-submits on change
+4. Job-type select (`.filter-select`) — populated from `job_types`; omitted when list is empty; auto-submits on change
+5. Remote-only checkbox (`.filter-toggle`) — auto-submits on change
+6. Filter button (`.btn.filter-btn`) — explicit submit
+7. Clear link (`.filter-clear`) — shown only when any filter is active; href is `action`
+
+The Clear link appears when any of `search`, `min_score`, `remote_only`, `job_type`, or `sort` is truthy. Its `href` is set to `action` so it navigates to the bare page URL, resetting all params.
+
 ### Ingest Trigger (feed page)
 
 Rendered via `templates/_ingest_trigger.html`, included in `index.html` inside a `.ingest-trigger-container` div. Has two states:

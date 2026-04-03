@@ -408,6 +408,8 @@ def feed():
       - search: text matched against title and company
     """
     threshold = CONFIG["scoring"]["threshold"]
+    if not isinstance(threshold, (int, float)) or threshold < 0:
+        threshold = 7.0
 
     min_score_raw = request.args.get("min_score")
     try:
@@ -505,17 +507,45 @@ def applied():
 def snippets():
     """Snippet-scored listings — roles scored from short API descriptions rather than full JDs.
 
-    Accepts an optional ``sort`` query param (``'date_posted'`` or omit for score DESC).
+    Accepts the same filter query params as the main feed: ``sort``, ``search``,
+    ``remote_only``, ``job_type``, and ``min_score``.
     """
     sort = request.args.get("sort", "").strip() or None
+    search = request.args.get("search", "").strip() or None
+    remote_only = request.args.get("remote_only") == "1"
+    job_type = request.args.get("job_type", "").strip() or None
+    raw_min_score = request.args.get("min_score", "").strip()
+    min_score: float | None = None
+    if raw_min_score:
+        try:
+            min_score = float(raw_min_score)
+        except ValueError:
+            min_score = None
+
     threshold = CONFIG["scoring"]["threshold"]
-    listings = db.get_snippet_feed(threshold=threshold, sort=sort, db_path=DB_PATH)
+    if not isinstance(threshold, (int, float)) or threshold < 0:
+        threshold = 7.0
+    job_types = db.get_job_types(db_path=DB_PATH)
+    listings = db.get_snippet_feed(
+        threshold=threshold,
+        min_score=min_score,
+        remote_only=remote_only,
+        search=search,
+        job_type=job_type,
+        sort=sort,
+        db_path=DB_PATH,
+    )
     return render_template(
         "snippets.html",
         listings=listings,
         view="snippets",
         sort=sort,
+        search=search,
+        remote_only=remote_only,
+        job_type=job_type,
+        job_types=job_types,
         threshold=threshold,
+        min_score=min_score,
         config_warnings=_config_warnings(),
     )
 

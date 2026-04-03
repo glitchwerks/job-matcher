@@ -36,7 +36,7 @@
   <div class="feed-meta">
     <strong>{{ listings | length }}</strong>
     {%- if listings | length == 1 %} snippet-scored role{% else %} snippet-scored roles{% endif %}
-    &nbsp;·&nbsp; score {{ threshold | round(1) }}+
+    &nbsp;·&nbsp; scored {{ (min_score if min_score is not none else threshold) | round(1) }}+
     &nbsp;·&nbsp; sorted by {% if sort == 'date_posted' %}date posted{% else %}score{% endif %}
   </div>
 
@@ -58,17 +58,10 @@
   </div>
   {% endif %}
 
-  {# ── Sort bar ────────────────────────────────────────────────── #}
-  <form class="filter-bar" method="get" action="/snippets">
-    <select name="sort" class="filter-select" onchange="this.form.submit()">
-      <option value="" {% if not sort %}selected{% endif %}>Sort: score</option>
-      <option value="date_posted" {% if sort == 'date_posted' %}selected{% endif %}>Sort: date posted</option>
-    </select>
-    <button type="submit" class="btn filter-btn">Filter</button>
-    {% if sort %}
-      <a href="/snippets" class="filter-clear">Clear</a>
-    {% endif %}
-  </form>
+  {# ── Filter bar ─────────────────────────────────────────────── #}
+  {% with action="/snippets", search=search, sort=sort, remote_only=remote_only, job_type=job_type, job_types=job_types, threshold=threshold, min_score=min_score %}
+    {% include "_filter_bar.html" %}
+  {% endwith %}
 
   {# ── Listing cards ───────────────────────────────────────────── #}
   {% if listings %}

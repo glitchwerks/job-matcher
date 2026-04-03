@@ -37,10 +37,12 @@ def make_listing(
     redirect_url: str = "https://example.com/job/1",
     score: float | None = 8.0,
     dismissed: int = 0,
+    applied: int = 0,
     seen: int = 1,
     description_source: str = "full",
     source: str = "adzuna",
     posted_at: str | None = None,
+    job_type: str | None = None,
 ) -> dict:
     """Return a minimal listing dict suitable for db.insert_listing()."""
     return {
@@ -66,8 +68,8 @@ def make_listing(
         "bookmarked": 0,
         "dismissed": dismissed,
         "seen": seen,
-        "applied": 0,
-        "job_type": None,
+        "applied": applied,
+        "job_type": job_type,
         "model_used": None,
         "posted_at": posted_at,
         "description_source": description_source,
@@ -303,6 +305,17 @@ class TestGetSnippetFeed:
             results = db.get_snippet_feed(db_path=path)
             ids = [r["source_id"] for r in results]
             assert "sf-dis" not in ids
+
+    def test_excludes_applied_listings(self):
+        """get_snippet_feed() does not return applied snippet listings."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source_id="sf-applied", description_source="snippet", applied=1),
+                db_path=path,
+            )
+            results = db.get_snippet_feed(db_path=path)
+            ids = [r["source_id"] for r in results]
+            assert "sf-applied" not in ids
 
     def test_excludes_null_score(self):
         """get_snippet_feed() excludes unscored (score=NULL) snippet listings."""
@@ -581,8 +594,8 @@ class TestSnippetsRoute:
         threshold = flask_app.CONFIG["scoring"]["threshold"]
         response = self.client.get("/snippets")
         body = response.data.decode("utf-8")
-        # The subtitle renders e.g. "score 7.0+"
-        expected = f"score {threshold:.1f}+"
+        # The subtitle renders e.g. "scored 7.0+"
+        expected = f"scored {threshold:.1f}+"
         assert expected in body
 
     def test_snippets_nav_tab_is_active(self):
@@ -618,3 +631,314 @@ class TestSnippetsRoute:
         """GET /snippets?sort=date_posted returns 200."""
         response = self.client.get("/snippets?sort=date_posted")
         assert response.status_code == 200
+
+    def test_snippets_search_query_param(self):
+        """GET /snippets?search=... returns 200 and filters results."""
+        db.insert_listing(
+            make_listing(source_id="search-match", title="Python Developer",
+                         description_source="snippet", score=8.0,
+                         redirect_url="https://example.com/search-match"),
+            db_path=self.db_path,
+        )
+        db.insert_listing(
+            make_listing(source_id="search-nomatch", title="Java Architect",
+                         description_source="snippet", score=8.0,
+                         redirect_url="https://example.com/search-nomatch"),
+            db_path=self.db_path,
+        )
+        response = self.client.get("/snippets?search=python")
+        assert response.status_code == 200
+        body = response.data.decode("utf-8")
+        assert "search-match" in body
+        assert "search-nomatch" not in body
+
+    def test_snippets_remote_only_query_param(self):
+        """GET /snippets?remote_only=1 returns 200 and filters to remote listings."""
+        db.insert_listing(
+            make_listing(source_id="remote-yes", location="Remote",
+                         description_source="snippet", score=8.0,
+                         redirect_url="https://example.com/remote-yes"),
+            db_path=self.db_path,
+        )
+        db.insert_listing(
+            make_listing(source_id="remote-no", location="New York, NY",
+                         description_source="snippet", score=8.0,
+                         redirect_url="https://example.com/remote-no"),
+            db_path=self.db_path,
+        )
+        response = self.client.get("/snippets?remote_only=1")
+        assert response.status_code == 200
+        body = response.data.decode("utf-8")
+        assert "remote-yes" in body
+        assert "remote-no" not in body
+
+    def test_snippets_job_type_query_param(self):
+        """GET /snippets?job_type=... returns 200 and filters by job type."""
+        db.insert_listing(
+            make_listing(source_id="jt-match", job_type="permanent",
+                         description_source="snippet", score=8.0,
+                         redirect_url="https://example.com/jt-match"),
+            db_path=self.db_path,
+        )
+        db.insert_listing(
+            make_listing(source_id="jt-nomatch", job_type="contract",
+                         description_source="snippet", score=8.0,
+                         redirect_url="https://example.com/jt-nomatch"),
+            db_path=self.db_path,
+        )
+        response = self.client.get("/snippets?job_type=permanent")
+        assert response.status_code == 200
+        body = response.data.decode("utf-8")
+        assert "jt-match" in body
+        assert "jt-nomatch" not in body
+
+    def test_snippets_min_score_query_param(self):
+        """GET /snippets?min_score=9 returns 200 and applies the score override."""
+        db.insert_listing(
+            make_listing(source_id="ms-above", score=9.5,
+                         description_source="snippet",
+                         redirect_url="https://example.com/ms-above"),
+            db_path=self.db_path,
+        )
+        db.insert_listing(
+            make_listing(source_id="ms-below", score=7.0,
+                         description_source="snippet",
+                         redirect_url="https://example.com/ms-below"),
+            db_path=self.db_path,
+        )
+        response = self.client.get("/snippets?min_score=9")
+        assert response.status_code == 200
+        body = response.data.decode("utf-8")
+        assert "ms-above" in body
+        assert "ms-below" not in body
+
+    def test_snippets_filter_bar_rendered(self):
+        """GET /snippets renders the shared filter bar with all five controls."""
+        response = self.client.get("/snippets")
+        assert response.status_code == 200
+        body = response.data.decode("utf-8")
+        # Text search input
+        assert 'name="search"' in body
+        # Min-score select
+        assert 'name="min_score"' in body
+        # Sort select
+        assert 'name="sort"' in body
+        # Remote-only checkbox
+        assert 'name="remote_only"' in body
+        # Filter button
+        assert 'class="btn filter-btn"' in body
+        # Filter bar structural attributes
+        assert 'class="filter-bar"' in body
+        assert 'method="get"' in body
+        assert 'action="/snippets"' in body
+        assert 'class="filter-input"' in body
+
+    def test_snippets_clear_link_shown_when_filter_active(self):
+        """GET /snippets with an active filter renders the Clear link."""
+        response = self.client.get("/snippets?search=foo")
+        assert response.status_code == 200
+        body = response.data.decode("utf-8")
+        assert 'filter-clear' in body
+
+    def test_snippets_clear_link_hidden_when_no_filter(self):
+        """GET /snippets with no filters does not render the Clear link."""
+        response = self.client.get("/snippets")
+        assert response.status_code == 200
+        body = response.data.decode("utf-8")
+        assert 'filter-clear' not in body
+
+
+# ---------------------------------------------------------------------------
+# get_snippet_feed() — new filter parameters
+# ---------------------------------------------------------------------------
+
+class TestGetSnippetFeedFilters:
+    """Tests for the new search, remote_only, job_type, and min_score parameters."""
+
+    def test_search_filters_by_title(self):
+        """get_snippet_feed(search=...) returns listings matching title."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source_id="sf-search-title", title="Python Developer",
+                             description_source="snippet", score=8.0),
+                db_path=path,
+            )
+            db.insert_listing(
+                make_listing(source_id="sf-search-other", title="Java Architect",
+                             description_source="snippet", score=8.0,
+                             redirect_url="https://example.com/job/2"),
+                db_path=path,
+            )
+            results = db.get_snippet_feed(threshold=5.0, search="python", db_path=path)
+            ids = [r["source_id"] for r in results]
+            assert "sf-search-title" in ids
+            assert "sf-search-other" not in ids
+
+    def test_search_filters_by_company(self):
+        """get_snippet_feed(search=...) returns listings matching company name."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source_id="sf-search-co", company="Acme Corp",
+                             description_source="snippet", score=8.0),
+                db_path=path,
+            )
+            db.insert_listing(
+                make_listing(source_id="sf-search-co2", company="Other Ltd",
+                             description_source="snippet", score=8.0,
+                             redirect_url="https://example.com/job/2"),
+                db_path=path,
+            )
+            results = db.get_snippet_feed(threshold=5.0, search="acme", db_path=path)
+            ids = [r["source_id"] for r in results]
+            assert "sf-search-co" in ids
+            assert "sf-search-co2" not in ids
+
+    def test_search_is_case_insensitive(self):
+        """get_snippet_feed(search=...) matching is case-insensitive."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source_id="sf-search-case", title="SENIOR ENGINEER",
+                             description_source="snippet", score=8.0),
+                db_path=path,
+            )
+            results = db.get_snippet_feed(threshold=5.0, search="senior", db_path=path)
+            ids = [r["source_id"] for r in results]
+            assert "sf-search-case" in ids
+
+    def test_remote_only_filters_location(self):
+        """get_snippet_feed(remote_only=True) restricts to remote locations."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source_id="sf-remote-yes", location="Remote",
+                             description_source="snippet", score=8.0),
+                db_path=path,
+            )
+            db.insert_listing(
+                make_listing(source_id="sf-remote-no", location="Chicago, IL",
+                             description_source="snippet", score=8.0,
+                             redirect_url="https://example.com/job/2"),
+                db_path=path,
+            )
+            results = db.get_snippet_feed(threshold=5.0, remote_only=True, db_path=path)
+            ids = [r["source_id"] for r in results]
+            assert "sf-remote-yes" in ids
+            assert "sf-remote-no" not in ids
+
+    def test_remote_only_false_returns_all(self):
+        """get_snippet_feed(remote_only=False) (default) does not filter by location."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source_id="sf-ro-all-remote", location="Remote",
+                             description_source="snippet", score=8.0),
+                db_path=path,
+            )
+            db.insert_listing(
+                make_listing(source_id="sf-ro-all-onsite", location="Boston, MA",
+                             description_source="snippet", score=8.0,
+                             redirect_url="https://example.com/job/2"),
+                db_path=path,
+            )
+            results = db.get_snippet_feed(threshold=5.0, remote_only=False, db_path=path)
+            ids = [r["source_id"] for r in results]
+            assert "sf-ro-all-remote" in ids
+            assert "sf-ro-all-onsite" in ids
+
+    def test_job_type_filter(self):
+        """get_snippet_feed(job_type=...) restricts to the given job type."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source_id="sf-jt-perm", job_type="permanent",
+                             description_source="snippet", score=8.0),
+                db_path=path,
+            )
+            db.insert_listing(
+                make_listing(source_id="sf-jt-cont", job_type="contract",
+                             description_source="snippet", score=8.0,
+                             redirect_url="https://example.com/job/2"),
+                db_path=path,
+            )
+            results = db.get_snippet_feed(threshold=5.0, job_type="permanent", db_path=path)
+            ids = [r["source_id"] for r in results]
+            assert "sf-jt-perm" in ids
+            assert "sf-jt-cont" not in ids
+
+    def test_job_type_filter_is_case_insensitive(self):
+        """get_snippet_feed(job_type=...) comparison is case-insensitive."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source_id="sf-jt-case", job_type="Permanent",
+                             description_source="snippet", score=8.0),
+                db_path=path,
+            )
+            results = db.get_snippet_feed(threshold=5.0, job_type="permanent", db_path=path)
+            ids = [r["source_id"] for r in results]
+            assert "sf-jt-case" in ids
+
+    def test_min_score_overrides_threshold(self):
+        """get_snippet_feed(min_score=...) uses the override instead of threshold."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source_id="sf-ms-hi", score=9.0,
+                             description_source="snippet"),
+                db_path=path,
+            )
+            db.insert_listing(
+                make_listing(source_id="sf-ms-lo", score=6.5,
+                             description_source="snippet",
+                             redirect_url="https://example.com/job/2"),
+                db_path=path,
+            )
+            # threshold=7.0 would include sf-ms-hi; min_score=9 raises the floor
+            results = db.get_snippet_feed(threshold=7.0, min_score=9.0, db_path=path)
+            ids = [r["source_id"] for r in results]
+            assert "sf-ms-hi" in ids
+            assert "sf-ms-lo" not in ids
+
+    def test_min_score_none_uses_threshold(self):
+        """get_snippet_feed(min_score=None) falls back to the threshold parameter."""
+        with TempDB() as path:
+            db.insert_listing(
+                make_listing(source_id="sf-ms-none", score=7.5,
+                             description_source="snippet"),
+                db_path=path,
+            )
+            results = db.get_snippet_feed(threshold=7.0, min_score=None, db_path=path)
+            ids = [r["source_id"] for r in results]
+            assert "sf-ms-none" in ids
+
+    def test_combined_filters(self):
+        """get_snippet_feed() correctly applies multiple filters together."""
+        with TempDB() as path:
+            # Matches all filters: remote, title contains "python", score >= 8
+            db.insert_listing(
+                make_listing(source_id="sf-combo-match", title="Python Dev",
+                             location="Remote", score=8.5,
+                             description_source="snippet"),
+                db_path=path,
+            )
+            # Fails remote_only filter
+            db.insert_listing(
+                make_listing(source_id="sf-combo-onsite", title="Python Dev",
+                             location="New York", score=8.5,
+                             description_source="snippet",
+                             redirect_url="https://example.com/job/2"),
+                db_path=path,
+            )
+            # Fails search filter
+            db.insert_listing(
+                make_listing(source_id="sf-combo-java", title="Java Dev",
+                             location="Remote", score=8.5,
+                             description_source="snippet",
+                             redirect_url="https://example.com/job/3"),
+                db_path=path,
+            )
+            results = db.get_snippet_feed(
+                threshold=5.0,
+                search="python",
+                remote_only=True,
+                db_path=path,
+            )
+            ids = [r["source_id"] for r in results]
+            assert "sf-combo-match" in ids
+            assert "sf-combo-onsite" not in ids
+            assert "sf-combo-java" not in ids
