@@ -259,7 +259,7 @@ What it does:
 - Prompts for the data directory path and daily ingest time (infrastructure only — no credential prompts)
 - Sets system environment variables (`DB_PATH`, `FLASK_DEBUG`)
 - Creates the data directory and a `logs/` subfolder
-- Copies `config/providers.example.json` → `config/providers.json` and restricts its ACL to the current user
+- Copies `config/keys.example.json` → `config/keys.json` and restricts its ACL to the current user
 - Copies `config/config.example.json` → `config/config.json` (if absent)
 - Registers the `JobMatcher` Windows service (waitress via NSSM) set to auto-start
 - Registers the `JobMatcherIngest` daily Task Scheduler task

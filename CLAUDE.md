@@ -28,14 +28,14 @@ pytest -k "test_title_include"     # By name pattern
 
 The app is two decoupled processes sharing a SQLite database (`jobs.db`):
 
-- **`ingest.py`** — CLI pipeline: Adzuna API → pre-filter → scrape full JD → score with Claude Haiku → insert into DB. Runs on a schedule or manually.
-- **`app.py`** — Flask web server. Read-only views of scored listings plus HTMX write actions (bookmark, dismiss, apply). Never talks to Adzuna or Anthropic.
+- **`ingest.py`** — CLI pipeline: multiple job source APIs → pre-filter → scrape full JD → score with configured LLM provider → insert into DB. Runs on a schedule or manually.
+- **`app.py`** — Flask web server. Read-only views of scored listings plus HTMX write actions (bookmark, dismiss, apply). Talks to LLM providers only for key validation (`/api/validate-keys`); all scoring happens in `ingest.py`.
 - **`db.py`** — All SQLite access. JSON array columns (`matched_skills`, `missing_skills`, `concerns`) are serialized/deserialized here.
 
 ### Ingestion pipeline (per listing)
 
 ```
-Adzuna page → [1] hours filter → [2] prefilter() → [3] dedup check → [4] scrape_description() → [5] score_listing() → db.insert_listing()
+source pages → [1] hours filter → [2] prefilter() → [3] geo filter → [4] dedup check → [5] scrape_description() → [6] score_listing() → db.insert_listing()
 ```
 
 Any step can short-circuit the listing with a logged reason (`FILTERED`, `DUPE`, `SCRAPE FALLBACK`, `SCORE FAILED`). A summary is printed at the end of each run.
@@ -48,7 +48,7 @@ Results include a `model_used` field stored as `"provider/model"` per listing. S
 
 ### Config & profile
 
-- **`config/config.json`** — Search params (`country`, `what`, `where`, `distance`, `max_days_old`, `results_per_page`, `max_pages`), scoring threshold, and optional `prefilter` block (title include/exclude patterns, contract type/time). Adzuna credentials have moved to `config/providers.json`.
+- **`config/config.json`** — Search params (`country`, `what`, `where`, `distance`, `max_days_old`, `salary_min`, `results_per_page`, `max_pages`), scoring threshold, and optional `prefilter` block (title include/exclude patterns, contract type/time). Adzuna credentials have moved to `config/providers.json`.
 - **`config/keys.json`** — Legacy LLM credential file. Superseded by `config/providers.json`. `credentials.load_providers()` will auto-migrate it to `providers.json` on first run if `providers.json` is absent.
 - **`config/profile.json`** — Candidate skills and preferences injected verbatim into the scoring prompt. Fields: `primary_skills`, `anti_preferences`, `seniority`, `preferred_industries`, `scoring_notes`. Location is configured via a single nested `location` block: `location.center` (geocodable string, e.g. `"Miami, FL"`), `location.radius_km` (number — hard filter radius before LLM scoring), `location.geocode_fallback` (`"pass"` or `"discard"` — controls what happens when a listing location cannot be geocoded; default `"pass"`), `location.notes` (free-text injected into the LLM prompt; auto-generated from `center` + `radius_km` when absent). **Migration note:** the flat fields `location_preference`, `location_center`, `location_radius_km`, and `location_geocode_fallback` are no longer read; update any existing `profile.json` to use the nested `location` block.
 - **`config/providers.json`** — Unified credential store for all sources, including Adzuna (`job_sources.adzuna.app_id` / `app_key`), Jooble, and USAJobs, as well as LLM providers (replaces `config/keys.json`). Managed via the `/settings` UI. Gitignored — copy from `config/providers.example.json` to get started.
@@ -57,7 +57,7 @@ Results include a `model_used` field stored as `"provider/model"` per listing. S
 
 ### Database schema notes
 
-- Unique constraint is on `adzuna_id` (one row per Adzuna listing).
+- Unique constraint is on `(source, source_id)` — one row per source/ID pair. The legacy `adzuna_id` column has been migrated to `source_id`; `db.init_db()` handles this migration on startup.
 - `seen=1` means the listing has been scored; `seen=0` means score failed and it should be retried.
 - Schema migration uses `ALTER TABLE ... ADD COLUMN` wrapped in try/except to handle existing databases gracefully.
 

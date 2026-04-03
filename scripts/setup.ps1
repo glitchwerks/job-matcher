@@ -427,7 +427,7 @@ Write-Banner 'Setup Complete'
 Write-Host 'Next steps:' -ForegroundColor Cyan
 Write-Host "  1. Open the app:        http://localhost:5000"
 Write-Host "  2. Configure LLM keys:  http://localhost:5000/settings"
-Write-Host "  3. Edit config/config.json:    $configDir\config.json  (Adzuna credentials, search params)"
+Write-Host "  3. Edit config/config.json:    $configDir\config.json  (Adzuna search params - credentials are in Settings)"
 Write-Host "  4. Check status:        .\scripts\status.ps1"
 Write-Host "  5. View web logs:       $logsDir\web.log"
 Write-Host "  6. View ingest logs:    $logsDir\ingest.log"
