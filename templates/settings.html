@@ -405,6 +405,13 @@
       aria-controls="pane-sources"
       data-tab="sources"
       type="button">Job Sources</button>
+    <button
+      class="settings-tab-btn{% if active_tab == 'search' %} active{% endif %}"
+      role="tab"
+      aria-selected="{% if active_tab == 'search' %}true{% else %}false{% endif %}"
+      aria-controls="pane-search"
+      data-tab="search"
+      type="button">Search Settings</button>
   </div>
 
   {# ── LLM Providers tab ────────────────────────────────────────── #}
@@ -577,6 +584,41 @@
         <span class="save-bar-label">Unsaved changes</span>
         <button type="button" class="btn btn-save">Save</button>
       </div>
+      <button type="submit" class="btn btn-save">Save</button>
+    </form>
+  </div>
+
+  {# ── Search Settings tab ─────────────────────────────────────── #}
+  <div
+    id="pane-search"
+    class="tab-pane{% if active_tab == 'search' %} active{% endif %}"
+    role="tabpanel">
+
+    <form class="settings-form" method="post" action="/settings">
+      <input type="hidden" name="tab" value="search">
+
+      <div class="provider-row">
+        <div class="provider-header">
+          <span class="provider-name">Ingest Pagination</span>
+        </div>
+
+        <label class="settings-label" for="search_results_per_page">Results Per Page</label>
+        <p class="field-hint">
+          Number of results fetched per page from Adzuna. Maximum is 50.
+        </p>
+        <input id="search_results_per_page" class="settings-input" type="number"
+               name="search_results_per_page" min="1" max="50" step="1"
+               value="{{ search_cfg.get('results_per_page', '') }}">
+
+        <label class="settings-label" for="search_max_pages">Max Pages</label>
+        <p class="field-hint">
+          Maximum number of pages fetched per ingest run. Caps total listings processed.
+        </p>
+        <input id="search_max_pages" class="settings-input" type="number"
+               name="search_max_pages" min="1" step="1"
+               value="{{ search_cfg.get('max_pages', '') }}">
+      </div>
+
       <button type="submit" class="btn btn-save">Save</button>
     </form>
   </div>

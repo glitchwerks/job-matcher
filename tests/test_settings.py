@@ -329,47 +329,27 @@ class TestSettingsAdzuna:
 
 
 # ---------------------------------------------------------------------------
-# GET /profile (#21, updated #90)
+# GET /profile (#21, updated #90, restructured #319)
 # ---------------------------------------------------------------------------
 
 class TestSettingsConfigGet:
-    """Tests for the GET /profile route (config editor)."""
+    """Tests for the GET /profile route (structured form, issue #319).
+
+    Note: tests for the old raw JSON textarea (test_renders_textarea_with_json,
+    test_masks_app_id_field, test_masks_api_key_field) have been removed because
+    the textarea was replaced with a structured form in issue #319.  Credential
+    masking on the profile page is no longer applicable — credentials are managed
+    on the /settings page.  Comprehensive structured-form tests live in
+    tests/test_profile.py.
+    """
 
     def test_returns_200(self, client, tmp_config_path):
         resp = client.get("/profile")
         assert resp.status_code == 200
 
-    def test_renders_textarea_with_json(self, client, tmp_config_path):
-        with open(tmp_config_path, "w") as f:
-            json.dump({"scoring": {"threshold": 7.5}}, f)
-
-        resp = client.get("/profile")
-        body = resp.data.decode()
-        assert "<textarea" in body
-        assert "7.5" in body
-
-    def test_masks_app_id_field(self, client, tmp_config_path):
-        with open(tmp_config_path, "w") as f:
-            json.dump({"adzuna_app_id": "real-id-secret", "adzuna_app_key": "real-key-secret"}, f)
-
-        resp = client.get("/profile")
-        body = resp.data.decode()
-        assert "real-id-secret" not in body
-        assert "real-key-secret" not in body
-        assert "***" in body
-
-    def test_masks_api_key_field(self, client, tmp_config_path):
-        with open(tmp_config_path, "w") as f:
-            json.dump({"some_api_key": "super-secret-api-key"}, f)
-
-        resp = client.get("/profile")
-        body = resp.data.decode()
-        assert "super-secret-api-key" not in body
-        assert "***" in body
-
     def test_non_sensitive_fields_are_visible(self, client, tmp_config_path):
         with open(tmp_config_path, "w") as f:
-            json.dump({"scoring": {"threshold": 8.0}, "adzuna_app_id": "secret"}, f)
+            json.dump({"scoring": {"threshold": 8.0}}, f)
 
         resp = client.get("/profile")
         body = resp.data.decode()
@@ -397,90 +377,44 @@ class TestSettingsConfigGet:
 
 
 # ---------------------------------------------------------------------------
-# POST /profile (#21, updated #90)
+# POST /profile (#21, updated #90, restructured #319)
 # ---------------------------------------------------------------------------
 
 class TestSettingsConfigPost:
-    """Tests for the POST /profile route (config editor)."""
+    """Tests for the POST /profile route (structured form, issue #319).
 
-    def test_valid_json_updates_file(self, client, tmp_config_path):
-        original = {"scoring": {"threshold": 7.0}, "adzuna_app_id": "orig-id"}
-        with open(tmp_config_path, "w") as f:
-            json.dump(original, f)
+    Note: tests for the old raw JSON config_json textarea POST (test_valid_json_updates_file,
+    test_invalid_json_returns_400, test_invalid_json_shows_error_message,
+    test_masked_sentinel_not_written_to_disk, test_response_never_contains_real_sensitive_values)
+    have been removed.  The /profile route no longer accepts a raw config_json payload —
+    it uses structured form fields.  Comprehensive POST tests live in tests/test_profile.py.
+    """
 
-        new_config = json.dumps({"scoring": {"threshold": 9.0}, "adzuna_app_id": "orig-id"})
-        resp = client.post("/profile", data={"config_json": new_config})
-        assert resp.status_code == 200
-
-        with open(tmp_config_path) as f:
-            saved = json.load(f)
-        assert saved["scoring"]["threshold"] == 9.0
+    _VALID_FORM = {
+        "scoring_threshold": "7.0",
+        "search_country": "us",
+        "search_what": "engineer",
+        "search_where": "miami",
+        "location_geocode_fallback": "pass",
+    }
 
     def test_valid_save_shows_success_notice(self, client, tmp_config_path):
-        resp = client.post(
-            "/profile",
-            data={"config_json": json.dumps({"scoring": {"threshold": 7.0}})},
-        )
+        with open(tmp_config_path, "w") as f:
+            json.dump({"scoring": {"threshold": 7.0}, "search": {"country": "us", "what": "engineer", "where": "miami", "results_per_page": 50, "max_pages": 5}, "prefilter": {}}, f)
+        resp = client.post("/profile", data=self._VALID_FORM)
         body = resp.data.decode()
         assert "saved" in body.lower()
 
-    def test_invalid_json_returns_400(self, client, tmp_config_path):
-        resp = client.post("/profile", data={"config_json": "not valid json {{{"})
-        assert resp.status_code == 400
-
-    def test_invalid_json_shows_error_message(self, client, tmp_config_path):
-        resp = client.post("/profile", data={"config_json": "not valid json {{{"})
-        body = resp.data.decode()
-        assert "Invalid JSON" in body
-
-    def test_invalid_json_leaves_file_unchanged(self, client, tmp_config_path):
-        original = {"scoring": {"threshold": 7.0}}
+    def test_invalid_threshold_leaves_file_unchanged(self, client, tmp_config_path):
+        original = {"scoring": {"threshold": 7.0}, "search": {"country": "us"}}
         with open(tmp_config_path, "w") as f:
             json.dump(original, f)
 
-        client.post("/profile", data={"config_json": "not valid json {{{"})
+        client.post("/profile", data={**self._VALID_FORM, "scoring_threshold": "bad"})
 
         with open(tmp_config_path) as f:
             after = json.load(f)
         assert after == original
-
-    def test_masked_sentinel_not_written_to_disk(self, client, tmp_config_path):
-        """If a sensitive field still contains '***', the original value is preserved."""
-        original = {
-            "adzuna_app_id": "keep-this-id",
-            "adzuna_app_key": "keep-this-key",
-            "scoring": {"threshold": 7.0},
-        }
-        with open(tmp_config_path, "w") as f:
-            json.dump(original, f)
-
-        # Submit with the masked sentinel values (as the browser would receive them).
-        # scoring.threshold must be included so the new validation gate allows the save.
-        masked_submission = json.dumps({
-            "adzuna_app_id": "***",
-            "adzuna_app_key": "***",
-            "scoring": {"threshold": 7.0},
-        })
-        resp = client.post("/profile", data={"config_json": masked_submission})
-        assert resp.status_code == 200
-
-        with open(tmp_config_path) as f:
-            saved = json.load(f)
-        assert saved["adzuna_app_id"] == "keep-this-id"
-        assert saved["adzuna_app_key"] == "keep-this-key"
-
-    def test_response_never_contains_real_sensitive_values(self, client, tmp_config_path):
-        """After a successful POST the response must not echo raw sensitive values."""
-        original = {"adzuna_app_id": "do-not-echo-me"}
-        with open(tmp_config_path, "w") as f:
-            json.dump(original, f)
-
-        resp = client.post(
-            "/profile",
-            data={"config_json": json.dumps({"adzuna_app_id": "do-not-echo-me"})},
-        )
-        body = resp.data.decode()
-        assert "do-not-echo-me" not in body
 
 
 # ---------------------------------------------------------------------------

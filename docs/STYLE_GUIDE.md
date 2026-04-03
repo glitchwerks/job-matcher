@@ -265,6 +265,7 @@ All buttons extend `.btn` (base). Add a modifier class for semantic variants.
 | `.provider-header` | `<div>` | Flex row, align-items center, gap 10px |
 | `.provider-name` | `<span>` | `--font-ui` 0.95rem weight 600, `--text-primary` |
 | `.settings-label` | `<label>` | `--font-mono` 0.68rem uppercase 0.08em, `--text-muted` |
+| `.settings-label--mt` | modifier on `.settings-label` | Adds `margin-top: 1rem`; use when a label follows a `.row-list` without a natural gap |
 | `.settings-input` | `<input>`, `<textarea>` | `--font-mono` 0.76rem; `--bg-raised` bg; width 100% |
 | `.filter-input` | `<input type="text">` | Filter bar text input; width 220px |
 | `.filter-select` | `<select>` | Filter bar dropdown; custom SVG arrow |
@@ -274,6 +275,24 @@ All buttons extend `.btn` (base). Add a modifier class for semantic variants.
 | `.save-bar` | `<div>` | Sticky unsaved-changes bar; see §5 Save Bar below |
 | `.save-bar--visible` | modifier on `.save-bar` | Added by JS when a text/password field is dirty; animates in via `max-height` + `opacity`; removed when all fields are restored to original values |
 | `.save-bar-label` | `<span>` | "Unsaved changes" text; `--font-mono` 0.8rem, `--score-mid-text` (amber — warning semantics) |
+
+#### Profile form — repeating row inputs
+
+Used on the Profile page for fields where the user manages an ordered list of values (skills, anti-preferences, scoring notes, etc.). Each `.row-list` contains one or more `.row-item` divs. JavaScript adds/removes rows without a page reload.
+
+| Class | Element | Notes |
+|---|---|---|
+| `.row-list` | `<div>` | Flex column, `gap: 6px`, `margin-bottom: 4px`; wraps all `.row-item` children |
+| `.row-item` | `<div>` | Flex row, `align-items: center`, `gap: 8px`; contains one `.settings-input` + one `.btn-row-remove` |
+| `.btn-row-remove` | `<button type="button">` | Minus (−) button; muted at rest, red tier (`--score-low-text` / `--score-low-border`) on hover; 0.78rem `--font-mono`; `:focus-visible` amber outline |
+| `.btn-row-add` | `<button type="button">` | Dashed-border add button; muted at rest, accent amber on hover; must carry `data-list-id` and `data-name` attributes (used by delegated click handler instead of `onclick`) |
+| `.field-hint` | `<p>` | Helper text below a label; `--font-mono` 0.68rem, `--text-muted`; `margin-bottom: 0` by default |
+| `.field-hint--mb` | modifier on `.field-hint` | Adds `margin-bottom: 0.75rem`; use when a hint precedes a sub-section heading |
+| `.form-section-divider` | `<hr>` | 1px `--border-subtle` rule dividing logical sub-sections within a `.provider-row` card; `margin: 1rem 0 0.5rem` |
+| `.form-subsection-title` | `<p>` | `--font-ui` 0.78rem weight 600 uppercase; `--text-secondary`; `margin: 0 0 0.75rem` |
+| `.form-subsection-title--no-top` | modifier on `.form-subsection-title` | Sets `margin-top: 0`; use immediately after a `.form-section-divider` to avoid double spacing |
+
+**JS pattern** — row buttons use event delegation (single `document.addEventListener('click', ...)` handler in `profile.html`). Never add `onclick` attributes directly; instead set `data-list-id` and `data-name` on `.btn-row-add` buttons. `.btn-row-remove` needs no data attributes — the handler walks up to `.row-item` / `.row-list` via `closest()`.
 
 ### Save Bar
 

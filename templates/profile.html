@@ -34,7 +34,7 @@
 
   {# ── Success notice ───────────────────────────────────────────── #}
   {% if saved %}
-    <p class="save-notice">config.json saved.</p>
+    <p class="save-notice">Profile and config saved.</p>
   {% endif %}
 
   {# ── Error notice ─────────────────────────────────────────────── #}
@@ -42,29 +42,395 @@
     <p class="save-error">{{ error }}</p>
   {% endif %}
 
-  {# ── Editor form ──────────────────────────────────────────────── #}
+  {# ── Profile form ─────────────────────────────────────────────── #}
   <form class="settings-form" method="post" action="/profile">
 
-    <h2 class="settings-section-title">config.json</h2>
+    {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+       Section 1 — Candidate skills & preferences (profile.json)
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
 
-    <p class="settings-label">
-      Edit the raw JSON below. Sensitive fields (app IDs, app keys, API keys) are
-      shown as <code>***</code> and will not be overwritten if left unchanged.
-    </p>
+    <div class="provider-row">
+      <div class="provider-header">
+        <span class="provider-name">Skills &amp; Preferences</span>
+      </div>
 
-    <textarea
-      id="config_json"
-      name="config_json"
-      class="settings-input"
-      rows="30"
-      spellcheck="false"
-      autocomplete="off"
-      style="font-family: var(--font-mono); resize: vertical; white-space: pre;">{{ config_json }}</textarea>
+      {# ── Primary skills ── #}
+      <label class="settings-label">Primary Skills</label>
+      <p class="field-hint">One skill per row. Injected into the LLM scoring prompt for matching.</p>
+      <div class="row-list" id="list-primary_skills">
+        {% set skills = prof.get('primary_skills', []) %}
+        {% if skills %}
+          {% for skill in skills %}
+            <div class="row-item">
+              <input class="settings-input" type="text" name="primary_skills[]"
+                     value="{{ skill }}" autocomplete="off">
+              <button type="button" class="btn-row-remove"
+                      aria-label="Remove row">&#x2212;</button>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="row-item">
+            <input class="settings-input" type="text" name="primary_skills[]"
+                   autocomplete="off">
+            <button type="button" class="btn-row-remove"
+                    aria-label="Remove row">&#x2212;</button>
+          </div>
+        {% endif %}
+      </div>
+      <button type="button" class="btn-row-add"
+              data-list-id="list-primary_skills" data-name="primary_skills[]">+ Add skill</button>
 
-    <button type="submit" class="btn btn-save">Save</button>
+      <hr class="form-section-divider">
+
+      {# ── Anti-preferences ── #}
+      <label class="settings-label">Anti-Preferences</label>
+      <p class="field-hint">Roles, environments, or conditions to avoid. One per row.</p>
+      <div class="row-list" id="list-anti_preferences">
+        {% set antis = prof.get('anti_preferences', []) %}
+        {% if antis %}
+          {% for item in antis %}
+            <div class="row-item">
+              <input class="settings-input" type="text" name="anti_preferences[]"
+                     value="{{ item }}" autocomplete="off">
+              <button type="button" class="btn-row-remove"
+                      aria-label="Remove row">&#x2212;</button>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="row-item">
+            <input class="settings-input" type="text" name="anti_preferences[]"
+                   autocomplete="off">
+            <button type="button" class="btn-row-remove"
+                    aria-label="Remove row">&#x2212;</button>
+          </div>
+        {% endif %}
+      </div>
+      <button type="button" class="btn-row-add"
+              data-list-id="list-anti_preferences" data-name="anti_preferences[]">+ Add anti-preference</button>
+
+      <hr class="form-section-divider">
+
+      {# ── Seniority ── #}
+      <label class="settings-label" for="seniority">Seniority</label>
+      <p class="field-hint">e.g. &ldquo;Senior / Staff&rdquo;. Injected into the scoring prompt.</p>
+      <input id="seniority" class="settings-input" type="text" name="seniority"
+             value="{{ prof.get('seniority', '') }}" autocomplete="off">
+
+      <hr class="form-section-divider">
+
+      {# ── Preferred industries ── #}
+      <label class="settings-label">Preferred Industries</label>
+      <p class="field-hint">One industry or sector per row.</p>
+      <div class="row-list" id="list-preferred_industries">
+        {% set industries = prof.get('preferred_industries', []) %}
+        {% if industries %}
+          {% for item in industries %}
+            <div class="row-item">
+              <input class="settings-input" type="text" name="preferred_industries[]"
+                     value="{{ item }}" autocomplete="off">
+              <button type="button" class="btn-row-remove"
+                      aria-label="Remove row">&#x2212;</button>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="row-item">
+            <input class="settings-input" type="text" name="preferred_industries[]"
+                   autocomplete="off">
+            <button type="button" class="btn-row-remove"
+                    aria-label="Remove row">&#x2212;</button>
+          </div>
+        {% endif %}
+      </div>
+      <button type="button" class="btn-row-add"
+              data-list-id="list-preferred_industries" data-name="preferred_industries[]">+ Add industry</button>
+    </div>
+
+    {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+       Section 2 — Location (profile.json location block)
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+
+    {% set loc = prof.get('location', {}) %}
+
+    <div class="provider-row">
+      <div class="provider-header">
+        <span class="provider-name">Location</span>
+      </div>
+
+      <label class="settings-label" for="location_center">Center</label>
+      <p class="field-hint">Geocodable string used as the geospatial filter origin, e.g. &ldquo;Miami, FL&rdquo;. Uses OpenStreetMap &mdash; no API key needed.</p>
+      <input id="location_center" class="settings-input" type="text"
+             name="location_center" value="{{ loc.get('center', '') }}" autocomplete="off">
+
+      <label class="settings-label" for="location_radius_km">Radius (km)</label>
+      <p class="field-hint">Hard filter radius &mdash; listings outside this distance are discarded before LLM scoring.</p>
+      <input id="location_radius_km" class="settings-input" type="number"
+             name="location_radius_km" min="0" step="1"
+             value="{{ loc.get('radius_km', '') }}">
+
+      <label class="settings-label" for="location_geocode_fallback">Geocode Fallback</label>
+      <p class="field-hint">What to do when a listing location cannot be geocoded: <code>pass</code> lets it through (default), <code>discard</code> rejects it.</p>
+      <select id="location_geocode_fallback" class="settings-input"
+              name="location_geocode_fallback">
+        <option value="pass"{% if loc.get('geocode_fallback', 'pass') == 'pass' %} selected{% endif %}>pass</option>
+        <option value="discard"{% if loc.get('geocode_fallback') == 'discard' %} selected{% endif %}>discard</option>
+      </select>
+
+      <label class="settings-label" for="location_notes">Location Notes (optional)</label>
+      <p class="field-hint">Free-text injected into the LLM scoring prompt. If blank, a description is auto-generated from center + radius.</p>
+      <textarea id="location_notes" class="settings-input" name="location_notes"
+                rows="2" autocomplete="off">{{ loc.get('notes', '') }}</textarea>
+    </div>
+
+    {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+       Section 3 — Scoring notes (profile.json)
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+
+    <div class="provider-row">
+      <div class="provider-header">
+        <span class="provider-name">Scoring Notes</span>
+      </div>
+
+      <label class="settings-label">Scoring Notes</label>
+      <p class="field-hint">Injected verbatim into the LLM scoring prompt. Use to give the model hard guidance &mdash; seniority weighting, industries to deprioritise, etc. One note per row.</p>
+      <div class="row-list" id="list-scoring_notes">
+        {% set snotes = prof.get('scoring_notes', []) %}
+        {% if snotes %}
+          {% for note in snotes %}
+            <div class="row-item">
+              <input class="settings-input" type="text" name="scoring_notes[]"
+                     value="{{ note }}" autocomplete="off">
+              <button type="button" class="btn-row-remove"
+                      aria-label="Remove row">&#x2212;</button>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="row-item">
+            <input class="settings-input" type="text" name="scoring_notes[]"
+                   autocomplete="off">
+            <button type="button" class="btn-row-remove"
+                    aria-label="Remove row">&#x2212;</button>
+          </div>
+        {% endif %}
+      </div>
+      <button type="button" class="btn-row-add"
+              data-list-id="list-scoring_notes" data-name="scoring_notes[]">+ Add note</button>
+    </div>
+
+    {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+       Section 4 — Search parameters (config.json candidate fields)
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+
+    {% set srch = cfg.get('search', {}) %}
+
+    <div class="provider-row">
+      <div class="provider-header">
+        <span class="provider-name">Job Search</span>
+      </div>
+
+      <label class="settings-label" for="search_country">Country</label>
+      <p class="field-hint">Adzuna country code, e.g. <code>us</code>, <code>gb</code>, <code>au</code>.</p>
+      <input id="search_country" class="settings-input" type="text"
+             name="search_country" value="{{ srch.get('country', '') }}" autocomplete="off">
+
+      <label class="settings-label" for="search_what">Search Query</label>
+      <p class="field-hint">Job title / keyword query sent to Adzuna.</p>
+      <input id="search_what" class="settings-input" type="text"
+             name="search_what" value="{{ srch.get('what', '') }}" autocomplete="off">
+
+      <label class="settings-label" for="search_where">Location Query</label>
+      <p class="field-hint">City or region sent to Adzuna as the search location.</p>
+      <input id="search_where" class="settings-input" type="text"
+             name="search_where" value="{{ srch.get('where', '') }}" autocomplete="off">
+
+      <label class="settings-label" for="search_distance">Distance (km)</label>
+      <p class="field-hint">Search radius around the location query. Set to 0 for Adzuna default.</p>
+      <input id="search_distance" class="settings-input" type="number"
+             name="search_distance" min="0" step="1"
+             value="{{ srch.get('distance', '') }}">
+
+      <label class="settings-label" for="search_salary_min">Minimum Salary</label>
+      <p class="field-hint">Minimum salary filter in the local currency unit (USD for <code>us</code>). Leave blank for no filter.</p>
+      <input id="search_salary_min" class="settings-input" type="number"
+             name="search_salary_min" min="0" step="1000"
+             value="{{ srch.get('salary_min', '') }}">
+
+      <label class="settings-label" for="search_max_days_old">Max Days Old</label>
+      <p class="field-hint">Only fetch listings posted within this many days. Set to 0 for no restriction.</p>
+      <input id="search_max_days_old" class="settings-input" type="number"
+             name="search_max_days_old" min="0" step="1"
+             value="{{ srch.get('max_days_old', '') }}">
+    </div>
+
+    {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+       Section 5 — Scoring threshold (config.json)
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+
+    {% set scoring = cfg.get('scoring', {}) %}
+
+    <div class="provider-row">
+      <div class="provider-header">
+        <span class="provider-name">Scoring</span>
+      </div>
+
+      <label class="settings-label" for="scoring_threshold">Score Threshold</label>
+      <p class="field-hint">Minimum score (0&ndash;10) for a listing to appear in the feed. Step 0.5 recommended.</p>
+      <input id="scoring_threshold" class="settings-input" type="number"
+             name="scoring_threshold" min="0" max="10" step="0.5"
+             value="{{ scoring.get('threshold', 7.0) }}" required>
+    </div>
+
+    {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+       Section 6 — Pre-filter (config.json)
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+
+    {% set pf = cfg.get('prefilter', {}) %}
+
+    <div class="provider-row">
+      <div class="provider-header">
+        <span class="provider-name">Pre-filter</span>
+      </div>
+      <p class="field-hint field-hint--mb">Applied before LLM scoring &mdash; each filtered listing saves an API call.</p>
+
+      <p class="form-subsection-title">Title Patterns</p>
+
+      <label class="settings-label">Title Include</label>
+      <p class="field-hint">A listing passes only if its title matches at least one of these (case-insensitive substring). Leave empty to allow all titles.</p>
+      <div class="row-list" id="list-prefilter_title_include">
+        {% set t_inc = pf.get('title_include', []) %}
+        {% if t_inc %}
+          {% for item in t_inc %}
+            <div class="row-item">
+              <input class="settings-input" type="text" name="prefilter_title_include[]"
+                     value="{{ item }}" autocomplete="off">
+              <button type="button" class="btn-row-remove"
+                      aria-label="Remove row">&#x2212;</button>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="row-item">
+            <input class="settings-input" type="text" name="prefilter_title_include[]"
+                   autocomplete="off">
+            <button type="button" class="btn-row-remove"
+                    aria-label="Remove row">&#x2212;</button>
+          </div>
+        {% endif %}
+      </div>
+      <button type="button" class="btn-row-add"
+              data-list-id="list-prefilter_title_include" data-name="prefilter_title_include[]">+ Add pattern</button>
+
+      <label class="settings-label settings-label--mt">Title Exclude</label>
+      <p class="field-hint">A listing is discarded if its title matches any of these (case-insensitive substring).</p>
+      <div class="row-list" id="list-prefilter_title_exclude">
+        {% set t_exc = pf.get('title_exclude', []) %}
+        {% if t_exc %}
+          {% for item in t_exc %}
+            <div class="row-item">
+              <input class="settings-input" type="text" name="prefilter_title_exclude[]"
+                     value="{{ item }}" autocomplete="off">
+              <button type="button" class="btn-row-remove"
+                      aria-label="Remove row">&#x2212;</button>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="row-item">
+            <input class="settings-input" type="text" name="prefilter_title_exclude[]"
+                   autocomplete="off">
+            <button type="button" class="btn-row-remove"
+                    aria-label="Remove row">&#x2212;</button>
+          </div>
+        {% endif %}
+      </div>
+      <button type="button" class="btn-row-add"
+              data-list-id="list-prefilter_title_exclude" data-name="prefilter_title_exclude[]">+ Add pattern</button>
+
+      <hr class="form-section-divider">
+      <p class="form-subsection-title form-subsection-title--no-top">Contract Filters</p>
+
+      <label class="settings-label" for="prefilter_require_contract_time">Contract Time</label>
+      <p class="field-hint">Filter by Adzuna contract time field. Select &ldquo;Any&rdquo; to skip this check.</p>
+      {% set ctime = pf.get('require_contract_time') %}
+      <select id="prefilter_require_contract_time" class="settings-input"
+              name="prefilter_require_contract_time">
+        <option value=""{% if not ctime %} selected{% endif %}>Any</option>
+        <option value="full_time"{% if ctime == 'full_time' %} selected{% endif %}>Full Time</option>
+      </select>
+
+      <label class="settings-label" for="prefilter_require_contract_type">Contract Type</label>
+      <p class="field-hint">Filter by Adzuna contract type field. Select &ldquo;Any&rdquo; to skip this check.</p>
+      {% set ctype = pf.get('require_contract_type') %}
+      <select id="prefilter_require_contract_type" class="settings-input"
+              name="prefilter_require_contract_type">
+        <option value=""{% if not ctype %} selected{% endif %}>Any</option>
+        <option value="permanent"{% if ctype == 'permanent' %} selected{% endif %}>Permanent</option>
+        <option value="contract"{% if ctype == 'contract' %} selected{% endif %}>Contract</option>
+      </select>
+    </div>
+
+    <button type="submit" class="btn btn-save">Save Profile</button>
 
   </form>
 
 </div>
+
+{# ── Repeating-row JS (vanilla, no framework) ─────────────────── #}
+<script>
+(function () {
+  /**
+   * Add a new blank row to a repeating-row list.
+   *
+   * @param {string} listId  - id of the .row-list container
+   * @param {string} name    - the input name attribute (e.g. "primary_skills[]")
+   */
+  function addRow(listId, name) {
+    var list = document.getElementById(listId);
+    if (!list) return;
+    var row = document.createElement('div');
+    row.className = 'row-item';
+    row.innerHTML =
+      '<input class="settings-input" type="text" name="' + name + '" autocomplete="off">' +
+      '<button type="button" class="btn-row-remove" aria-label="Remove row">&#x2212;</button>';
+    list.appendChild(row);
+    // Focus the new input so the user can start typing immediately.
+    var input = row.querySelector('input');
+    if (input) input.focus();
+  }
+
+  /**
+   * Remove the row that contains the clicked remove button.
+   * Ensures at least one row always remains so the input name is present in
+   * the submitted form data (the server expects the key to exist).
+   *
+   * @param {HTMLElement} btn - the remove button that was clicked
+   */
+  function removeRow(btn) {
+    var row  = btn.closest('.row-item');
+    var list = row && row.closest('.row-list');
+    if (!list) return;
+    var rows = list.querySelectorAll('.row-item');
+    if (rows.length <= 1) {
+      // Clear the value instead of removing the row.
+      var input = row.querySelector('input');
+      if (input) input.value = '';
+      return;
+    }
+    row.parentNode.removeChild(row);
+  }
+
+  // Event delegation — handles both statically-rendered and dynamically-added buttons.
+  document.addEventListener('click', function (e) {
+    if (e.target.matches('.btn-row-remove')) {
+      removeRow(e.target);
+    }
+    if (e.target.matches('.btn-row-add')) {
+      var btn    = e.target;
+      var listId = btn.dataset.listId;
+      var name   = btn.dataset.name;
+      if (listId && name) {
+        addRow(listId, name);
+      }
+    }
+  });
+}());
+</script>
 </body>
 </html>

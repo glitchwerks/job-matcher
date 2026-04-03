@@ -1624,3 +1624,120 @@ body {
   font-size: 0.8rem;
   color: var(--text-muted);
 }
+
+/* ------------------------------------------------------------
+   Profile form — repeating row inputs
+   ------------------------------------------------------------ */
+
+/* Container for a vertically stacked list of removable rows. */
+.row-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+/* Single row: input + remove button side by side. */
+.row-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.row-item .settings-input {
+  flex: 1;
+  margin: 0;
+}
+
+/* Remove button (−) — muted at rest, red on hover. */
+.btn-row-remove {
+  background: none;
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s;
+  line-height: 1;
+}
+
+.btn-row-remove:hover {
+  color: var(--score-low-text);
+  border-color: var(--score-low-border);
+}
+
+.btn-row-remove:focus-visible {
+  outline: 2px solid var(--text-accent);
+  outline-offset: 2px;
+}
+
+/* Add row button — dashed border, accent on hover. */
+.btn-row-add {
+  background: none;
+  border: 1px dashed var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.3rem 0.75rem;
+  cursor: pointer;
+  align-self: flex-start;
+  transition: color 0.15s, border-color 0.15s;
+  margin-top: 2px;
+}
+
+.btn-row-add:hover {
+  color: var(--text-accent);
+  border-color: var(--text-accent);
+}
+
+.btn-row-add:focus-visible {
+  outline: 2px solid var(--text-accent);
+  outline-offset: 2px;
+}
+
+/* Hint text shown below a field label. */
+.field-hint {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  margin-bottom: 0;
+  line-height: 1.5;
+}
+
+/* Modifier: extra bottom margin when a hint precedes a sub-section. */
+.field-hint--mb {
+  margin-bottom: 0.75rem;
+}
+
+/* Horizontal rule dividing logical sub-sections within a .provider-row card. */
+.form-section-divider {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 1rem 0 0.5rem;
+}
+
+/* Sub-section heading inside a .provider-row card. */
+.form-subsection-title {
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin: 0 0 0.75rem;
+}
+
+/* Modifier: collapse the top margin when a sub-section title follows a divider. */
+.form-subsection-title--no-top {
+  margin-top: 0;
+}
+
+/* Modifier: extra top spacing for a settings label that follows a row list. */
+.settings-label--mt {
+  margin-top: 1rem;
+}

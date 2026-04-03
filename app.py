@@ -106,6 +106,7 @@ def csrf_localhost_guard():
 _CONFIG_DIR: str = os.path.join(os.path.dirname(__file__), "config")
 _KEYS_PATH: str = os.path.join(_CONFIG_DIR, "keys.json")
 _CONFIG_PATH: str = os.path.join(_CONFIG_DIR, "config.json")
+_PROFILE_PATH: str = os.path.join(_CONFIG_DIR, "profile.json")
 _PROVIDERS_PATH: str = os.path.join(_CONFIG_DIR, "providers.json")
 
 # Default structure mirrors keys.example.json — used when keys.json is absent.
@@ -147,58 +148,80 @@ def load_config(path: str = "config/config.json") -> dict:
         return defaults
 
 
+def _write_json_atomic(path: str, data: dict) -> None:
+    """Write *data* as JSON to *path* atomically using a sibling .tmp file.
+
+    Writes to ``<path>.tmp`` first, then renames to ``<path>``.  The tmp file
+    is always cleaned up on failure so stale partials never accumulate.
+
+    Args:
+        path: Destination file path.
+        data: Dict to serialise as indented JSON.
+
+    Raises:
+        OSError: If writing or renaming fails.
+    """
+    tmp_path = path + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp_path, path)
+    finally:
+        try:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+def load_profile(path: str = _PROFILE_PATH) -> dict:
+    """Load config/profile.json if it exists; return an empty dict otherwise.
+
+    Returns an empty dict (not hardcoded defaults) so the profile form shows
+    blank fields rather than confusing placeholder values when the file is absent.
+    """
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 CONFIG = load_config()
 db.init_db(db_path=DB_PATH)
 
 
 # ---------------------------------------------------------------------------
-# Config validation (mirrors ingest.load_config requirements)
+# Profile form validation
 # ---------------------------------------------------------------------------
 
-# These mirror ingest._REQUIRED_SEARCH and ingest._REQUIRED_SCORING so that
-# the profile editor rejects a save that would crash the next ingest run.
-_PROFILE_REQUIRED_SEARCH = ("country", "what", "results_per_page", "max_pages")
-_PROFILE_REQUIRED_SCORING = ("threshold",)
 
+def _validate_profile_form(threshold_str: str) -> list[str]:
+    """Validate the structured profile form fields.
 
-def _validate_config_dict(data: dict) -> list[str]:
-    """Return a list of missing required key paths in *data*.
+    Returns a list of human-readable error strings; empty list means valid.
+    Validates only the fields that can be invalid in a structured form — raw
+    JSON parsing errors are no longer possible since we own the field types.
 
-    Validates the same structural requirements that ``ingest.load_config()``
-    checks before running the pipeline:
-
-    * ``scoring.threshold`` must be present (no env-var fallback exists).
-    * If a ``search`` block is present, all four Adzuna search keys must be
-      there too — submitting a partial ``search`` block would break the next
-      Adzuna ingest run.
-
-    Top-level Adzuna credential keys (``adzuna_app_id``, ``adzuna_app_key``)
-    are intentionally excluded from this check because they can be satisfied
-    via ``ADZUNA_APP_ID``/``ADZUNA_APP_KEY`` environment variables and are
-    optional when using non-Adzuna sources.
-
-    Returns an empty list when the config is valid.
+    Args:
+        threshold_str: The raw string value submitted for ``scoring.threshold``.
     """
-    missing: list[str] = []
+    errors: list[str] = []
 
-    scoring = data.get("scoring")
-    if not isinstance(scoring, dict):
-        missing.append("scoring (must be an object)")
+    # scoring.threshold must parse as a float in [0, 10].
+    if not threshold_str.strip():
+        errors.append("scoring.threshold is required")
     else:
-        for key in _PROFILE_REQUIRED_SCORING:
-            if key not in scoring:
-                missing.append(f"scoring.{key}")
-        if "threshold" in scoring and not isinstance(scoring["threshold"], (int, float)):
-            missing.append("scoring.threshold (must be a number)")
+        try:
+            val = float(threshold_str.strip())
+            if not (0 <= val <= 10):
+                errors.append("scoring.threshold must be between 0 and 10")
+        except ValueError:
+            errors.append("scoring.threshold must be a number")
 
-    # Only validate search sub-keys when the caller has included a search block.
-    search = data.get("search")
-    if isinstance(search, dict):
-        for key in _PROFILE_REQUIRED_SEARCH:
-            if key not in search:
-                missing.append(f"search.{key}")
-
-    return missing
+    return errors
 
 
 # ---------------------------------------------------------------------------
@@ -945,6 +968,30 @@ def settings():
         except OSError:
             error = "Could not save settings — check file permissions."
 
+        # Save technical search fields (results_per_page, max_pages) to config.json.
+        if error is None and active_tab == "search":
+            existing_cfg = load_config(_CONFIG_PATH)
+            existing_search = existing_cfg.get("search") or {}
+            rpp_str = request.form.get("search_results_per_page", "").strip()
+            mp_str = request.form.get("search_max_pages", "").strip()
+            updated_search = dict(existing_search)
+            if rpp_str:
+                try:
+                    updated_search["results_per_page"] = int(rpp_str)
+                except ValueError:
+                    pass
+            if mp_str:
+                try:
+                    updated_search["max_pages"] = int(mp_str)
+                except ValueError:
+                    pass
+            updated_cfg = dict(existing_cfg)
+            updated_cfg["search"] = updated_search
+            try:
+                _write_json_atomic(_CONFIG_PATH, updated_cfg)
+            except OSError:
+                error = "Could not save config — check file permissions."
+
         if error is None:
             return redirect(url_for("settings", tab=active_tab))
 
@@ -978,6 +1025,9 @@ def settings():
 
     listing_count = db.get_listing_count(db_path=DB_PATH)
 
+    # Pass technical search fields to the Search Settings tab.
+    search_cfg = load_config(_CONFIG_PATH).get("search") or {}
+
     return render_template(
         "settings.html",
         view="settings",
@@ -987,89 +1037,181 @@ def settings():
         saved=saved,
         error=error,
         listing_count=listing_count,
+        search_cfg=search_cfg,
     )
+
+
+def _parse_repeating_rows(form, field_name: str) -> list[str]:
+    """Extract a list of non-empty strings from repeating form row inputs.
+
+    The repeating-row pattern names inputs as ``<field_name>[]``, submitting
+    one value per row.  Empty rows (whitespace-only) are discarded so the
+    stored array does not contain blank entries.
+
+    Args:
+        form: The Flask ``request.form`` ImmutableMultiDict.
+        field_name: Base name used in the HTML (e.g. ``"primary_skills"``).
+
+    Returns:
+        List of stripped non-empty strings.
+    """
+    values = form.getlist(f"{field_name}[]")
+    return [v.strip() for v in values if v.strip()]
 
 
 @app.route("/profile", methods=["GET", "POST"])
 def profile():
-    """Profile page — view and edit config.json via the browser.
+    """Profile page — structured form for candidate preferences.
 
-    GET:  Reads config.json, masks any sensitive key fields (``*_api_key``,
-          ``*_app_key``, ``*_app_id``), pretty-prints the result as JSON, and
-          renders it in a ``<textarea>`` for editing.
+    GET:  Loads both ``profile.json`` and the candidate-facing subset of
+          ``config.json``, and passes structured dicts to the template.  No
+          raw JSON is exposed; no sensitive fields are present.
 
-    POST: Validates the submitted JSON. If parsing fails or required keys are
-          missing, returns a 400/422 with an inline error and leaves config.json
-          untouched. If the JSON is valid, overwrites config.json and shows a
-          success notice. Masked values (``"***"``) are never written back to
-          disk — if the submitted JSON still contains ``"***"`` for a sensitive
-          field, the original value from the current config is preserved.
+    POST: Parses individual form fields, writes ``profile.json`` from the
+          profile fields, and deep-merges only the candidate-facing config
+          fields (``search.*`` candidate keys, ``scoring.threshold``,
+          ``prefilter.*``) back into ``config.json`` — leaving technical keys
+          (``results_per_page``, ``max_pages``, ``model``, etc.) untouched.
+          Returns 422 on validation errors without touching either file.
     """
     saved = False
     error = None
     status_code = 200
 
     if request.method == "POST":
-        raw = request.form.get("config_json", "")
-        try:
-            submitted = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            error = f"Invalid JSON: {exc}"
-            status_code = 400
-            submitted = None
+        # --- Validate before touching disk ---
+        threshold_str = request.form.get("scoring_threshold", "")
+        validation_errors = _validate_profile_form(threshold_str)
+        if validation_errors:
+            error = "; ".join(validation_errors)
+            status_code = 422
+        else:
+            # Collect any additional field-level validation errors.
+            field_errors: list[str] = []
 
-        if submitted is not None:
-            # Validate required keys before touching disk.
-            missing_keys = _validate_config_dict(submitted)
-            if missing_keys:
-                error = "Missing required config key(s): " + ", ".join(missing_keys)
-                status_code = 422
-                submitted = None
-
-        if submitted is not None:
-            # Merge: if a sensitive field still holds the masked sentinel,
-            # preserve the original value so we never overwrite with "***".
-            existing = load_config(_CONFIG_PATH)
-            _SENSITIVE_SUFFIXES = ("_api_key", "_app_key", "_app_id")
-
-            def _restore_masked(new_obj, orig_obj):
-                """Recursively replace '***' sentinel values with originals."""
-                if not isinstance(new_obj, dict):
-                    return new_obj
-                result = {}
-                for k, v in new_obj.items():
-                    if (
-                        isinstance(k, str)
-                        and k.lower().endswith(_SENSITIVE_SUFFIXES)
-                        and v == "***"
-                        and isinstance(orig_obj, dict)
-                        and k in orig_obj
-                    ):
-                        result[k] = orig_obj[k]
-                    elif isinstance(v, dict):
-                        result[k] = _restore_masked(v, orig_obj.get(k, {}) if isinstance(orig_obj, dict) else {})
+            # Build profile.json dict from profile fields.
+            location_block: dict = {}
+            loc_center = request.form.get("location_center", "").strip()
+            loc_radius = request.form.get("location_radius_km", "").strip()
+            loc_fallback = request.form.get("location_geocode_fallback", "pass").strip()
+            loc_notes = request.form.get("location_notes", "").strip()
+            if loc_center:
+                location_block["center"] = loc_center
+            if loc_radius:
+                try:
+                    radius = float(loc_radius)
+                    if radius > 0:
+                        location_block["radius_km"] = radius
                     else:
-                        result[k] = v
-                return result
+                        field_errors.append("location.radius_km must be greater than 0")
+                except ValueError:
+                    field_errors.append("location.radius_km must be a number")
+            location_block["geocode_fallback"] = loc_fallback or "pass"
+            if loc_notes:
+                location_block["notes"] = loc_notes
 
-            to_write = _restore_masked(submitted, existing)
+            new_profile: dict = {
+                "primary_skills": _parse_repeating_rows(request.form, "primary_skills"),
+                "anti_preferences": _parse_repeating_rows(request.form, "anti_preferences"),
+                "seniority": request.form.get("seniority", "").strip(),
+                "preferred_industries": _parse_repeating_rows(request.form, "preferred_industries"),
+                "location": location_block,
+                "scoring_notes": _parse_repeating_rows(request.form, "scoring_notes"),
+            }
 
-            try:
-                with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
-                    json.dump(to_write, f, indent=2)
-                saved = True
-            except OSError:
-                error = "Could not save config — check file permissions."
+            # Build the candidate-facing config.json subset.
+            # Read existing config first so we can merge (preserving technical keys).
+            existing_cfg = load_config(_CONFIG_PATH)
+            existing_search = existing_cfg.get("search") or {}
+            existing_scoring = existing_cfg.get("scoring") or {}
+            existing_prefilter = existing_cfg.get("prefilter") or {}
 
-    # Always re-read from disk (after write or on GET) for the textarea.
-    cfg_display = load_config(_CONFIG_PATH)
-    masked = _mask_config_keys(cfg_display)
-    config_json_str = json.dumps(masked, indent=2)
+            # Candidate search fields — only update these; leave results_per_page
+            # and max_pages (technical fields managed on the Settings page) alone.
+            salary_min_str = request.form.get("search_salary_min", "").strip()
+            distance_str = request.form.get("search_distance", "").strip()
+            max_days_str = request.form.get("search_max_days_old", "").strip()
+
+            updated_search = dict(existing_search)
+            updated_search["country"] = request.form.get("search_country", "").strip()
+            updated_search["what"] = request.form.get("search_what", "").strip()
+            updated_search["where"] = request.form.get("search_where", "").strip()
+            if distance_str:
+                try:
+                    dist = int(distance_str)
+                    if dist >= 0:
+                        updated_search["distance"] = dist
+                    else:
+                        field_errors.append("search.distance must be 0 or greater")
+                except ValueError:
+                    field_errors.append("search.distance must be a whole number")
+            else:
+                updated_search.pop("distance", None)
+            if salary_min_str:
+                try:
+                    sal = int(salary_min_str)
+                    if sal >= 0:
+                        updated_search["salary_min"] = sal
+                    else:
+                        field_errors.append("search.salary_min must be 0 or greater")
+                except ValueError:
+                    field_errors.append("search.salary_min must be a whole number")
+            else:
+                updated_search.pop("salary_min", None)
+            if max_days_str:
+                try:
+                    days = int(max_days_str)
+                    if days > 0:
+                        updated_search["max_days_old"] = days
+                    else:
+                        field_errors.append("search.max_days_old must be greater than 0")
+                except ValueError:
+                    field_errors.append("search.max_days_old must be a whole number")
+            else:
+                updated_search.pop("max_days_old", None)
+
+            # Bail out before touching disk if any field-level errors were found.
+            if field_errors:
+                error = "; ".join(field_errors)
+                status_code = 422
+
+            if not field_errors:
+                # scoring.threshold — parse is already validated above.
+                updated_scoring = dict(existing_scoring)
+                updated_scoring["threshold"] = float(threshold_str.strip())
+
+                # prefilter fields.
+                require_contract_time_raw = request.form.get("prefilter_require_contract_time", "").strip()
+                require_contract_type_raw = request.form.get("prefilter_require_contract_type", "").strip()
+                updated_prefilter = dict(existing_prefilter)
+                updated_prefilter["title_include"] = _parse_repeating_rows(request.form, "prefilter_title_include")
+                updated_prefilter["title_exclude"] = _parse_repeating_rows(request.form, "prefilter_title_exclude")
+                updated_prefilter["require_contract_time"] = require_contract_time_raw or None
+                updated_prefilter["require_contract_type"] = require_contract_type_raw or None
+
+                new_cfg = dict(existing_cfg)
+                new_cfg["search"] = updated_search
+                new_cfg["scoring"] = updated_scoring
+                new_cfg["prefilter"] = updated_prefilter
+
+                # Write profile.json atomically.
+                try:
+                    _write_json_atomic(_PROFILE_PATH, new_profile)
+                    _write_json_atomic(_CONFIG_PATH, new_cfg)
+                    saved = True
+                except OSError:
+                    error = "Could not save — check file permissions."
+                    status_code = 500
+
+    # Load current values for the form (GET, or POST after error).
+    cfg = load_config(_CONFIG_PATH)
+    prof = load_profile(_PROFILE_PATH)
 
     return render_template(
         "profile.html",
         view="profile",
-        config_json=config_json_str,
+        prof=prof,
+        cfg=cfg,
         saved=saved,
         error=error,
     ), status_code
