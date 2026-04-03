@@ -563,7 +563,7 @@ Expected: all tests pass, 0 failures.
 
 - [ ] **Step 5: Manual smoke test**
 
-Start the app (`python app.py`) and navigate to `http://localhost:5000/settings`.
+Start the app (`python app.py`) and open the **Settings** page.
 
 Verify:
 - [ ] The LLM Providers tab shows a "Fallback Order" section above the provider cards

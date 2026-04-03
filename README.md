@@ -153,7 +153,7 @@ The database file `jobs.db` is created automatically on the first run.
 python app.py
 ```
 
-Then open `http://localhost:5000` in your browser.
+Then open the web UI in your browser.
 
 > **Security note:** Job Matcher is a localhost-only tool. All state-mutating
 > requests (POST/PUT/PATCH/DELETE) are rejected with 403 if the `Origin` or
@@ -265,7 +265,7 @@ What it does:
 - Registers the `JobMatcherIngest` daily Task Scheduler task
 - Opens Windows Firewall inbound TCP port 5000 so the UI is reachable from the network
 
-After the script completes, navigate to `http://localhost:5000/settings` to configure your LLM provider API keys and any job source credentials (including Adzuna App ID and App Key).
+After the script completes, open the **Settings** page to configure your LLM provider API keys and any job source credentials (including Adzuna App ID and App Key).
 
 ### Prerequisites
 
@@ -349,7 +349,7 @@ The SQLite database (`jobs.db`) is created there automatically on the first run.
 
 ### API keys (LLM providers)
 
-LLM provider keys (Anthropic, OpenAI, Gemini, etc.) are stored in `config/providers.json` alongside job source credentials. The file is gitignored and never committed. After running `scripts/setup.ps1`, navigate to `http://localhost:5000/settings` to enter your API keys — the Settings UI validates each key before saving.
+LLM provider keys (Anthropic, OpenAI, Gemini, etc.) are stored in `config/providers.json` alongside job source credentials. The file is gitignored and never committed. After running `scripts/setup.ps1`, open the **Settings** page to enter your API keys — the Settings UI validates each key before saving.
 
 ### Ops commands
 

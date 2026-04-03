@@ -930,7 +930,7 @@ Expected: all pre-existing tests pass + all new tests green.
 ### Manual end-to-end checklist
 Start the server: `python app.py`
 
-- [ ] `http://localhost:5000/profile` loads without errors.
+- [ ] The **Profile** page loads without errors.
 - [ ] "Scoring Instructions" section visible below config.json editor.
 - [ ] Textarea shows current `scoring_notes` from `profile.json`, one per line.
 - [ ] Listing dropdown shows title, company, and score (`7/10`).
