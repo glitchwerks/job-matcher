@@ -1,0 +1,1255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Matcher — Stop reading job descriptions. Start reading scores.</title>
+  <meta name="description" content="Job Matcher is an open-source pipeline that fetches listings from nine job boards, scores each one against your skills using an LLM, and surfaces ranked results in a local web UI. Your data never leaves your machine.">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Job Matcher">
+  <meta property="og:description" content="Job Matcher is an open-source pipeline that fetches listings from nine job boards, scores each one against your skills using an LLM, and surfaces ranked results in a local web UI. Your data never leaves your machine.">
+  <meta property="og:image" content="assets/feed-overview.png">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://cbeaulieu-gt.github.io/job_matcher/">
+
+  <meta name="theme-color" content="#0f1117">
+
+  <style>
+    /* ============================================================
+       DESIGN TOKENS — mirrors app :root in static/style.css
+       All colors via CSS custom properties. No hardcoded hex.
+       ============================================================ */
+    :root {
+      /* Backgrounds */
+      --bg-base:    #0f1117;
+      --bg-surface: #171b23;
+      --bg-raised:  #1e2330;
+      --bg-hover:   #252b38;
+
+      /* Borders */
+      --border-subtle: #2a2f3d;
+      --border-mid:    #373e50;
+      --border-strong: #525c72;
+
+      /* Text */
+      --text-primary:       #eceef5;
+      --text-secondary:     #b0bace;
+      --text-muted:         #7a8599;
+      --text-accent:        #f5a623;
+      --text-accent-bright: #f5b040;
+
+      /* Amber button states */
+      --btn-amber-border:       #3a2e10;
+      --btn-amber-hover-bg:     #221c08;
+      --btn-amber-hover-border: #5a4820;
+
+      /* Score tier — high (green) */
+      --score-high-bg:     #0a3320;
+      --score-high-text:   #4df590;
+      --score-high-border: #1e6b42;
+
+      /* Score tier — mid (golden amber) */
+      --score-mid-bg:     #312800;
+      --score-mid-text:   #ffd24d;
+      --score-mid-border: #6b5500;
+
+      /* Score tier — low (red) */
+      --score-low-bg:     #330f0f;
+      --score-low-text:   #ff6b6b;
+      --score-low-border: #6b2020;
+
+      /* Typography */
+      --font-body: Georgia, 'Times New Roman', serif;
+      --font-mono: Menlo, Consolas, 'Cascadia Code', 'Courier New', monospace;
+      --font-ui:   -apple-system, 'Segoe UI', system-ui, sans-serif;
+
+      /* Layout */
+      --max-width: 860px;
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --radius-lg: 10px;
+
+      /* Section padding */
+      --section-pad: 80px;
+    }
+
+    /* ============================================================
+       RESET & BASE
+       ============================================================ */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: var(--bg-base);
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+      line-height: 1.5;
+      /* Subtle horizontal scanline texture — adds terminal depth without
+         violating "no gradients in content areas" */
+      background-image: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(255,255,255,0.012) 2px,
+        rgba(255,255,255,0.012) 4px
+      );
+    }
+
+    /* ============================================================
+       LAYOUT WRAPPER
+       ============================================================ */
+    .page-wrap {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+
+    /* ============================================================
+       HEADER / NAV
+       ============================================================ */
+    .site-header {
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .site-header .page-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 52px;
+    }
+
+    .site-logo {
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      text-decoration: none;
+    }
+
+    .site-logo .accent {
+      color: var(--text-accent);
+    }
+
+    .header-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-raised);
+      color: var(--text-accent);
+      border: 1px solid var(--btn-amber-border);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border-radius: var(--radius-sm);
+      padding: 7px 14px;
+      text-decoration: none;
+      transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+    }
+
+    .header-cta:hover {
+      background: var(--btn-amber-hover-bg);
+      border-color: var(--btn-amber-hover-border);
+      color: var(--text-accent-bright);
+    }
+
+    /* ============================================================
+       ANIMATIONS — staggered hero reveal on load
+       ============================================================ */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(14px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .anim-1 { animation: fadeUp 0.55s ease both; animation-delay: 0.05s; }
+    .anim-2 { animation: fadeUp 0.55s ease both; animation-delay: 0.18s; }
+    .anim-3 { animation: fadeUp 0.55s ease both; animation-delay: 0.30s; }
+    .anim-4 { animation: fadeUp 0.55s ease both; animation-delay: 0.44s; }
+
+    /* ============================================================
+       SECTION HEADING PATTERN
+       Matches .page-heading from app: mono, uppercase, letter-spaced,
+       muted. Amber tick + short rule echoes the app's header divider.
+       ============================================================ */
+    .section-label {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Amber tick mark before the label */
+    .section-label::before {
+      content: '';
+      display: inline-block;
+      width: 16px;
+      height: 1px;
+      background: var(--text-accent);
+      flex-shrink: 0;
+    }
+
+    /* Short rule extending right */
+    .section-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border-subtle);
+      max-width: 48px;
+    }
+
+    .section-heading {
+      font-family: var(--font-ui);
+      font-size: 1.55rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      line-height: 1.25;
+      margin-bottom: 40px;
+    }
+
+    /* Intro paragraph below a section heading — sits between heading and cards */
+    .section-intro {
+      font-family: var(--font-body);
+      font-size: 0.95rem;
+      line-height: 1.7;
+      color: var(--text-secondary);
+      max-width: 640px;
+      margin: -24px auto 1.5rem;
+      text-align: center;
+    }
+
+    /* ============================================================
+       ALTERNATING SECTION BACKGROUNDS
+       Odd sections = --bg-base, even = --bg-surface.
+       Each section manages its own padding.
+       ============================================================ */
+    .section-base    { background: var(--bg-base);    padding: var(--section-pad) 0; }
+    .section-surface { background: var(--bg-surface); padding: var(--section-pad) 0; }
+
+    /* ============================================================
+       HERO
+       ============================================================ */
+    .hero {
+      padding: 80px 0;
+      background: var(--bg-base);
+    }
+
+    .hero-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-accent);
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .hero-eyebrow::before {
+      content: '';
+      display: inline-block;
+      width: 20px;
+      height: 1px;
+      background: var(--text-accent);
+    }
+
+    .hero-headline {
+      font-family: var(--font-ui);
+      font-size: 2.2rem;
+      font-weight: 700;
+      line-height: 1.18;
+      color: var(--text-primary);
+      max-width: 720px;
+      margin-bottom: 20px;
+    }
+
+    .hero-headline em {
+      font-style: normal;
+      color: var(--text-accent);
+    }
+
+    .hero-sub {
+      font-family: var(--font-body);
+      font-size: 1rem;
+      line-height: 1.65;
+      color: var(--text-secondary);
+      max-width: 640px;
+      margin-bottom: 32px;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    /* Primary CTA — amber-accented, matches .btn-view in app */
+    .btn-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-raised);
+      color: var(--text-accent);
+      border: 1px solid var(--btn-amber-border);
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border-radius: var(--radius-sm);
+      padding: 10px 20px;
+      text-decoration: none;
+      transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+    }
+
+    .btn-cta:hover {
+      background: var(--btn-amber-hover-bg);
+      border-color: var(--btn-amber-hover-border);
+      color: var(--text-accent-bright);
+    }
+
+    .btn-cta svg {
+      transition: transform 150ms ease;
+    }
+
+    .btn-cta:hover svg.arrow-icon {
+      transform: translate(2px, -2px);
+    }
+
+    .hero-meta {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      letter-spacing: 0.04em;
+    }
+
+    /* Hero screenshot container */
+    .hero-screenshot {
+      margin-top: 48px;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      min-height: 300px;
+      background: var(--bg-surface);
+      position: relative;
+    }
+
+    .hero-screenshot img {
+      width: 100%;
+      display: block;
+      position: relative;
+      z-index: 1;
+      mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
+      -webkit-mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
+    }
+
+    /* Shown only when the screenshot hasn't loaded */
+    .hero-screenshot-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .hero-screenshot-placeholder span {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+
+    /* ============================================================
+       THE PROBLEM — three pain-point blocks
+       ============================================================ */
+    .problem-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 24px;
+    }
+
+    .problem-block {
+      border-left: 2px solid var(--border-subtle);
+      padding-left: 20px;
+    }
+
+    .problem-block-title {
+      font-family: var(--font-ui);
+      font-size: 0.93rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+
+    .problem-block-body {
+      font-family: var(--font-body);
+      font-size: 0.9rem;
+      line-height: 1.65;
+      color: var(--text-secondary);
+    }
+
+    /* ============================================================
+       HOW IT WORKS — three-step pipeline with numbered indicators
+       Amber → amber → green progression signals raw → ready
+       ============================================================ */
+    .steps {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 32px;
+      position: relative;
+    }
+
+    /* Connecting line between steps — desktop only */
+    .steps::before {
+      content: '';
+      position: absolute;
+      top: 22px;
+      left: calc(33.33% - 8px);
+      width: calc(33.33%);
+      height: 1px;
+      background: var(--border-subtle);
+    }
+
+    .steps::after {
+      content: '';
+      position: absolute;
+      top: 22px;
+      left: calc(66.66% - 8px);
+      width: calc(33.33% - 16px);
+      height: 1px;
+      background: var(--border-subtle);
+    }
+
+    .step {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .step-indicator {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      letter-spacing: 0.04em;
+      font-weight: normal;
+      flex-shrink: 0;
+    }
+
+    /* Step 1 — Fetch: amber/mid — in-progress, gathering */
+    .step-indicator--fetch {
+      background: var(--score-mid-bg);
+      color: var(--score-mid-text);
+      border: 1px solid var(--score-mid-border);
+    }
+
+    /* Step 2 — Score: amber/accent — processing */
+    .step-indicator--score {
+      background: var(--bg-raised);
+      color: var(--text-accent);
+      border: 1px solid var(--btn-amber-border);
+    }
+
+    /* Step 3 — Review: green/high — complete, actionable */
+    .step-indicator--review {
+      background: var(--score-high-bg);
+      color: var(--score-high-text);
+      border: 1px solid var(--score-high-border);
+    }
+
+    .step-title {
+      font-family: var(--font-ui);
+      font-size: 0.93rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 6px;
+    }
+
+    .step-body {
+      font-family: var(--font-body);
+      font-size: 0.88rem;
+      line-height: 1.65;
+      color: var(--text-secondary);
+    }
+
+    /* ============================================================
+       FEATURES — 2-column grid on desktop, 1-col below 640px
+       ============================================================ */
+    .features-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .feature-card {
+      background: var(--bg-raised);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 22px 24px;
+      display: flex;
+      gap: 18px;
+      align-items: flex-start;
+    }
+
+    .feature-icon {
+      font-size: 1.4rem;
+      color: var(--text-accent);
+      flex-shrink: 0;
+      line-height: 1;
+      margin-top: 2px;
+      /* Consistent column width regardless of icon width */
+      width: 28px;
+      text-align: center;
+    }
+
+    .feature-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .feature-title {
+      font-family: var(--font-ui);
+      font-size: 0.93rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 6px;
+    }
+
+    .feature-body {
+      font-family: var(--font-body);
+      font-size: 0.88rem;
+      line-height: 1.6;
+      color: var(--text-secondary);
+    }
+
+    /* ============================================================
+       WHY I BUILT THIS — amber left-border callout, serif prose
+       ============================================================ */
+    .why-callout {
+      background: var(--bg-surface);
+      border-left: 3px solid var(--text-accent);
+      border-radius: 0 var(--radius-md) var(--radius-md) 0;
+      padding: 32px 36px;
+      max-width: 680px;
+    }
+
+    .why-callout p {
+      font-family: var(--font-body);
+      font-size: 0.95rem;
+      line-height: 1.75;
+      color: var(--text-secondary);
+    }
+
+    .why-callout p + p {
+      margin-top: 1em;
+    }
+
+    /* ============================================================
+       SCREENSHOTS — annotated with captions
+       ============================================================ */
+    .screenshots-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 40px;
+    }
+
+    .screenshot-item {}
+
+    .screenshot-container {
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: var(--bg-surface);
+      /* Fallback height until image loads */
+      min-height: 120px;
+      position: relative;
+    }
+
+    .screenshot-container img {
+      width: 100%;
+      max-width: 100%;
+      display: block;
+    }
+
+    /* Placeholder shown when image hasn't loaded */
+    .screenshot-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+
+    .screenshot-caption {
+      margin-top: 10px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      padding-left: 2px;
+    }
+
+    /* ============================================================
+       QUICK START — styled code block with $ prompt prefix
+       ============================================================ */
+    .quickstart-block {
+      background: var(--bg-raised);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 20px 24px;
+      margin-bottom: 20px;
+      overflow-x: auto;
+    }
+
+    .quickstart-block code {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      line-height: 2;
+      color: var(--text-secondary);
+      white-space: pre;
+    }
+
+    /* $ prompt prefix on each code line via CSS */
+    .quickstart-block code::before {
+      content: '$ ';
+      color: var(--text-muted);
+      user-select: none;
+    }
+
+    .quickstart-note {
+      font-family: var(--font-body);
+      font-size: 0.9rem;
+      line-height: 1.65;
+      color: var(--text-secondary);
+    }
+
+    .quickstart-note code {
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      background: var(--bg-raised);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 1px 6px;
+      color: var(--text-accent);
+    }
+
+    /* ============================================================
+       FOOTER
+       ============================================================ */
+    .site-footer {
+      border-top: 1px solid var(--border-subtle);
+      padding: 40px 0;
+      background: var(--bg-base);
+    }
+
+    .site-footer .page-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      text-align: center;
+    }
+
+    .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: var(--text-muted);
+    }
+
+    .footer-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 150ms ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .footer-links a:hover {
+      color: var(--text-primary);
+    }
+
+    .footer-sep {
+      color: var(--border-mid);
+      margin: 0 6px;
+      user-select: none;
+    }
+
+    .footer-author {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: var(--text-muted);
+    }
+
+    .footer-author-name {
+      color: var(--text-secondary);
+    }
+
+    .footer-icon-link {
+      display: inline-flex;
+      align-items: center;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 150ms ease;
+    }
+
+    .footer-icon-link:hover {
+      color: var(--text-primary);
+    }
+
+    /* ============================================================
+       RESPONSIVE
+       ============================================================ */
+    @media (max-width: 700px) {
+      :root { --section-pad: 56px; }
+
+      .problem-grid {
+        grid-template-columns: 1fr;
+        gap: 28px;
+      }
+
+      .steps {
+        grid-template-columns: 1fr;
+        gap: 32px;
+      }
+
+      /* Hide the horizontal connector lines on mobile */
+      .steps::before,
+      .steps::after {
+        display: none;
+      }
+
+      .step {
+        flex-direction: row;
+        gap: 20px;
+        align-items: flex-start;
+      }
+
+      .step-indicator {
+        width: 36px;
+        height: 36px;
+        font-size: 0.76rem;
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
+
+      .features-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .section-heading {
+        font-size: 1.3rem;
+        margin-bottom: 28px;
+      }
+
+      .why-callout {
+        padding: 24px 22px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .page-wrap {
+        padding: 0 16px;
+      }
+
+      .hero {
+        padding: 52px 0 60px;
+      }
+
+      .hero-headline {
+        font-size: 1.55rem;
+      }
+
+      .hero-sub {
+        font-size: 0.95rem;
+      }
+
+      .btn-cta {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .hero-actions {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .hero-screenshot {
+        margin-top: 36px;
+        min-height: 180px;
+      }
+    }
+
+    @media (max-width: 400px) {
+      .hero-headline {
+        font-size: 1.3rem;
+      }
+
+      .header-cta {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ============================================================
+       HEADER
+       ============================================================ -->
+  <header class="site-header">
+    <div class="page-wrap">
+      <a href="https://github.com/cbeaulieu-gt/job-matcher" class="site-logo" aria-label="Job Matcher — home">
+        job<span class="accent">_</span>matcher
+      </a>
+      <a href="https://github.com/cbeaulieu-gt/job-matcher" class="header-cta" aria-label="View Job Matcher on GitHub">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+        </svg>
+        GitHub
+      </a>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ==========================================================
+         §1 HERO
+         ========================================================== -->
+    <section class="hero" aria-labelledby="hero-headline">
+      <div class="page-wrap">
+
+        <p class="hero-eyebrow anim-1">Open source · runs locally · zero SaaS</p>
+
+        <h1 class="hero-headline anim-2" id="hero-headline">
+          Stop reading job descriptions.<br>
+          Start reading <em>scores</em>.
+        </h1>
+
+        <p class="hero-sub anim-3">
+          Job Matcher is an open-source pipeline that fetches listings from nine
+          job boards, scores each one against your skills using an LLM, and
+          surfaces ranked results in a local web UI. Your data never leaves your
+          machine.
+        </p>
+
+        <div class="hero-actions anim-4">
+          <a href="https://github.com/cbeaulieu-gt/job-matcher" class="btn-cta" aria-label="View Job Matcher on GitHub">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            View on GitHub
+            <svg class="arrow-icon" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path d="M2 8L8 2M3 2h5v5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
+          <span class="hero-meta">MIT License · Python 3.11+</span>
+        </div>
+
+        <div class="hero-screenshot anim-4" role="img" aria-label="Job Matcher feed showing a ranked list of job listings with scores, skill breakdowns, and verdicts">
+          <div class="hero-screenshot-placeholder" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" style="color: var(--border-mid);">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <path d="M3 9h18M9 21V9"/>
+            </svg>
+            <span>Screenshot coming soon</span>
+          </div>
+          <img
+            src="assets/feed-overview.png"
+            alt="Job Matcher feed showing a ranked list of job listings with green high-score, amber mid-score, and red low-score tier indicators"
+            loading="eager"
+            width="860"
+            onerror="this.style.display='none'"
+          >
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==========================================================
+         §2 THE PROBLEM
+         ========================================================== -->
+    <section class="section-surface" aria-labelledby="problem-heading">
+      <div class="page-wrap">
+
+        <p class="section-label">The problem</p>
+        <h2 class="section-heading" id="problem-heading">The job search is broken</h2>
+
+        <div class="problem-grid">
+
+          <div class="problem-block">
+            <p class="problem-block-title">You are the filter.</p>
+            <p class="problem-block-body">
+              Job boards dump hundreds of listings on you and expect you to read
+              every one. Most are irrelevant. You know within ten seconds, but
+              those seconds add up.
+            </p>
+          </div>
+
+          <div class="problem-block">
+            <p class="problem-block-title">Descriptions lie by omission.</p>
+            <p class="problem-block-body">
+              A posting says "Python" but buries the real requirement — five
+              years of enterprise Java — in paragraph six. You only find out
+              after applying.
+            </p>
+          </div>
+
+          <div class="problem-block">
+            <p class="problem-block-title">Matching algorithms miss what matters most.</p>
+            <p class="problem-block-body">
+              LinkedIn and Dice try — but they match on job title and location,
+              not your actual skills, salary floor, or the technologies you refuse
+              to work with. They'll surface a Salesforce admin role to a Python
+              engineer without blinking.
+            </p>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================================
+         §3 HOW IT WORKS
+         ========================================================== -->
+    <section class="section-base" aria-labelledby="how-heading">
+      <div class="page-wrap">
+
+        <p class="section-label">How it works</p>
+        <h2 class="section-heading" id="how-heading">Three steps. Zero manual scanning.</h2>
+
+        <div class="steps">
+
+          <div class="step">
+            <div class="step-indicator step-indicator--fetch" aria-label="Step 1">01</div>
+            <div>
+              <p class="step-title">Fetch</p>
+              <p class="step-body">
+                Pulls listings from Adzuna, Jooble, Jobicy, Himalayas, USAJobs,
+                Remotive, and more. Pre-filters by title, salary, location, and
+                contract type before anything hits the LLM.
+              </p>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-indicator step-indicator--score" aria-label="Step 2">02</div>
+            <div>
+              <p class="step-title">Score</p>
+              <p class="step-body">
+                Sends each full job description — not the snippet — to Claude,
+                GPT-4, or Gemini alongside your skills profile. Returns a 0–10
+                score, matched skills, missing skills, concerns, and a
+                one-sentence verdict.
+              </p>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-indicator step-indicator--review" aria-label="Step 3">03</div>
+            <div>
+              <p class="step-title">Review</p>
+              <p class="step-body">
+                Browse a ranked feed in your browser. Expand any card to see
+                the full breakdown. Bookmark, dismiss, or mark as applied.
+                Everything runs on localhost.
+              </p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================================
+         §4 FEATURES
+         ========================================================== -->
+    <section class="section-surface" aria-labelledby="features-heading">
+      <div class="page-wrap">
+
+        <p class="section-label">Features</p>
+        <h2 class="section-heading" id="features-heading">Your model. Your keys. Your criteria.</h2>
+
+        <p class="section-intro">
+          Most tools hand your search to their AI, charge their own rates, and write their own prompts.
+          Some will even apply for you — blasting your resume to hundreds of listings without your review.
+          Job Matcher does neither. It surfaces ranked results and leaves the decision to you.
+          You choose where your resume goes.
+        </p>
+
+        <div class="features-grid">
+
+          <div class="feature-card">
+            <div class="feature-icon" aria-hidden="true">&#9641;</div>
+            <div class="feature-content">
+              <p class="feature-title">Nine job sources</p>
+              <p class="feature-body">
+                Aggregates from Adzuna, Jooble, Jobicy, Himalayas, USAJobs,
+                Remotive, RemoteOK, Arbeitnow, and The Muse.
+              </p>
+            </div>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon" aria-hidden="true">&#9999;</div>
+            <div class="feature-content">
+              <p class="feature-title">Bring your own key</p>
+              <p class="feature-body">
+                Works with Anthropic, OpenAI, or Google Gemini. Use whichever
+                LLM you already have access to. Provider failover is automatic.
+              </p>
+            </div>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon" aria-hidden="true">&#8962;</div>
+            <div class="feature-content">
+              <p class="feature-title">Runs locally</p>
+              <p class="feature-body">
+                No SaaS, no subscription, no data exfiltration. Your resume,
+                your API keys, and your job search stay on your machine.
+              </p>
+            </div>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon" aria-hidden="true">&#10070;</div>
+            <div class="feature-content">
+              <p class="feature-title">Smart pre-filtering</p>
+              <p class="feature-body">
+                Title patterns, salary floors, contract type, and geospatial
+                distance filters run before the LLM, saving tokens and money.
+              </p>
+            </div>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon" aria-hidden="true">&#9673;</div>
+            <div class="feature-content">
+              <p class="feature-title">Scored, not just listed</p>
+              <p class="feature-body">
+                Each listing gets matched skills, missing skills, flagged
+                concerns, and a plain-English verdict alongside its score.
+              </p>
+            </div>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon" aria-hidden="true">&#9202;</div>
+            <div class="feature-content">
+              <p class="feature-title">Schedule and forget</p>
+              <p class="feature-body">
+                Set up a cron job or Windows Task Scheduler task and review
+                fresh results every morning.
+              </p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================================
+         §5 WHY I BUILT THIS
+         ========================================================== -->
+    <section class="section-base" aria-labelledby="why-heading">
+      <div class="page-wrap">
+
+        <p class="section-label">Why I built this</p>
+        <h2 class="section-heading" id="why-heading">Yes, other tools do this. Here's why I built it anyway.</h2>
+
+        <div class="why-callout">
+          <p>
+            Tools like Huntr, Teal, and Sonara exist. I knew that before
+            writing a single line of code.
+          </p>
+          <p>
+            I built Job Matcher because I wanted hands-on experience integrating
+            LLM APIs into a real, production-grade application — not a tutorial
+            project, not a toy. Scoring job listings turned out to be the right
+            problem: it requires prompt engineering, fallback logic across
+            multiple providers, cost-per-call awareness, and a feedback loop I
+            could actually evaluate against my own job search.
+          </p>
+          <p>
+            The result is a tool I use every day. The job search problem was
+            real. The learning was the point.
+          </p>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==========================================================
+         §6 SCREENSHOTS
+         ========================================================== -->
+    <section class="section-surface" aria-labelledby="screenshots-heading">
+      <div class="page-wrap">
+
+        <p class="section-label">Screenshots</p>
+        <h2 class="section-heading" id="screenshots-heading">See it in action</h2>
+
+        <div class="screenshots-stack">
+
+          <figure class="screenshot-item">
+            <div class="screenshot-container">
+              <div class="screenshot-placeholder" aria-hidden="true">feed-overview.png</div>
+              <img
+                src="assets/feed-overview.png"
+                alt="Job Matcher feed view showing a ranked list of job listings. Cards display company name, title, score badge in green, amber, or red tiers, matched skills, and source badges. Remote listings have a green remote badge."
+                loading="lazy"
+                width="860"
+                onerror="this.style.display='none'"
+              >
+            </div>
+            <figcaption class="screenshot-caption">
+              Feed view — ranked listings with score tier indicators and skill chips
+            </figcaption>
+          </figure>
+
+          <figure class="screenshot-item">
+            <div class="screenshot-container">
+              <div class="screenshot-placeholder" aria-hidden="true">card-expanded.png</div>
+              <img
+                src="assets/card-expanded.png"
+                alt="An expanded job listing card showing a score of 8 out of 10, green matched-skill chips for Python, Flask, SQL, REST APIs, and Docker, red missing-skill chips for Kubernetes and Terraform, a concerns section, and a plain-English verdict."
+                loading="lazy"
+                width="860"
+                onerror="this.style.display='none'"
+              >
+            </div>
+            <figcaption class="screenshot-caption">
+              Expanded card — full LLM breakdown: matched skills, missing skills, concerns, verdict
+            </figcaption>
+          </figure>
+
+          <figure class="screenshot-item">
+            <div class="screenshot-container">
+              <div class="screenshot-placeholder" aria-hidden="true">settings.png</div>
+              <img
+                src="assets/settings.png"
+                alt="Job Matcher settings page showing the LLM providers tab with Anthropic and OpenAI listed, each showing a green valid badge and masked API keys. The job sources tab is visible in the tab bar."
+                loading="lazy"
+                width="860"
+                onerror="this.style.display='none'"
+              >
+            </div>
+            <figcaption class="screenshot-caption">
+              Settings — LLM provider configuration with validation badges and job source toggles
+            </figcaption>
+          </figure>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================================
+         §7 QUICK START
+         ========================================================== -->
+    <section class="section-base" aria-labelledby="quickstart-heading">
+      <div class="page-wrap">
+
+        <p class="section-label">Quick start</p>
+        <h2 class="section-heading" id="quickstart-heading">Running in under two minutes</h2>
+
+        <div class="quickstart-block" role="region" aria-label="Quick start commands">
+          <code>git clone https://github.com/cbeaulieu-gt/job-matcher.git</code>
+          <code>cd job_matcher</code>
+          <code>uv venv &amp;&amp; source .venv/bin/activate</code>
+          <code>uv pip install -r requirements.txt</code>
+        </div>
+
+        <p class="quickstart-note">
+          Copy the example configs, add your API key in the Settings UI, and
+          run <code>python ingest.py</code>. Full setup guide in the README.
+        </p>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============================================================
+       FOOTER
+       ============================================================ -->
+  <footer class="site-footer" aria-label="Site footer">
+    <div class="page-wrap">
+
+      <div class="footer-links">
+        <a href="https://github.com/cbeaulieu-gt/job-matcher" aria-label="Job Matcher repository on GitHub" rel="noopener noreferrer" target="_blank">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+          </svg>
+          cbeaulieu-gt/job-matcher
+        </a>
+        <span class="footer-sep" aria-hidden="true">·</span>
+        <span>MIT License</span>
+      </div>
+
+      <div class="footer-author">
+        <span>Built by</span>
+        <span class="footer-author-name">Christopher Beaulieu</span>
+        <a
+          href="https://github.com/cbeaulieu-gt"
+          class="footer-icon-link"
+          aria-label="Christopher Beaulieu on GitHub"
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          <!-- GitHub mark 16×16 -->
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+          </svg>
+        </a>
+        <a
+          href="https://www.linkedin.com/in/christopher-beaulieu"
+          class="footer-icon-link"
+          aria-label="Christopher Beaulieu on LinkedIn"
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          <!-- LinkedIn "in" logo 16×16 -->
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M0 1.146C0 .513.526 0 1.175 0h13.65C15.474 0 16 .513 16 1.146v13.708c0 .633-.526 1.146-1.175 1.146H1.175C.526 16 0 15.487 0 14.854V1.146zm4.943 12.248V6.169H2.542v7.225h2.401zm-1.2-8.212c.837 0 1.358-.554 1.358-1.248-.015-.709-.52-1.248-1.342-1.248-.822 0-1.359.54-1.359 1.248 0 .694.521 1.248 1.327 1.248h.016zm4.908 8.212V9.359c0-.216.016-.432.08-.586.173-.431.568-.878 1.232-.878.869 0 1.216.662 1.216 1.634v3.865h2.401V9.25c0-2.22-1.184-3.252-2.764-3.252-1.274 0-1.845.7-2.165 1.193v.025h-.016a5.54 5.54 0 0 1 .016-.025V6.169h-2.4c.03.678 0 7.225 0 7.225h2.4z"/>
+          </svg>
+        </a>
+      </div>
+
+    </div>
+  </footer>
+
+</body>
+</html>
