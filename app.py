@@ -27,6 +27,7 @@ from job_sources import SOURCES
 app = Flask(__name__)
 
 DB_PATH: str = os.environ.get("DB_PATH", "jobs.db")
+DEMO_MODE: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +87,12 @@ def _is_localhost_request() -> bool:
             return True
         return False  # Non-private origin found — block
     return True  # No Origin/Referer header — allow (CLI tools, tests)
+
+
+@app.context_processor
+def inject_demo_mode():
+    """Inject demo_mode into all template contexts."""
+    return {"demo_mode": DEMO_MODE}
 
 
 @app.before_request
@@ -1496,5 +1503,23 @@ def api_job_source_toggle(source_key: str):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Job Matcher web server")
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="Run in demo mode: uses jobs.demo.db and demo config/profile files",
+    )
+    args = parser.parse_args()
+
+    if args.demo:
+        DEMO_MODE = True
+        DB_PATH = "jobs.demo.db"
+        _PROFILE_PATH = os.path.join(_CONFIG_DIR, "profile.demo.json")
+        _PROVIDERS_PATH = os.path.join(_CONFIG_DIR, "providers.demo.json")
+        print("Demo mode enabled — using jobs.demo.db and demo config files.")
+
+    db.init_db(db_path=DB_PATH)
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
     app.run(debug=debug, port=5000)

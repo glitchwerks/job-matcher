@@ -1741,3 +1741,23 @@ body {
 .settings-label--mt {
   margin-top: 1rem;
 }
+
+/* ------------------------------------------------------------
+   Demo mode banner
+   ------------------------------------------------------------ */
+.demo-banner {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  width: 100%;
+  background: var(--bg-raised);
+  color: var(--text-accent);
+  border-bottom: 1px solid var(--btn-amber-border);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.4rem 1rem;
+  box-sizing: border-box;
+}

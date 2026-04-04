@@ -6,6 +6,8 @@ config/providers.json
 
 # Database
 jobs.db
+jobs.demo.db
+config/providers.demo.json
 
 # Ingest log files
 logs/

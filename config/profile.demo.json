@@ -1,0 +1,13 @@
+{
+  "primary_skills": ["Python", "Flask", "SQL", "REST APIs", "Docker", "Git", "Linux", "pytest"],
+  "anti_preferences": ["Salesforce", "SAP", "mainframe", "COBOL"],
+  "seniority": "mid-to-senior",
+  "preferred_industries": ["software", "fintech", "developer tools", "SaaS"],
+  "scoring_notes": "Strong preference for backend and full-stack roles. Remote or hybrid only. Avoid pure frontend or QA roles.",
+  "location": {
+    "center": "Austin, TX",
+    "radius_km": 80,
+    "geocode_fallback": "pass",
+    "notes": "Austin, TX metro or remote. Within 80km if on-site."
+  }
+}

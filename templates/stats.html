@@ -7,6 +7,9 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+{% if demo_mode %}
+<div class="demo-banner" role="status">&#x2697; Demo Mode &mdash; sample data only, no real API calls</div>
+{% endif %}
 <div class="page-wrap">
 
   {# ── Header ─────────────────────────────────────────────────── #}

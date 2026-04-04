@@ -183,6 +183,14 @@ Used by `.btn-dismiss:hover` — dark red tint.
 | `.page-wrap` | `<div>` | Max-width 860px, centered, padding 0 20px 60px |
 | `.card-list` | `<div>` | Flex column, gap 16px |
 
+### Demo Banner
+
+A full-width sticky bar rendered immediately after `<body>` and before `.page-wrap`. Only visible when the app is running with `--demo`.
+
+| Class | Element | Notes |
+|---|---|---|
+| `.demo-banner` | `<div>` | `position: sticky; top: 0; z-index: 100`; bg `--bg-raised`; text `--text-accent`; border-bottom `--btn-amber-border`; `--font-mono` 0.75rem uppercase, letter-spaced; centered |
+
 ### Navigation
 
 | Class | Element | Notes |

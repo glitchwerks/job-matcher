@@ -53,6 +53,31 @@
         "isDefault": true
       },
       "problemMatcher": []
+    },
+    {
+      "label": "Seed Demo DB",
+      "type": "shell",
+      "command": ".venv/Scripts/python scripts/seed_demo.py",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "job-matcher"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Web UI (Demo)",
+      "type": "shell",
+      "command": ".venv/Scripts/python app.py --demo",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "job-matcher"
+      },
+      "isBackground": true,
+      "problemMatcher": []
     }
   ]
 }
