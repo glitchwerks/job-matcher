@@ -564,9 +564,9 @@ def main() -> None:
         inserted += 1
 
     # Print tier summary.
-    high = sum(1 for l in LISTINGS if l["score"] >= 8)
-    mid = sum(1 for l in LISTINGS if 5 <= l["score"] < 8)
-    low = sum(1 for l in LISTINGS if l["score"] < 5)
+    high = sum(1 for listing in LISTINGS if listing["score"] >= 8)
+    mid = sum(1 for listing in LISTINGS if 5 <= listing["score"] < 8)
+    low = sum(1 for listing in LISTINGS if listing["score"] < 5)
     print(f"Seeded {inserted} listings into {DB_PATH}")
     print(f"  High (>=8): {high}  Mid (5-7): {mid}  Low (<5): {low}")
 
