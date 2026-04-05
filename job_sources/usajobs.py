@@ -10,7 +10,7 @@ This module re-exports the class and module-level helpers for backward-compatibl
 #   patch("job_sources._plugin_usajobs.requests.get")
 # The import below is kept only to preserve the attribute chain for any
 # external code that may still reference job_sources.usajobs.requests directly.
-import requests  # noqa: F401
+import requests  # noqa: F401, E402
 
 from job_sources import SOURCES as _SOURCES
 
@@ -23,6 +23,6 @@ if USAJobsClient is None:
     )
 
 # Re-export module-level helper from the plugin for tests that import it directly.
-from job_sources._plugin_usajobs import _parse_float  # noqa: F401
+from job_sources._plugin_usajobs import _parse_float  # noqa: F401, E402
 
 __all__ = ["USAJobsClient", "_parse_float"]

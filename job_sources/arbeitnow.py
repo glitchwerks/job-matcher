@@ -10,7 +10,7 @@ This module re-exports the class and private helpers for backward-compatible imp
 #   patch("job_sources._plugin_arbeitnow.requests.get")
 # The import below is kept only to preserve the attribute chain for any
 # external code that may still reference job_sources.arbeitnow.requests directly.
-import requests  # noqa: F401
+import requests  # noqa: F401, E402
 
 from job_sources import SOURCES as _SOURCES
 
@@ -24,7 +24,7 @@ if ArbeitnowClient is None:
 
 # Re-export module-level helpers from the plugin for tests that import them directly.
 # The loader registers plugin modules in sys.modules as job_sources._plugin_<name>.
-from job_sources._plugin_arbeitnow import (  # noqa: F401
+from job_sources._plugin_arbeitnow import (  # noqa: F401, E402
     _CONTRACT_TIME_MAP,
     _strip_html,
     _unix_to_iso,
