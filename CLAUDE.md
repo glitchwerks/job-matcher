@@ -40,6 +40,10 @@ source pages → [1] hours filter → [2] prefilter() → [3] geo filter → [4]
 
 Any step can short-circuit the listing with a logged reason (`FILTERED`, `DUPE`, `SCRAPE FALLBACK`, `SCORE FAILED`). A summary is printed at the end of each run.
 
+### Adding New Job Sources
+
+New job sources are plugins — see `docs/PLUGIN_DEVELOPMENT.md` for the step-by-step guide. The template lives at `plugins/sources/_template/`. Folders starting with `_` are skipped by the loader.
+
 ### LLM provider integration
 
 `credentials.load_providers()` reads `config/providers.json` (falling back to legacy `config/keys.json` migration, then env vars `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` if the file is absent). `build_provider_chain()` returns an ordered list of `LLMProvider` instances based on `provider_order` and the `llm` sub-dict in `providers.json`. `score_listing_with_fallback()` tries providers in sequence: auth failures (401/403) permanently remove a provider for the run; transient failures skip only the current listing. The scoring prompt expects a JSON response with exactly: `score` (0–10), `matched_skills`, `missing_skills`, `concerns`, `verdict`. Markdown code fences are stripped before parsing.
