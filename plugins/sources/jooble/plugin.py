@@ -1,16 +1,9 @@
 """
-job_sources/jooble.py — Jooble API implementation of the JobSource protocol.
+plugins/sources/jooble/plugin.py — Jooble API implementation of the JobSource protocol.
 
 Wraps the Jooble job-search API (https://jooble.org/api/{api_key}):
 page-number pagination, HTML stripping from snippets, best-effort salary
 parsing from free-text, and normalisation to the canonical listing schema.
-
-Config keys (under ``config["jooble"]``):
-    api_key          str  — Jooble API key (required)
-    keywords         str  — search keywords (default: "software engineer")
-    location         str  — location filter (default: "")
-    results_per_page int  — controls page size passed to the API (default: 20)
-    max_pages        int  — upper cap on pages fetched per run (default: 5)
 """
 
 from __future__ import annotations
@@ -21,8 +14,8 @@ from typing import Iterator
 
 import requests
 
-from .base import JobSource
-from .utils import parse_salary, strip_html
+from job_sources.base import JobSource
+from job_sources.utils import parse_salary, strip_html
 
 logger = logging.getLogger("ingest.jooble")
 
@@ -121,29 +114,6 @@ class JoobleClient(JobSource):
     # ------------------------------------------------------------------
     # JobSource interface
     # ------------------------------------------------------------------
-
-    @classmethod
-    def settings_schema(cls) -> dict:
-        """Return the settings schema for Jooble.
-
-        Jooble requires an API key obtained from https://jooble.org/api/about.
-
-        Returns:
-            Schema dict with ``display_name`` and a ``fields`` list containing
-            the required ``api_key`` field.
-        """
-        return {
-            "display_name": "Jooble",
-            "description": "Aggregates listings from hundreds of boards worldwide. Free API key required (register at jooble.org). Broad coverage; description quality varies.",
-            "fields": [
-                {
-                    "name": "api_key",
-                    "label": "API Key",
-                    "type": "password",
-                    "required": True,
-                },
-            ],
-        }
 
     def fetch_page(self, page: int) -> list[dict]:
         """Fetch and normalise a single page of Jooble listings.

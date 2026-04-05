@@ -1,0 +1,14 @@
+{
+  "source_key": "jooble",
+  "display_name": "Jooble",
+  "description": "Aggregates listings from hundreds of boards worldwide. Free API key required (register at jooble.org). Broad coverage; description quality varies.",
+  "home_url": "https://jooble.org",
+  "fields": [
+    {
+      "name": "api_key",
+      "label": "API Key",
+      "type": "password",
+      "required": true
+    }
+  ]
+}

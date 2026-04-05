@@ -18,8 +18,12 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from job_sources import SOURCES, AdzunaClient, JobSource, make_source
+from job_sources import SOURCES, JobSource, make_source
 from job_sources.base import JobSource as JobSourceBase
+
+# Resolve AdzunaClient from the plugin registry so we get the exact same class
+# object that SOURCES["adzuna"] holds — necessary for identity checks below.
+AdzunaClient = SOURCES["adzuna"]
 
 
 # ---------------------------------------------------------------------------
@@ -51,9 +55,6 @@ class TestJobSourceABC:
                 return 1
             def normalise(self, raw):
                 return {}
-            @classmethod
-            def settings_schema(cls):
-                return {"display_name": "Complete", "fields": []}
 
         # Should not raise.
         instance = Complete()
@@ -205,7 +206,7 @@ class TestAdzunaClientFetchPage:
         client = self._client()
         mock_resp = self._mock_response(200, {"results": [_RAW_ADZUNA_LISTING]})
 
-        with patch("job_sources.adzuna.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_adzuna.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert len(results) == 1
@@ -217,7 +218,7 @@ class TestAdzunaClientFetchPage:
         client = self._client()
         mock_resp = self._mock_response(200, {"results": []})
 
-        with patch("job_sources.adzuna.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_adzuna.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -227,7 +228,7 @@ class TestAdzunaClientFetchPage:
         client = self._client()
         mock_resp = self._mock_response(500, {})
 
-        with patch("job_sources.adzuna.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_adzuna.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -239,7 +240,7 @@ class TestAdzunaClientFetchPage:
         client = self._client()
 
         with patch(
-            "job_sources.adzuna.requests.get",
+            "job_sources._plugin_adzuna.requests.get",
             side_effect=requests.RequestException("timeout"),
         ):
             results = client.fetch_page(1)
@@ -253,7 +254,7 @@ class TestAdzunaClientFetchPage:
         mock_resp.status_code = 200
         mock_resp.json.side_effect = ValueError("not json")
 
-        with patch("job_sources.adzuna.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_adzuna.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -263,8 +264,8 @@ class TestAdzunaClientFetchPage:
         client = self._client()
         mock_429 = self._mock_response(429, {})
 
-        with patch("job_sources.adzuna.requests.get", return_value=mock_429), \
-             patch("job_sources.adzuna.time.sleep"):  # skip actual sleep in tests
+        with patch("job_sources._plugin_adzuna.requests.get", return_value=mock_429), \
+             patch("job_sources._plugin_adzuna.time.sleep"):  # skip actual sleep in tests
             results = client.fetch_page(1)
 
         assert results == []

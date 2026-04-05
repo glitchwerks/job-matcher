@@ -1,5 +1,5 @@
 """
-job_sources/arbeitnow.py — Arbeitnow API implementation of the JobSource protocol.
+plugins/sources/arbeitnow/plugin.py — Arbeitnow API implementation of the JobSource protocol.
 
 Wraps the Arbeitnow job-board REST API: page-number pagination via meta.last_page,
 HTML stripping from descriptions, and normalisation to the canonical listing schema.
@@ -17,7 +17,7 @@ from typing import Any, Iterator
 import requests
 from bs4 import BeautifulSoup
 
-from .base import JobSource
+from job_sources.base import JobSource
 
 logger = logging.getLogger("ingest.arbeitnow")
 
@@ -98,22 +98,6 @@ class ArbeitnowClient(JobSource):
     # ------------------------------------------------------------------
     # JobSource interface
     # ------------------------------------------------------------------
-
-    @classmethod
-    def settings_schema(cls) -> dict:
-        """Return the settings schema for Arbeitnow.
-
-        Arbeitnow requires no credentials — the public API is key-free.
-
-        Returns:
-            Schema dict with ``display_name`` and an empty ``fields`` list.
-        """
-        return {
-            "display_name": "Arbeitnow",
-            "description": "European tech job board with a free, open API. Strong coverage of remote and EU-based software roles. No API key required.",
-            "home_url": "https://www.arbeitnow.com",
-            "fields": [],
-        }
 
     def fetch_page(self, page: int) -> list[dict]:
         """Fetch a single page of raw Arbeitnow listings.

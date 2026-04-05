@@ -33,13 +33,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from providers import AnthropicProvider, OpenAIProvider, GeminiProvider
 from providers import _PROVIDER_CLASS_MAP
 from job_sources import SOURCES
-from job_sources.adzuna import AdzunaClient
-from job_sources.arbeitnow import ArbeitnowClient
-from job_sources.himalayas import HimalayasClient
-from job_sources.remoteok import RemoteOKClient
-from job_sources.usajobs import USAJobsClient
-from job_sources.the_muse import TheMuseClient
-from job_sources.remotive import RemotiveClient
+
+AdzunaClient = SOURCES["adzuna"]
+ArbeitnowClient = SOURCES["arbeitnow"]
+HimalayasClient = SOURCES["himalayas"]
+RemoteOKClient = SOURCES["remoteok"]
+USAJobsClient = SOURCES["usajobs"]
+TheMuseClient = SOURCES["the_muse"]
+RemotiveClient = SOURCES["remotive"]
 
 # ---------------------------------------------------------------------------
 # Constants

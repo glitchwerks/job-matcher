@@ -1,5 +1,5 @@
 """
-job_sources/jobicy.py — Jobicy API implementation of the JobSource protocol.
+plugins/sources/jobicy/plugin.py — Jobicy API implementation of the JobSource protocol.
 
 Wraps the Jobicy remote jobs API (https://jobicy.com/api/v2/remote-jobs).
 Single-page response; no API key required.  HTML stripped from descriptions;
@@ -13,8 +13,8 @@ from typing import Iterator
 
 import requests
 
-from .base import JobSource
-from .utils import strip_html
+from job_sources.base import JobSource
+from job_sources.utils import strip_html
 
 logger = logging.getLogger("ingest.jobicy")
 
@@ -50,21 +50,6 @@ class JobicyClient(JobSource):
     # ------------------------------------------------------------------
     # JobSource interface
     # ------------------------------------------------------------------
-
-    @classmethod
-    def settings_schema(cls) -> dict:
-        """Return the settings schema for Jobicy.
-
-        Jobicy requires no credentials — the public API is key-free.
-
-        Returns:
-            Schema dict with ``display_name`` and an empty ``fields`` list.
-        """
-        return {
-            "display_name": "Jobicy",
-            "description": "Remote job board with a free, unauthenticated API. Returns full job descriptions — no scraping needed. Good for remote software and data roles.",
-            "fields": [],
-        }
 
     def fetch_page(self, page: int) -> list[dict]:
         """Fetch listings from the Jobicy API.

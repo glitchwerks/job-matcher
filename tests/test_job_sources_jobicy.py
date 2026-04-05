@@ -23,8 +23,9 @@ import requests as _req
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from job_sources import SOURCES, JobSource
-from job_sources.jobicy import JobicyClient
 from job_sources.utils import strip_html as _strip_html
+
+JobicyClient = SOURCES["jobicy"]
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +220,7 @@ class TestJobicyFetchPage:
         client = _client()
         mock_resp = _mock_response(200, {"jobs": [_RAW_JOB]})
 
-        with patch("job_sources.jobicy.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_jobicy.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert len(results) == 1
@@ -231,7 +232,7 @@ class TestJobicyFetchPage:
         client = _client()
         mock_resp = _mock_response(200, {"jobs": []})
 
-        with patch("job_sources.jobicy.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_jobicy.requests.get", return_value=mock_resp):
             assert client.fetch_page(1) == []
 
     def test_missing_jobs_key_returns_empty_list(self):
@@ -239,7 +240,7 @@ class TestJobicyFetchPage:
         client = _client()
         mock_resp = _mock_response(200, {})
 
-        with patch("job_sources.jobicy.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_jobicy.requests.get", return_value=mock_resp):
             assert client.fetch_page(1) == []
 
     def test_non_200_returns_empty_list(self):
@@ -247,7 +248,7 @@ class TestJobicyFetchPage:
         client = _client()
         mock_resp = _mock_response(503, {})
 
-        with patch("job_sources.jobicy.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_jobicy.requests.get", return_value=mock_resp):
             assert client.fetch_page(1) == []
 
     def test_request_exception_returns_empty_list(self):
@@ -255,7 +256,7 @@ class TestJobicyFetchPage:
         client = _client()
 
         with patch(
-            "job_sources.jobicy.requests.get",
+            "job_sources._plugin_jobicy.requests.get",
             side_effect=_req.RequestException("timeout"),
         ):
             assert client.fetch_page(1) == []
@@ -267,7 +268,7 @@ class TestJobicyFetchPage:
         mock_resp.status_code = 200
         mock_resp.json.side_effect = ValueError("not json")
 
-        with patch("job_sources.jobicy.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_jobicy.requests.get", return_value=mock_resp):
             assert client.fetch_page(1) == []
 
     def test_passes_configured_params(self):
@@ -275,7 +276,7 @@ class TestJobicyFetchPage:
         client = _client({"jobicy": {"tag": "devops", "geo": "uk", "count": 25}})
         mock_resp = _mock_response(200, {"jobs": []})
 
-        with patch("job_sources.jobicy.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_jobicy.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
         _, kwargs = mock_get.call_args
@@ -289,7 +290,7 @@ class TestJobicyFetchPage:
         client = _client({})
         mock_resp = _mock_response(200, {"jobs": []})
 
-        with patch("job_sources.jobicy.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_jobicy.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
         _, kwargs = mock_get.call_args
@@ -309,7 +310,7 @@ class TestJobicyPages:
         client = _client()
         mock_resp = _mock_response(200, {"jobs": [_RAW_JOB]})
 
-        with patch("job_sources.jobicy.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_jobicy.requests.get", return_value=mock_resp):
             pages = list(client.pages())
 
         assert len(pages) == 1
@@ -321,7 +322,7 @@ class TestJobicyPages:
         client = _client()
         mock_resp = _mock_response(200, {"jobs": []})
 
-        with patch("job_sources.jobicy.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_jobicy.requests.get", return_value=mock_resp):
             pages = list(client.pages())
 
         assert pages == []

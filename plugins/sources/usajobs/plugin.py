@@ -1,15 +1,9 @@
 """
-job_sources/usajobs.py — USAJobs API implementation of the JobSource protocol.
+plugins/sources/usajobs/plugin.py — USAJobs API implementation of the JobSource protocol.
 
 Wraps the USAJobs REST API (https://developer.usajobs.gov/API-Reference):
 pagination, authentication headers, and normalisation to the canonical
 listing schema.
-
-Config keys (under ``config["usajobs"]``):
-    api_key          str  — USAJobs authorization key (required)
-    user_agent       str  — contact email required by USAJobs (required)
-    keyword          str  — search keyword (default: "software engineer")
-    results_per_page int  — results per page (default: 25)
 """
 
 from __future__ import annotations
@@ -19,7 +13,7 @@ from typing import Iterator
 
 import requests
 
-from .base import JobSource
+from job_sources.base import JobSource
 
 logger = logging.getLogger("ingest.usajobs")
 
@@ -27,6 +21,16 @@ _USAJOBS_SEARCH_URL = "https://data.usajobs.gov/api/search"
 
 # Only map salary values when pay is expressed as an annual rate.
 _ANNUAL_RATE_CODE = "PA"
+
+
+def _parse_float(value: object) -> float | None:
+    """Cast *value* to float, returning ``None`` on failure or if absent."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class USAJobsClient(JobSource):
@@ -86,37 +90,6 @@ class USAJobsClient(JobSource):
     # ------------------------------------------------------------------
     # JobSource interface
     # ------------------------------------------------------------------
-
-    @classmethod
-    def settings_schema(cls) -> dict:
-        """Return the settings schema for USAJobs.
-
-        USAJobs requires an API key and a contact email (User-Agent) as
-        mandated by the USAJobs developer agreement.
-
-        Returns:
-            Schema dict with ``display_name`` and credential ``fields``
-            for the USAJobs API key and user-agent contact email.
-        """
-        return {
-            "display_name": "USAJobs",
-            "description": "Official US federal government job board. Requires a free API key and contact email from usajobs.gov. Best for government or contractor roles.",
-            "home_url": "https://www.usajobs.gov",
-            "fields": [
-                {
-                    "name": "api_key",
-                    "label": "API Key",
-                    "type": "password",
-                    "required": True,
-                },
-                {
-                    "name": "user_agent",
-                    "label": "Contact Email (User-Agent)",
-                    "type": "text",
-                    "required": True,
-                },
-            ],
-        }
 
     def fetch_page(self, page: int) -> list[dict]:
         """Fetch a single page of raw USAJobs search results.
@@ -294,17 +267,3 @@ class USAJobsClient(JobSource):
                 logger.info("USAJobs page %d returned 0 results; stopping early", page)
                 return
             yield results
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _parse_float(value: object) -> float | None:
-    """Cast *value* to float, returning ``None`` on failure or if absent."""
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None

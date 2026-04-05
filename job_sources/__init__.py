@@ -4,14 +4,8 @@ job_sources/ — Pluggable job source provider package for Job Matcher.
 Public API
 ----------
 * ``JobSource``             — abstract base class; import from here or ``job_sources.base``
-* ``AdzunaClient``          — Adzuna Jobs API backend
-* ``ArbeitnowClient``       — Arbeitnow job board API backend
-* ``HimalayasClient``       — Himalayas Jobs API backend
-* ``RemoteOKClient``        — RemoteOK jobs API backend
-* ``USAJobsClient``         — USAJobs API backend
-* ``TheMuseClient``         — The Muse API backend
-* ``RemotiveClient``        — Remotive remote-jobs API backend
-* ``SOURCES``               — registry mapping source name strings to their classes
+* ``get_sources()``         — lazy registry accessor; returns mapping of source name → class
+                              (populated automatically from ``plugins/sources/`` on first call)
 * ``make_source()``         — factory that reads ``config["job_source"]`` and returns
                               the right ``JobSource`` instance
 * ``make_enabled_sources()``— factory that returns all enabled ``JobSource`` instances
@@ -36,49 +30,59 @@ Usage
 from __future__ import annotations
 
 import logging
+import sys
 
 from .base import JobSource
-from .adzuna import AdzunaClient
-from .arbeitnow import ArbeitnowClient
-from .himalayas import HimalayasClient
-from .remoteok import RemoteOKClient
-from .usajobs import USAJobsClient
-from .the_muse import TheMuseClient
-from .remotive import RemotiveClient
-from .jobicy import JobicyClient
-from .jooble import JoobleClient
+from .loader import load_plugins
 
 __all__ = [
     "JobSource",
-    "AdzunaClient",
-    "ArbeitnowClient",
-    "HimalayasClient",
-    "RemoteOKClient",
-    "USAJobsClient",
-    "TheMuseClient",
-    "RemotiveClient",
-    "JobicyClient",
-    "JoobleClient",
-    "SOURCES",
+    "get_sources",
     "make_source",
     "make_enabled_sources",
 ]
 
 # ---------------------------------------------------------------------------
-# Source registry — maps source name string → class
+# Module-level __getattr__ — enables lazy ``SOURCES`` attribute access.
+# ``SOURCES`` is kept for backward compatibility with existing callers; it
+# delegates to ``get_sources()`` so the plugin scan is deferred until first
+# use rather than happening at import time.
 # ---------------------------------------------------------------------------
 
-SOURCES: dict[str, type[JobSource]] = {
-    "adzuna": AdzunaClient,
-    "arbeitnow": ArbeitnowClient,
-    "himalayas": HimalayasClient,
-    "remoteok": RemoteOKClient,
-    "usajobs": USAJobsClient,
-    "the_muse": TheMuseClient,
-    "remotive": RemotiveClient,
-    "jobicy": JobicyClient,
-    "jooble": JoobleClient,
-}
+
+def __getattr__(name: str):  # type: ignore[return]
+    if name == "SOURCES":
+        return get_sources()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+# ---------------------------------------------------------------------------
+# Source registry — lazy-loaded on first access, cached thereafter.
+# ---------------------------------------------------------------------------
+
+_sources_cache: dict[str, type[JobSource]] | None = None
+
+
+def get_sources() -> dict[str, type[JobSource]]:
+    """Return the source registry, loading plugins on first call.
+
+    The result is cached for the lifetime of the process.  Call
+    ``get_sources()`` wherever ``SOURCES`` was previously used.
+
+    If ``SOURCES`` has been directly set on this module (e.g. by
+    ``monkeypatch.setattr`` in tests), that overriding value is returned
+    instead of the cache.
+
+    Returns:
+        Mapping of ``source_key`` strings to their ``JobSource`` subclasses.
+    """
+    global _sources_cache
+    # Allow tests (and callers) to override by setting job_sources.SOURCES directly.
+    _override = vars(sys.modules[__name__]).get("SOURCES")
+    if _override is not None:
+        return _override
+    if _sources_cache is None:
+        _sources_cache = load_plugins()
+    return _sources_cache
 
 
 def make_source(config: dict) -> JobSource:
@@ -99,13 +103,14 @@ def make_source(config: dict) -> JobSource:
     Raises:
         ValueError: If ``job_source`` names an unregistered backend.
     """
+    sources = get_sources()
     source_name: str = config.get("job_source", "adzuna")
 
-    cls = SOURCES.get(source_name)
+    cls = sources.get(source_name)
     if cls is None:
         raise ValueError(
             f"Unknown job source: {source_name!r}. "
-            f"Registered sources: {list(SOURCES)}."
+            f"Registered sources: {list(sources)}."
         )
 
     return cls(config=config)
@@ -123,14 +128,25 @@ def make_enabled_sources(providers_data: dict, config: dict) -> list[JobSource]:
         config:         Full config dict (passed to each source constructor).
 
     Returns:
-        List of instantiated ``JobSource`` objects, in ``SOURCES`` registry order.
+        List of instantiated ``JobSource`` objects, in registry order.
     """
     _log = logging.getLogger("ingest.sources")
 
+    sources = get_sources()
     sources_cfg: dict = providers_data.get("job_sources") or {}
     result: list[JobSource] = []
 
-    for key, cls in SOURCES.items():
+    # Warn about sources enabled in providers.json that are not in the loaded registry.
+    loaded_keys = set(sources.keys())
+    for key, src_cfg in sources_cfg.items():
+        if src_cfg.get("enabled") and key not in loaded_keys:
+            _log.warning(
+                "Source %r is enabled in providers.json but was not loaded "
+                "(plugin missing or failed to load) — skipping",
+                key,
+            )
+
+    for key, cls in sources.items():
         src_cfg = sources_cfg.get(key) or {}
 
         # Determine the default enabled state.

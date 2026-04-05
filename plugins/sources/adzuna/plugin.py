@@ -1,5 +1,5 @@
 """
-job_sources/adzuna.py — Adzuna API implementation of the JobSource protocol.
+plugins/sources/adzuna/plugin.py — Adzuna API implementation of the JobSource protocol.
 
 Wraps the Adzuna Jobs REST API: pagination, rate-limit retry, and
 normalisation to the canonical listing schema.
@@ -13,7 +13,7 @@ from typing import Iterator
 
 import requests
 
-from .base import JobSource
+from job_sources.base import JobSource
 
 logger = logging.getLogger("ingest.adzuna")
 
@@ -65,34 +65,6 @@ class AdzunaClient(JobSource):
     # ------------------------------------------------------------------
     # JobSource interface
     # ------------------------------------------------------------------
-
-    @classmethod
-    def settings_schema(cls) -> dict:
-        """Return the settings schema for Adzuna.
-
-        Returns:
-            Schema dict with ``display_name`` and credential ``fields``
-            for the Adzuna App ID and App Key.
-        """
-        return {
-            "display_name": "Adzuna",
-            "description": "Global job aggregator with broad coverage across industries and countries. Requires a free API key from adzuna.com. Best for high-volume searches in supported regions.",
-            "home_url": "https://www.adzuna.com",
-            "fields": [
-                {
-                    "name": "app_id",
-                    "label": "App ID",
-                    "type": "password",
-                    "required": True,
-                },
-                {
-                    "name": "app_key",
-                    "label": "App Key",
-                    "type": "password",
-                    "required": True,
-                },
-            ],
-        }
 
     def fetch_page(self, page: int) -> list[dict]:
         """Fetch a single page of raw Adzuna results.

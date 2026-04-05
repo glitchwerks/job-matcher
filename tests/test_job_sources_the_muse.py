@@ -22,7 +22,8 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from job_sources import SOURCES, JobSource, make_source
-from job_sources.the_muse import TheMuseClient
+
+TheMuseClient = SOURCES["the_muse"]
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +265,7 @@ class TestTheMuseClientTotalPages:
         client = _make_client()
         mock_resp = _mock_response(200, _API_PAGE_0_RESPONSE)
 
-        with patch("job_sources.the_muse.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_the_muse.requests.get", return_value=mock_resp):
             count = client.total_pages()
 
         assert count == 5
@@ -274,7 +275,7 @@ class TestTheMuseClientTotalPages:
         client = _make_client()
         mock_resp = _mock_response(200, _API_PAGE_0_RESPONSE)
 
-        with patch("job_sources.the_muse.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_the_muse.requests.get", return_value=mock_resp) as mock_get:
             client.total_pages()
 
         _, kwargs = mock_get.call_args
@@ -285,7 +286,7 @@ class TestTheMuseClientTotalPages:
         client = _make_client()
         mock_resp = _mock_response(200, _API_PAGE_0_RESPONSE)
 
-        with patch("job_sources.the_muse.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_the_muse.requests.get", return_value=mock_resp) as mock_get:
             client.total_pages()
             client.total_pages()
 
@@ -296,7 +297,7 @@ class TestTheMuseClientTotalPages:
         client = _make_client()
         mock_resp = _mock_response(500, {})
 
-        with patch("job_sources.the_muse.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_the_muse.requests.get", return_value=mock_resp):
             count = client.total_pages()
 
         assert count == 0
@@ -312,7 +313,7 @@ class TestTheMuseClientFetchPage:
         client = _make_client()
         mock_resp = _mock_response(200, _API_PAGE_0_RESPONSE)
 
-        with patch("job_sources.the_muse.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_the_muse.requests.get", return_value=mock_resp) as mock_get:
             results = client.fetch_page(1)
 
         assert len(results) == 1
@@ -327,7 +328,7 @@ class TestTheMuseClientFetchPage:
         page_2_response = {**_API_PAGE_0_RESPONSE, "page": 2}
         mock_resp = _mock_response(200, page_2_response)
 
-        with patch("job_sources.the_muse.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_the_muse.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(3)
 
         _, kwargs = mock_get.call_args
@@ -338,7 +339,7 @@ class TestTheMuseClientFetchPage:
         client = _make_client()
         mock_resp = _mock_response(200, {"results": [], "page_count": 5})
 
-        with patch("job_sources.the_muse.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_the_muse.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -348,7 +349,7 @@ class TestTheMuseClientFetchPage:
         client = _make_client()
         mock_resp = _mock_response(403, {})
 
-        with patch("job_sources.the_muse.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_the_muse.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -360,7 +361,7 @@ class TestTheMuseClientFetchPage:
         client = _make_client()
 
         with patch(
-            "job_sources.the_muse.requests.get",
+            "job_sources._plugin_the_muse.requests.get",
             side_effect=req.RequestException("connection refused"),
         ):
             results = client.fetch_page(1)
@@ -374,7 +375,7 @@ class TestTheMuseClientFetchPage:
         mock_resp.status_code = 200
         mock_resp.json.side_effect = ValueError("not json")
 
-        with patch("job_sources.the_muse.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_the_muse.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -386,7 +387,7 @@ class TestTheMuseClientFetchPage:
         response = {**_API_PAGE_0_RESPONSE, "results": [_RAW_LISTING, second_listing]}
         mock_resp = _mock_response(200, response)
 
-        with patch("job_sources.the_muse.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_the_muse.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert len(results) == 2
@@ -404,7 +405,7 @@ class TestTheMuseClientAPIKey:
         client = _make_client(_FULL_CONFIG)
         mock_resp = _mock_response(200, _API_PAGE_0_RESPONSE)
 
-        with patch("job_sources.the_muse.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_the_muse.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
         _, kwargs = mock_get.call_args
@@ -415,7 +416,7 @@ class TestTheMuseClientAPIKey:
         client = _make_client(_BASE_CONFIG)
         mock_resp = _mock_response(200, _API_PAGE_0_RESPONSE)
 
-        with patch("job_sources.the_muse.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_the_muse.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
         _, kwargs = mock_get.call_args
@@ -426,7 +427,7 @@ class TestTheMuseClientAPIKey:
         client = _make_client(_BASE_CONFIG)
         mock_resp = _mock_response(200, _API_PAGE_0_RESPONSE)
 
-        with patch("job_sources.the_muse.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_the_muse.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
         _, kwargs = mock_get.call_args
@@ -437,7 +438,7 @@ class TestTheMuseClientAPIKey:
         client = _make_client(_FULL_CONFIG)
         mock_resp = _mock_response(200, _API_PAGE_0_RESPONSE)
 
-        with patch("job_sources.the_muse.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_the_muse.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
         _, kwargs = mock_get.call_args

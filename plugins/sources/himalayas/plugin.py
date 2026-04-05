@@ -1,5 +1,5 @@
 """
-job_sources/himalayas.py — Himalayas API implementation of the JobSource protocol.
+plugins/sources/himalayas/plugin.py — Himalayas API implementation of the JobSource protocol.
 
 Wraps the Himalayas Jobs REST API: offset-based pagination, HTML stripping,
 and normalisation to the canonical listing schema.
@@ -18,7 +18,7 @@ from typing import Iterator, Optional
 import requests
 from bs4 import BeautifulSoup
 
-from .base import JobSource
+from job_sources.base import JobSource
 
 logger = logging.getLogger("ingest.himalayas")
 
@@ -115,22 +115,6 @@ class HimalayasClient(JobSource):
     # ------------------------------------------------------------------
     # JobSource interface
     # ------------------------------------------------------------------
-
-    @classmethod
-    def settings_schema(cls) -> dict:
-        """Return the settings schema for Himalayas.
-
-        Himalayas requires no credentials — the public API is key-free.
-
-        Returns:
-            Schema dict with ``display_name`` and an empty ``fields`` list.
-        """
-        return {
-            "display_name": "Himalayas",
-            "description": "Remote-first tech job board focused on software and product roles. Free API with no authentication required. High-quality listings.",
-            "home_url": "https://himalayas.app",
-            "fields": [],
-        }
 
     def fetch_page(self, page: int) -> list[dict]:
         """Fetch a single page of raw Himalayas listings.

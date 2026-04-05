@@ -19,19 +19,17 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from job_sources import (
-    SOURCES,
-    AdzunaClient,
-    ArbeitnowClient,
-    HimalayasClient,
-    JobSource,
-    RemoteOKClient,
-    RemotiveClient,
-    TheMuseClient,
-    USAJobsClient,
-    make_source,
-)
+from job_sources import SOURCES, JobSource, make_source
 from job_sources.base import JobSource as JobSourceBase
+
+# Resolve classes from the plugin registry.
+AdzunaClient = SOURCES["adzuna"]
+ArbeitnowClient = SOURCES["arbeitnow"]
+HimalayasClient = SOURCES["himalayas"]
+RemoteOKClient = SOURCES["remoteok"]
+RemotiveClient = SOURCES["remotive"]
+TheMuseClient = SOURCES["the_muse"]
+USAJobsClient = SOURCES["usajobs"]
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +115,7 @@ class TestPagesIteratorBehaviour:
         }
         mock_resp = _make_mock_response(200, {"jobs": [raw_job], "total": 10})
 
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=mock_resp):
             pages = list(client.pages())
 
         assert len(pages) == 1
@@ -129,7 +127,7 @@ class TestPagesIteratorBehaviour:
         raw_job = {"id": "r1", "position": "Dev", "company": "Co", "url": "https://x.com"}
         mock_resp = _make_mock_response(200, [raw_job])
 
-        with patch("job_sources.remoteok.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_remoteok.requests.get", return_value=mock_resp):
             pages = list(client.pages())
 
         assert len(pages) == 1
@@ -141,7 +139,7 @@ class TestPagesIteratorBehaviour:
 
         empty_resp = _make_mock_response(200, {"data": []})
 
-        with patch("job_sources.arbeitnow.requests.get", return_value=empty_resp):
+        with patch("job_sources._plugin_arbeitnow.requests.get", return_value=empty_resp):
             pages = list(client.pages())
 
         assert pages == []
@@ -158,7 +156,7 @@ class TestPagesIteratorBehaviour:
         }
         mock_resp = _make_mock_response(200, {"jobs": [raw_job]})
 
-        with patch("job_sources.remotive.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_remotive.requests.get", return_value=mock_resp):
             pages = list(client.pages())
 
         assert len(pages) == 1
@@ -170,7 +168,7 @@ class TestPagesIteratorBehaviour:
 
         empty_resp = _make_mock_response(200, {"results": [], "page_count": 3})
 
-        with patch("job_sources.the_muse.requests.get", return_value=empty_resp):
+        with patch("job_sources._plugin_the_muse.requests.get", return_value=empty_resp):
             pages = list(client.pages())
 
         assert pages == []
@@ -182,7 +180,7 @@ class TestPagesIteratorBehaviour:
 
         empty_resp = _make_mock_response(200, {"jobs": [], "total": 30})
 
-        with patch("job_sources.himalayas.requests.get", return_value=empty_resp):
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=empty_resp):
             pages = list(client.pages())
 
         assert pages == []

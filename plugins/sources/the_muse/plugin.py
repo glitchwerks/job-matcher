@@ -1,5 +1,5 @@
 """
-job_sources/the_muse.py — The Muse API implementation of the JobSource protocol.
+plugins/sources/the_muse/plugin.py — The Muse API implementation of the JobSource protocol.
 
 Wraps The Muse public jobs API (https://www.themuse.com/api/public/jobs):
 0-indexed pagination, optional API key, HTML stripping from the description
@@ -14,7 +14,7 @@ from collections.abc import Iterator
 import requests
 from bs4 import BeautifulSoup
 
-from .base import JobSource
+from job_sources.base import JobSource
 
 logger = logging.getLogger("ingest.the_muse")
 
@@ -126,23 +126,6 @@ class TheMuseClient(JobSource):
     # ------------------------------------------------------------------
     # JobSource interface
     # ------------------------------------------------------------------
-
-    @classmethod
-    def settings_schema(cls) -> dict:
-        """Return the settings schema for The Muse.
-
-        The Muse's public API is key-free; an optional key exists for
-        higher rate limits but is not required for basic ingestion.
-
-        Returns:
-            Schema dict with ``display_name`` and an empty ``fields`` list.
-        """
-        return {
-            "display_name": "The Muse",
-            "description": "US-focused job board with company culture context. Free API with optional key to reduce rate limits. Good coverage of mid-to-large tech companies.",
-            "home_url": "https://www.themuse.com",
-            "fields": [],
-        }
 
     def fetch_page(self, page: int) -> list[dict]:
         """Fetch a single page of raw The Muse results.

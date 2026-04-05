@@ -20,8 +20,9 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from job_sources import SOURCES, JobSource, make_source
-from job_sources.remotive import RemotiveClient
 from job_sources.utils import parse_salary as _parse_salary, strip_html as _strip_html
+
+RemotiveClient = SOURCES["remotive"]
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +230,7 @@ class TestRemotiveFetchPage:
         client = _make_client()
         mock_resp = _mock_response(200, {"jobs": [_RAW_JOB], "job-count": 1})
 
-        with patch("job_sources.remotive.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_remotive.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert len(results) == 1
@@ -241,7 +242,7 @@ class TestRemotiveFetchPage:
         client = _make_client()
         mock_resp = _mock_response(200, {"jobs": [], "job-count": 0})
 
-        with patch("job_sources.remotive.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_remotive.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -251,7 +252,7 @@ class TestRemotiveFetchPage:
         client = _make_client()
         mock_resp = _mock_response(503, {})
 
-        with patch("job_sources.remotive.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_remotive.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -263,7 +264,7 @@ class TestRemotiveFetchPage:
         client = _make_client()
 
         with patch(
-            "job_sources.remotive.requests.get",
+            "job_sources._plugin_remotive.requests.get",
             side_effect=req_module.RequestException("timeout"),
         ):
             results = client.fetch_page(1)
@@ -277,7 +278,7 @@ class TestRemotiveFetchPage:
         mock_resp.status_code = 200
         mock_resp.json.side_effect = ValueError("not json")
 
-        with patch("job_sources.remotive.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_remotive.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -287,7 +288,7 @@ class TestRemotiveFetchPage:
         client = _make_client({"remotive": {"category": "devops", "limit": 25}})
         mock_resp = _mock_response(200, {"jobs": [], "job-count": 0})
 
-        with patch("job_sources.remotive.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_remotive.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
         call_kwargs = mock_get.call_args
@@ -300,7 +301,7 @@ class TestRemotiveFetchPage:
         client = _make_client({})
         mock_resp = _mock_response(200, {"jobs": [], "job-count": 0})
 
-        with patch("job_sources.remotive.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_remotive.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
         call_kwargs = mock_get.call_args

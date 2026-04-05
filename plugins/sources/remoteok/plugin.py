@@ -1,5 +1,5 @@
 """
-job_sources/remoteok.py — RemoteOK API implementation of the JobSource protocol.
+plugins/sources/remoteok/plugin.py — RemoteOK API implementation of the JobSource protocol.
 
 RemoteOK exposes a single endpoint (https://remoteok.com/api) that returns all
 current remote listings as one JSON array.  The first element in the array is an
@@ -18,7 +18,7 @@ from typing import Iterator
 import requests
 from bs4 import BeautifulSoup
 
-from .base import JobSource
+from job_sources.base import JobSource
 
 logger = logging.getLogger("ingest.remoteok")
 
@@ -105,22 +105,6 @@ class RemoteOKClient(JobSource):
     # ------------------------------------------------------------------
     # JobSource interface
     # ------------------------------------------------------------------
-
-    @classmethod
-    def settings_schema(cls) -> dict:
-        """Return the settings schema for Remote OK.
-
-        RemoteOK requires no credentials — the public API is key-free.
-
-        Returns:
-            Schema dict with ``display_name`` and an empty ``fields`` list.
-        """
-        return {
-            "display_name": "Remote OK",
-            "description": "Remote-only job board with a free public API. High volume of dev, design, and tech roles worldwide. No API key required.",
-            "home_url": "https://remoteok.com",
-            "fields": [],
-        }
 
     def fetch_page(self, page: int) -> list[dict]:
         """Fetch all RemoteOK listings (the API has no pagination).

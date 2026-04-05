@@ -1,5 +1,5 @@
 """
-job_sources/remotive.py — Remotive API implementation of the JobSource protocol.
+plugins/sources/remotive/plugin.py — Remotive API implementation of the JobSource protocol.
 
 Wraps the Remotive remote jobs API (https://remotive.com/api/remote-jobs).
 Single-page response; no API key required. HTML stripped from descriptions;
@@ -13,8 +13,8 @@ from typing import Iterator
 
 import requests
 
-from .base import JobSource
-from .utils import parse_salary, strip_html
+from job_sources.base import JobSource
+from job_sources.utils import parse_salary, strip_html
 
 logger = logging.getLogger("ingest.remotive")
 
@@ -48,22 +48,6 @@ class RemotiveClient(JobSource):
     # ------------------------------------------------------------------
     # JobSource interface
     # ------------------------------------------------------------------
-
-    @classmethod
-    def settings_schema(cls) -> dict:
-        """Return the settings schema for Remotive.
-
-        Remotive requires no credentials — the public API is key-free.
-
-        Returns:
-            Schema dict with ``display_name`` and an empty ``fields`` list.
-        """
-        return {
-            "display_name": "Remotive",
-            "description": "Curated remote tech jobs across software, design, and marketing. Free API with no authentication. Smaller volume but strong signal-to-noise.",
-            "home_url": "https://remotive.com",
-            "fields": [],
-        }
 
     def fetch_page(self, page: int) -> list[dict]:
         """Fetch listings from the Remotive API.

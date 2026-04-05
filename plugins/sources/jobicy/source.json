@@ -1,0 +1,7 @@
+{
+  "source_key": "jobicy",
+  "display_name": "Jobicy",
+  "description": "Remote job board with a free, unauthenticated API. Returns full job descriptions — no scraping needed. Good for remote software and data roles.",
+  "home_url": "https://jobicy.com",
+  "fields": []
+}

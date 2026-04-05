@@ -25,8 +25,11 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from job_sources import SOURCES, HimalayasClient, make_source
-from job_sources.himalayas import _parse_created_at, _strip_html, _map_job_type
+from job_sources import SOURCES, make_source
+from job_sources._plugin_himalayas import _parse_created_at, _strip_html, _map_job_type
+
+# Resolve HimalayasClient from the plugin registry so identity checks pass.
+HimalayasClient = SOURCES["himalayas"]
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +315,7 @@ class TestHimalayasClientFetchPage:
         client = HimalayasClient(config=_HIMALAYAS_CONFIG_WITH_LIMIT)
         mock_resp = _mock_response(200, {"jobs": [], "total": 0})
 
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(3)
 
         call_kwargs = mock_get.call_args
@@ -325,7 +328,7 @@ class TestHimalayasClientFetchPage:
         client = HimalayasClient(config=_HIMALAYAS_CONFIG_WITH_LIMIT)
         mock_resp = _mock_response(200, {"jobs": [_RAW_JOB], "total": 1})
 
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
         params = mock_get.call_args[1]["params"]
@@ -336,7 +339,7 @@ class TestHimalayasClientFetchPage:
         client = self._client()
         mock_resp = _mock_response(200, {"jobs": [_RAW_JOB], "total": 1})
 
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert len(results) == 1
@@ -348,7 +351,7 @@ class TestHimalayasClientFetchPage:
         client = self._client()
         mock_resp = _mock_response(200, {"jobs": [_RAW_JOB], "total": 250})
 
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=mock_resp):
             client.fetch_page(1)
 
         assert client._total == 250
@@ -358,7 +361,7 @@ class TestHimalayasClientFetchPage:
         client = self._client()
         mock_resp = _mock_response(200, {"jobs": [], "total": 0})
 
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -368,7 +371,7 @@ class TestHimalayasClientFetchPage:
         client = self._client()
         mock_resp = _mock_response(500, {})
 
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -380,7 +383,7 @@ class TestHimalayasClientFetchPage:
         client = self._client()
 
         with patch(
-            "job_sources.himalayas.requests.get",
+            "job_sources._plugin_himalayas.requests.get",
             side_effect=req_lib.RequestException("timeout"),
         ):
             results = client.fetch_page(1)
@@ -394,7 +397,7 @@ class TestHimalayasClientFetchPage:
         mock_resp.status_code = 200
         mock_resp.json.side_effect = ValueError("not json")
 
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -409,7 +412,7 @@ class TestHimalayasClientFetchPage:
         }
         mock_resp = _mock_response(200, {"jobs": [_RAW_JOB, raw2], "total": 2})
 
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert len(results) == 2
@@ -432,7 +435,7 @@ class TestHimalayasClientTotalPages:
         client = HimalayasClient(config=_HIMALAYAS_CONFIG_WITH_LIMIT)  # limit=10
         client._total = 25  # 25 / 10 = 3 (ceil)
 
-        with patch("job_sources.himalayas.requests.get") as mock_get:
+        with patch("job_sources._plugin_himalayas.requests.get") as mock_get:
             pages = client.total_pages()
 
         mock_get.assert_not_called()
@@ -443,7 +446,7 @@ class TestHimalayasClientTotalPages:
         client = HimalayasClient(config=_HIMALAYAS_CONFIG_WITH_LIMIT)  # limit=10
         mock_resp = _mock_response(200, {"jobs": [], "total": 47})
 
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=mock_resp):
             pages = client.total_pages()
 
         assert pages == 5  # ceil(47 / 10)
@@ -467,7 +470,7 @@ class TestHimalayasClientTotalPages:
         client = self._client()
         mock_resp = _mock_response(200, {"jobs": [], "total": 0})
 
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=mock_resp):
             pages = client.total_pages()
 
         assert pages == 1
@@ -479,7 +482,7 @@ class TestHimalayasClientTotalPages:
         client = self._client()
 
         with patch(
-            "job_sources.himalayas.requests.get",
+            "job_sources._plugin_himalayas.requests.get",
             side_effect=req_lib.RequestException("network error"),
         ):
             pages = client.total_pages()
@@ -600,7 +603,7 @@ class TestHimalayasMissingRedirectUrl:
         raw_no_url = {k: v for k, v in _RAW_JOB.items() if k != "applicationLink"}
         mock_resp = _mock_response(200, {"jobs": [raw_no_url], "total": 1})
 
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -611,7 +614,7 @@ class TestHimalayasMissingRedirectUrl:
         raw_null_url = {**_RAW_JOB, "applicationLink": None}
         mock_resp = _mock_response(200, {"jobs": [raw_null_url], "total": 1})
 
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -627,7 +630,7 @@ class TestHimalayasMissingRedirectUrl:
         }
         mock_resp = _mock_response(200, {"jobs": [raw_no_url, valid_raw], "total": 2})
 
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert len(results) == 1
@@ -641,7 +644,7 @@ class TestHimalayasMissingRedirectUrl:
         raw_no_url = {**_RAW_JOB, "applicationLink": None, "title": "Skipped Job"}
         mock_resp = _mock_response(200, {"jobs": [raw_no_url], "total": 1})
 
-        with patch("job_sources.himalayas.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_himalayas.requests.get", return_value=mock_resp):
             with caplog.at_level(logging.WARNING, logger="ingest.himalayas"):
                 client.fetch_page(1)
 

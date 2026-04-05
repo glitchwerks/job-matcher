@@ -22,7 +22,7 @@ import app as app_module
 import db
 from app import app as flask_app
 from credentials import save_providers
-from job_sources import make_enabled_sources, JobSource
+from job_sources import SOURCES, make_enabled_sources, JobSource
 
 
 # ===========================================================================
@@ -298,7 +298,7 @@ class TestIssue274KeyedSourceNotDefaultEnabled:
 
     def test_real_adzuna_not_in_providers_data_is_skipped(self, caplog):
         """Real AdzunaClient (keyed) must not activate if absent from providers_data."""
-        from job_sources import AdzunaClient
+        AdzunaClient = SOURCES["adzuna"]
 
         with caplog.at_level(logging.WARNING, logger="ingest.sources"):
             result = make_enabled_sources(_providers({}), _BASE_CONFIG)

@@ -17,8 +17,11 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from job_sources import SOURCES, ArbeitnowClient, JobSource
-from job_sources.arbeitnow import _CONTRACT_TIME_MAP, _strip_html, _unix_to_iso
+from job_sources import SOURCES, JobSource
+from job_sources._plugin_arbeitnow import _CONTRACT_TIME_MAP, _strip_html, _unix_to_iso
+
+# Resolve ArbeitnowClient from the plugin registry so identity checks pass.
+ArbeitnowClient = SOURCES["arbeitnow"]
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +310,7 @@ class TestArbeitnowClientTotalPages:
             "meta": {"current_page": 1, "last_page": 12},
         })
 
-        with patch("job_sources.arbeitnow.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_arbeitnow.requests.get", return_value=mock_resp):
             assert client.total_pages() == 12
 
     def test_returns_1_when_meta_absent(self):
@@ -315,7 +318,7 @@ class TestArbeitnowClientTotalPages:
         client = _client()
         mock_resp = _mock_response(200, {"data": []})
 
-        with patch("job_sources.arbeitnow.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_arbeitnow.requests.get", return_value=mock_resp):
             assert client.total_pages() == 1
 
     def test_returns_1_when_last_page_absent(self):
@@ -323,7 +326,7 @@ class TestArbeitnowClientTotalPages:
         client = _client()
         mock_resp = _mock_response(200, {"data": [], "meta": {"current_page": 1}})
 
-        with patch("job_sources.arbeitnow.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_arbeitnow.requests.get", return_value=mock_resp):
             assert client.total_pages() == 1
 
     def test_returns_1_on_request_failure(self):
@@ -332,7 +335,7 @@ class TestArbeitnowClientTotalPages:
         client = _client()
 
         with patch(
-            "job_sources.arbeitnow.requests.get",
+            "job_sources._plugin_arbeitnow.requests.get",
             side_effect=_req.RequestException("timeout"),
         ):
             assert client.total_pages() == 1
@@ -345,7 +348,7 @@ class TestArbeitnowClientTotalPages:
             "meta": {"current_page": 1, "last_page": 5},
         })
 
-        with patch("job_sources.arbeitnow.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_arbeitnow.requests.get", return_value=mock_resp) as mock_get:
             assert client.total_pages() == 5
             assert client.total_pages() == 5
             assert mock_get.call_count == 1  # second call hit the cache
@@ -361,7 +364,7 @@ class TestArbeitnowClientFetchPage:
         client = _client()
         mock_resp = _mock_response(200, {"data": [_RAW_LISTING]})
 
-        with patch("job_sources.arbeitnow.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_arbeitnow.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert len(results) == 1
@@ -372,7 +375,7 @@ class TestArbeitnowClientFetchPage:
         client = _client()
         mock_resp = _mock_response(200, {"data": []})
 
-        with patch("job_sources.arbeitnow.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_arbeitnow.requests.get", return_value=mock_resp):
             assert client.fetch_page(1) == []
 
     def test_missing_data_key_returns_empty_list(self):
@@ -380,7 +383,7 @@ class TestArbeitnowClientFetchPage:
         client = _client()
         mock_resp = _mock_response(200, {})
 
-        with patch("job_sources.arbeitnow.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_arbeitnow.requests.get", return_value=mock_resp):
             assert client.fetch_page(1) == []
 
     def test_non_200_returns_empty_list(self):
@@ -388,7 +391,7 @@ class TestArbeitnowClientFetchPage:
         client = _client()
         mock_resp = _mock_response(500, {})
 
-        with patch("job_sources.arbeitnow.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_arbeitnow.requests.get", return_value=mock_resp):
             assert client.fetch_page(2) == []
 
     def test_network_exception_returns_empty_list(self):
@@ -397,7 +400,7 @@ class TestArbeitnowClientFetchPage:
         client = _client()
 
         with patch(
-            "job_sources.arbeitnow.requests.get",
+            "job_sources._plugin_arbeitnow.requests.get",
             side_effect=_req.RequestException("DNS failure"),
         ):
             assert client.fetch_page(1) == []
@@ -409,7 +412,7 @@ class TestArbeitnowClientFetchPage:
         mock_resp.status_code = 200
         mock_resp.json.side_effect = ValueError("not json")
 
-        with patch("job_sources.arbeitnow.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_arbeitnow.requests.get", return_value=mock_resp):
             assert client.fetch_page(1) == []
 
     def test_page_param_passed_to_api(self):
@@ -417,7 +420,7 @@ class TestArbeitnowClientFetchPage:
         client = _client()
         mock_resp = _mock_response(200, {"data": []})
 
-        with patch("job_sources.arbeitnow.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_arbeitnow.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(3)
             _, kwargs = mock_get.call_args
             assert kwargs["params"]["page"] == 3

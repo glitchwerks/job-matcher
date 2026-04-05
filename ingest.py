@@ -31,7 +31,7 @@ import requests
 from bs4 import BeautifulSoup
 
 import db
-from job_sources import make_source, AdzunaClient, make_enabled_sources  # noqa: F401 — AdzunaClient re-exported for backward compat
+from job_sources import make_enabled_sources
 from providers import build_provider_chain, LLMProvider
 from credentials import CredentialError, load_providers
 
@@ -951,6 +951,9 @@ def run(
         return
 
     _inject_env_var_credentials(providers)
+
+    from job_sources.auto_register import ensure_plugins_registered
+    ensure_plugins_registered(providers_path)
 
     sources = make_enabled_sources(providers, config)
     if not sources:

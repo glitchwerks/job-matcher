@@ -23,7 +23,9 @@ import requests as req_module
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from job_sources import SOURCES, JobSource, make_source
-from job_sources.usajobs import USAJobsClient, _parse_float
+from job_sources._plugin_usajobs import _parse_float
+
+USAJobsClient = SOURCES["usajobs"]
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +151,7 @@ class TestUSAJobsClientFetchPage:
         client = _make_client()
         mock_resp = _mock_response(200, _search_response([_RAW_ITEM]))
 
-        with patch("job_sources.usajobs.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_usajobs.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
         _, kwargs = mock_get.call_args
@@ -160,7 +162,7 @@ class TestUSAJobsClientFetchPage:
         client = _make_client()
         mock_resp = _mock_response(200, _search_response([_RAW_ITEM]))
 
-        with patch("job_sources.usajobs.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_usajobs.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
         _, kwargs = mock_get.call_args
@@ -171,7 +173,7 @@ class TestUSAJobsClientFetchPage:
         client = _make_client()
         mock_resp = _mock_response(200, _search_response([_RAW_ITEM]))
 
-        with patch("job_sources.usajobs.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_usajobs.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(3)
 
         _, kwargs = mock_get.call_args
@@ -182,7 +184,7 @@ class TestUSAJobsClientFetchPage:
         client = _make_client()
         mock_resp = _mock_response(200, _search_response([]))
 
-        with patch("job_sources.usajobs.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_usajobs.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
         _, kwargs = mock_get.call_args
@@ -193,7 +195,7 @@ class TestUSAJobsClientFetchPage:
         client = _make_client()
         mock_resp = _mock_response(200, _search_response([_RAW_ITEM]))
 
-        with patch("job_sources.usajobs.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_usajobs.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert len(results) == 1
@@ -204,7 +206,7 @@ class TestUSAJobsClientFetchPage:
         client = _make_client()
         mock_resp = _mock_response(200, _search_response([]))
 
-        with patch("job_sources.usajobs.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_usajobs.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -214,7 +216,7 @@ class TestUSAJobsClientFetchPage:
         client = _make_client()
         mock_resp = _mock_response(403, {})
 
-        with patch("job_sources.usajobs.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_usajobs.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -224,7 +226,7 @@ class TestUSAJobsClientFetchPage:
         client = _make_client()
 
         with patch(
-            "job_sources.usajobs.requests.get",
+            "job_sources._plugin_usajobs.requests.get",
             side_effect=req_module.RequestException("connection refused"),
         ):
             results = client.fetch_page(1)
@@ -238,7 +240,7 @@ class TestUSAJobsClientFetchPage:
         mock_resp.status_code = 200
         mock_resp.json.side_effect = ValueError("not json")
 
-        with patch("job_sources.usajobs.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_usajobs.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -248,7 +250,7 @@ class TestUSAJobsClientFetchPage:
         client = _make_client()
         mock_resp = _mock_response(200, {"other": "data"})
 
-        with patch("job_sources.usajobs.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_usajobs.requests.get", return_value=mock_resp):
             results = client.fetch_page(1)
 
         assert results == []
@@ -264,7 +266,7 @@ class TestUSAJobsClientTotalPages:
         client = _make_client()
         mock_resp = _mock_response(200, _search_response([], number_of_pages=7))
 
-        with patch("job_sources.usajobs.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_usajobs.requests.get", return_value=mock_resp):
             pages = client.total_pages()
 
         assert pages == 7
@@ -274,7 +276,7 @@ class TestUSAJobsClientTotalPages:
         client = _make_client()
         mock_resp = _mock_response(200, _search_response([], number_of_pages=1))
 
-        with patch("job_sources.usajobs.requests.get", return_value=mock_resp) as mock_get:
+        with patch("job_sources._plugin_usajobs.requests.get", return_value=mock_resp) as mock_get:
             client.total_pages()
 
         _, kwargs = mock_get.call_args
@@ -286,7 +288,7 @@ class TestUSAJobsClientTotalPages:
         client = _make_client()
         mock_resp = _mock_response(401, {})
 
-        with patch("job_sources.usajobs.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_usajobs.requests.get", return_value=mock_resp):
             with pytest.raises(RuntimeError, match="HTTP 401"):
                 client.total_pages()
 
@@ -295,7 +297,7 @@ class TestUSAJobsClientTotalPages:
         client = _make_client()
 
         with patch(
-            "job_sources.usajobs.requests.get",
+            "job_sources._plugin_usajobs.requests.get",
             side_effect=req_module.RequestException("timeout"),
         ):
             with pytest.raises(RuntimeError, match="request failed"):
@@ -308,7 +310,7 @@ class TestUSAJobsClientTotalPages:
         mock_resp.status_code = 200
         mock_resp.json.side_effect = ValueError("bad json")
 
-        with patch("job_sources.usajobs.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_usajobs.requests.get", return_value=mock_resp):
             with pytest.raises(RuntimeError, match="not valid JSON"):
                 client.total_pages()
 
@@ -318,7 +320,7 @@ class TestUSAJobsClientTotalPages:
         bad_body = {"SearchResult": {"UserArea": {}}}
         mock_resp = _mock_response(200, bad_body)
 
-        with patch("job_sources.usajobs.requests.get", return_value=mock_resp):
+        with patch("job_sources._plugin_usajobs.requests.get", return_value=mock_resp):
             with pytest.raises(RuntimeError, match="NumberOfPages"):
                 client.total_pages()
 

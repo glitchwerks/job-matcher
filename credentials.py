@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -345,48 +346,89 @@ def save_providers(
     Raises:
         OSError: If the file cannot be written (permissions, disk full, …).
     """
-    # --- Load existing data (start from empty skeleton when absent) ---
-    if os.path.exists(providers_path):
-        try:
-            with open(providers_path, encoding="utf-8") as fh:
-                existing: dict = json.load(fh)
-        except (json.JSONDecodeError, OSError):
-            existing = {}
-    else:
-        existing = {}
+    # --- File locking: prevent TOCTOU races when app.py and ingest.py run
+    # concurrently on Windows (NSSM service + Task Scheduler).
+    #
+    # Strategy: open the lock file with O_CREAT|O_EXCL (atomic on Windows NTFS)
+    # and spin-wait briefly if another process holds it.  The lock file is
+    # removed in the finally block so the next caller can acquire it.
+    #
+    # msvcrt.locking() is NOT used because it applies byte-range locks on an
+    # open file descriptor and its LK_LOCK mode reports "deadlock avoided"
+    # when called repeatedly from the same process (e.g. in test suites).
+    lock_path = providers_path + ".lock"
+    _lock_acquired = False
 
-    # Ensure top-level sections exist.
-    existing.setdefault("provider_order", [])
-    existing.setdefault("llm", {})
-    existing.setdefault("job_sources", {})
-
-    def _deep_merge(base: dict, patch: dict) -> None:
-        """Recursively apply *patch* values into *base* in-place.
-
-        All values are applied as-is, including blank strings so that
-        credential fields can be cleared via the UI.  Nested dicts are
-        merged recursively; only keys absent from *patch* are left unchanged.
-        """
-        for key, value in patch.items():
-            if isinstance(value, dict):
-                base.setdefault(key, {})
-                _deep_merge(base[key], value)
-            else:
-                base[key] = value
-
-    _deep_merge(existing, updates)
-
-    # --- Atomic write ---
-    tmp_path = providers_path + ".tmp"
-    _write_ok = False
-    try:
-        with open(tmp_path, "w", encoding="utf-8") as fh:
-            json.dump(existing, fh, indent=2)
-        os.replace(tmp_path, providers_path)
-        _write_ok = True
-    finally:
-        if not _write_ok:
+    if sys.platform == "win32":
+        import time as _time
+        _deadline = _time.monotonic() + 5.0  # give up after 5 s
+        while True:
             try:
-                os.remove(tmp_path)
+                # O_EXCL ensures only one process can create this file at a time.
+                _fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.close(_fd)
+                _lock_acquired = True
+                break
+            except FileExistsError:
+                if _time.monotonic() >= _deadline:
+                    # Proceed without the lock rather than failing the save.
+                    logger.warning(
+                        "save_providers: could not acquire lock %s within 5 s — proceeding without lock",
+                        lock_path,
+                    )
+                    break
+                _time.sleep(0.05)
+
+    try:
+        # --- Load existing data (start from empty skeleton when absent) ---
+        if os.path.exists(providers_path):
+            try:
+                with open(providers_path, encoding="utf-8") as fh:
+                    existing: dict = json.load(fh)
+            except (json.JSONDecodeError, OSError):
+                existing = {}
+        else:
+            existing = {}
+
+        # Ensure top-level sections exist.
+        existing.setdefault("provider_order", [])
+        existing.setdefault("llm", {})
+        existing.setdefault("job_sources", {})
+
+        def _deep_merge(base: dict, patch: dict) -> None:
+            """Recursively apply *patch* values into *base* in-place.
+
+            All values are applied as-is, including blank strings so that
+            credential fields can be cleared via the UI.  Nested dicts are
+            merged recursively; only keys absent from *patch* are left unchanged.
+            """
+            for key, value in patch.items():
+                if isinstance(value, dict):
+                    base.setdefault(key, {})
+                    _deep_merge(base[key], value)
+                else:
+                    base[key] = value
+
+        _deep_merge(existing, updates)
+
+        # --- Atomic write ---
+        tmp_path = providers_path + ".tmp"
+        _write_ok = False
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as fh:
+                json.dump(existing, fh, indent=2)
+            os.replace(tmp_path, providers_path)
+            _write_ok = True
+        finally:
+            if not _write_ok:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
+    finally:
+        if _lock_acquired:
+            try:
+                os.remove(lock_path)
             except OSError:
                 pass
