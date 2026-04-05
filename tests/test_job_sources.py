@@ -55,9 +55,6 @@ class TestJobSourceABC:
                 return 1
             def normalise(self, raw):
                 return {}
-            @classmethod
-            def settings_schema(cls):
-                return {"display_name": "Complete", "fields": []}
 
         # Should not raise.
         instance = Complete()
