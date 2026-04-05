@@ -30,9 +30,9 @@ from job_sources._plugin_jooble import (
     _CONTRACT_TIME_MAP,
     _normalise_contract_time,
 )
+from job_sources.utils import parse_salary as _parse_salary, strip_html as _strip_html
 
 JoobleClient = SOURCES["jooble"]
-from job_sources.utils import parse_salary as _parse_salary, strip_html as _strip_html
 
 
 # ---------------------------------------------------------------------------
