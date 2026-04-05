@@ -199,6 +199,9 @@ def load_profile(path: str = _PROFILE_PATH) -> dict:
 CONFIG = load_config()
 db.init_db(db_path=DB_PATH)
 
+from job_sources.auto_register import ensure_plugins_registered  # noqa: E402
+ensure_plugins_registered(_PROVIDERS_PATH)
+
 
 # ---------------------------------------------------------------------------
 # Profile form validation

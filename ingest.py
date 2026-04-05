@@ -952,6 +952,9 @@ def run(
 
     _inject_env_var_credentials(providers)
 
+    from job_sources.auto_register import ensure_plugins_registered
+    ensure_plugins_registered(providers_path)
+
     sources = make_enabled_sources(providers, config)
     if not sources:
         logger.warning(
