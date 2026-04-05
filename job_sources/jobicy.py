@@ -15,5 +15,11 @@ import requests  # noqa: F401 — kept so patch("job_sources.jobicy.requests.get
 from job_sources import SOURCES as _SOURCES
 
 JobicyClient = _SOURCES.get("jobicy")
+if JobicyClient is None:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "job_sources.jobicy: plugin failed to load — JobicyClient is None; "
+        "any code that instantiates it will raise TypeError."
+    )
 
 __all__ = ["JobicyClient"]

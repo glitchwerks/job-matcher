@@ -15,6 +15,12 @@ import requests  # noqa: F401 — kept so patch("job_sources.usajobs.requests.ge
 from job_sources import SOURCES as _SOURCES
 
 USAJobsClient = _SOURCES.get("usajobs")
+if USAJobsClient is None:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "job_sources.usajobs: plugin failed to load — USAJobsClient is None; "
+        "any code that instantiates it will raise TypeError."
+    )
 
 # Re-export module-level helper from the plugin for tests that import it directly.
 from job_sources._plugin_usajobs import _parse_float  # noqa: F401

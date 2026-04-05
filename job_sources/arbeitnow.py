@@ -15,6 +15,12 @@ import requests  # noqa: F401 — kept so patch("job_sources.arbeitnow.requests.
 from job_sources import SOURCES as _SOURCES
 
 ArbeitnowClient = _SOURCES.get("arbeitnow")
+if ArbeitnowClient is None:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "job_sources.arbeitnow: plugin failed to load — ArbeitnowClient is None; "
+        "any code that instantiates it will raise TypeError."
+    )
 
 # Re-export module-level helpers from the plugin for tests that import them directly.
 # The loader registers plugin modules in sys.modules as job_sources._plugin_<name>.

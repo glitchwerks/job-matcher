@@ -16,5 +16,11 @@ import time  # noqa: F401 — kept so patch("job_sources.adzuna.time.sleep") res
 from job_sources import SOURCES as _SOURCES
 
 AdzunaClient = _SOURCES.get("adzuna")
+if AdzunaClient is None:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "job_sources.adzuna: plugin failed to load — AdzunaClient is None; "
+        "any code that instantiates it will raise TypeError."
+    )
 
 __all__ = ["AdzunaClient"]

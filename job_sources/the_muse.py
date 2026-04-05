@@ -15,5 +15,11 @@ import requests  # noqa: F401 — kept so patch("job_sources.the_muse.requests.g
 from job_sources import SOURCES as _SOURCES
 
 TheMuseClient = _SOURCES.get("the_muse")
+if TheMuseClient is None:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "job_sources.the_muse: plugin failed to load — TheMuseClient is None; "
+        "any code that instantiates it will raise TypeError."
+    )
 
 __all__ = ["TheMuseClient"]

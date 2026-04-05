@@ -15,5 +15,11 @@ import requests  # noqa: F401 — kept so patch("job_sources.remotive.requests.g
 from job_sources import SOURCES as _SOURCES
 
 RemotiveClient = _SOURCES.get("remotive")
+if RemotiveClient is None:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "job_sources.remotive: plugin failed to load — RemotiveClient is None; "
+        "any code that instantiates it will raise TypeError."
+    )
 
 __all__ = ["RemotiveClient"]

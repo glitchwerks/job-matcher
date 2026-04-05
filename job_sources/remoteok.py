@@ -15,5 +15,11 @@ import requests  # noqa: F401 — kept so patch("job_sources.remoteok.requests.g
 from job_sources import SOURCES as _SOURCES
 
 RemoteOKClient = _SOURCES.get("remoteok")
+if RemoteOKClient is None:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "job_sources.remoteok: plugin failed to load — RemoteOKClient is None; "
+        "any code that instantiates it will raise TypeError."
+    )
 
 __all__ = ["RemoteOKClient"]

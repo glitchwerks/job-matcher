@@ -15,6 +15,12 @@ import requests  # noqa: F401 — kept so patch("job_sources.himalayas.requests.
 from job_sources import SOURCES as _SOURCES
 
 HimalayasClient = _SOURCES.get("himalayas")
+if HimalayasClient is None:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "job_sources.himalayas: plugin failed to load — HimalayasClient is None; "
+        "any code that instantiates it will raise TypeError."
+    )
 
 # Re-export module-level helpers from the plugin for tests that import them directly.
 # The loader registers plugin modules in sys.modules as job_sources._plugin_<name>.
