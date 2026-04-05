@@ -2,6 +2,10 @@
   "primary_skills": ["Python", "Flask", "SQL", "REST APIs", "Docker", "Git", "Linux", "pytest"],
   "anti_preferences": ["Salesforce", "SAP", "mainframe", "COBOL"],
   "seniority": "mid-to-senior",
+  "education": [
+    "B.S. Computer Science, University of Texas at Austin, 2013",
+    "M.S. Computer Science (Software Engineering), Georgia Tech, 2016"
+  ],
   "preferred_industries": ["software", "fintech", "developer tools", "SaaS"],
   "scoring_notes": "Strong preference for backend and full-stack roles. Remote or hybrid only. Avoid pure frontend or QA roles.",
   "location": {
