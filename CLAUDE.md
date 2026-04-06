@@ -20,10 +20,15 @@ python ingest.py -v                # Short form of --verbose
 # Run web UI (http://localhost:5000)
 python app.py
 
-# Run tests
+# Run tests (requires PostgreSQL — set DATABASE_URL before running)
+# Option A: use the docker-compose dev database
+#   $env:DATABASE_URL = "postgresql://jobmatcher:<password>@localhost:5432/jobmatcher"; pytest
+# Option B: DATABASE_URL already exported in your shell
 pytest
 pytest tests/test_prefilter.py     # Single file
 pytest -k "test_title_include"     # By name pattern
+# NOTE: test isolation uses TRUNCATE on a shared PostgreSQL instance, not isolated
+# SQLite files. Always run tests against a throwaway/dev database — never production.
 ```
 
 ## Architecture
