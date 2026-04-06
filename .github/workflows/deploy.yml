@@ -1,44 +1,116 @@
 name: Deploy
 
-# Trigger: runs only after the CI workflow completes successfully on main.
-# Using workflow_run instead of a direct push trigger ensures that tests and
-# linting must pass before any deployment step executes.
 on:
   workflow_run:
     workflows: ["CI"]
-    branches: [main]
     types: [completed]
-
-# Secrets strategy: API keys are stored in config.json on the server and are
-# never managed by this workflow. The self-hosted runner has direct filesystem
-# access to the deploy directory, so no GitHub Actions secrets are needed for
-# application credentials. Keep config.json and profile.json in DEPLOY_DIR —
-# they are gitignored and will not be overwritten by git pull.
+    # Fires for all branches where CI runs.
+    # deploy-dev triggers for non-main branches; deploy-prod for main only.
 
 jobs:
-  deploy:
-    name: Deploy to homelab server
-    runs-on: self-hosted
-
-    # Only proceed when the triggering CI run actually passed.
-    if: github.event.workflow_run.conclusion == 'success'
-
-    env:
-      DEPLOY_DIR: 'C:\Apps\job-matcher-pr'
-      SERVICE_NAME: JobMatcher
-
-    defaults:
-      run:
-        shell: powershell
+  build-and-push:
+    name: Build and push Docker image
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      contents: read
+      packages: write
 
     steps:
-      - name: Pull latest code
-        run: git -C "$env:DEPLOY_DIR" pull origin main
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
-      - name: Install dependencies
-        run: >
-          & (Join-Path $env:DEPLOY_DIR 'venv\Scripts\pip.exe') install -r
-          (Join-Path $env:DEPLOY_DIR 'requirements.txt')
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Restart service
-        run: nssm restart $env:SERVICE_NAME
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image (non-main — SHA tag only)
+        if: ${{ github.event.workflow_run.head_branch != 'main' }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/job-matcher-pr:${{ github.event.workflow_run.head_sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push image (main — SHA tag + latest)
+        if: ${{ github.event.workflow_run.head_branch == 'main' }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/job-matcher-pr:latest
+            ghcr.io/${{ github.repository_owner }}/job-matcher-pr:${{ github.event.workflow_run.head_sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-dev:
+    name: Deploy dev stack (PR preview)
+    runs-on: self-hosted
+    needs: build-and-push
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.head_branch != 'main' }}
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy dev stack
+        env:
+          APP_VERSION: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          APP_VERSION=$(echo "$APP_VERSION" | cut -c1-7)
+          docker compose -f /opt/job-matcher-pr/docker-compose.dev.yml pull
+          docker compose -f /opt/job-matcher-pr/docker-compose.dev.yml up -d --remove-orphans
+          docker compose -f /opt/job-matcher-pr/docker-compose.dev.yml ps --status running --services | grep -q "web"
+
+      - name: Prune old images
+        run: docker image prune -f --filter "label=com.docker.compose.project=job-matcher-dev"
+
+  deploy-prod:
+    name: Deploy prod stack
+    runs-on: self-hosted
+    needs: build-and-push
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.head_branch == 'main' }}
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy prod stack
+        env:
+          APP_VERSION: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          APP_VERSION=$(echo "$APP_VERSION" | cut -c1-7)
+          docker compose -f /opt/job-matcher-pr/docker-compose.prod.yml pull
+          docker compose -f /opt/job-matcher-pr/docker-compose.prod.yml up -d --remove-orphans
+          docker compose -f /opt/job-matcher-pr/docker-compose.prod.yml ps --status running --services | grep -q "web"
+          docker image prune -f --filter "label=com.docker.compose.project=job-matcher-pr"

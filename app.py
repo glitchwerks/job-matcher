@@ -26,7 +26,9 @@ from job_sources import get_sources
 
 app = Flask(__name__)
 
-DB_PATH: str = os.environ.get("DB_PATH", "jobs.db")
+# Inject environment and version globals so all templates can render the status bar.
+app.jinja_env.globals['APP_ENV'] = os.environ.get('APP_ENV', 'local')
+app.jinja_env.globals['APP_VERSION'] = os.environ.get('APP_VERSION', 'local')
 DEMO_MODE: bool = False
 
 
@@ -197,7 +199,7 @@ def load_profile(path: str = _PROFILE_PATH) -> dict:
 
 
 CONFIG = load_config()
-db.init_db(db_path=DB_PATH)
+db.init_db()
 
 from job_sources.auto_register import ensure_plugins_registered  # noqa: E402
 ensure_plugins_registered(_PROVIDERS_PATH)
@@ -461,10 +463,9 @@ def feed():
         search=search,
         job_type=job_type,
         sort=sort,
-        db_path=DB_PATH,
     )
-    job_types = db.get_job_types(db_path=DB_PATH)
-    last_fetch_time = db.get_last_fetch_time(db_path=DB_PATH)
+    job_types = db.get_job_types()
+    last_fetch_time = db.get_last_fetch_time()
     new_count = sum(1 for listing in listings if listing["opened_at"] is None)
     return render_template(
         "index.html",
@@ -487,7 +488,7 @@ def feed():
 @app.route("/bookmarks")
 def bookmarks():
     """Bookmarked listings only."""
-    listings = db.get_bookmarks(db_path=DB_PATH)
+    listings = db.get_bookmarks()
     return render_template(
         "index.html",
         listings=listings,
@@ -504,7 +505,7 @@ def toggle_bookmark(listing_id: int):
     in a single SQL statement so rapid double-clicks cannot produce a net
     no-op. Returns the re-rendered action button group as an HTMX partial.
     """
-    listing = db.toggle_bookmarked(listing_id, db_path=DB_PATH)
+    listing = db.toggle_bookmarked(listing_id)
     if listing is None:
         return make_response("", 404)
     return render_template("_actions.html", listing=listing)
@@ -518,7 +519,7 @@ def toggle_apply(listing_id: int):
     in a single SQL statement so rapid double-clicks cannot produce a net
     no-op. Returns the re-rendered action button group as an HTMX partial.
     """
-    listing = db.toggle_applied(listing_id, db_path=DB_PATH)
+    listing = db.toggle_applied(listing_id)
     if listing is None:
         return make_response("", 404)
     return render_template("_actions.html", listing=listing)
@@ -527,7 +528,7 @@ def toggle_apply(listing_id: int):
 @app.route("/applied")
 def applied():
     """Applied listings — all listings marked as applied, most recent first."""
-    listings = db.get_applied(db_path=DB_PATH)
+    listings = db.get_applied()
     return render_template(
         "index.html",
         listings=listings,
@@ -558,7 +559,7 @@ def snippets():
     threshold = CONFIG["scoring"]["threshold"]
     if not isinstance(threshold, (int, float)) or threshold < 0:
         threshold = 7.0
-    job_types = db.get_job_types(db_path=DB_PATH)
+    job_types = db.get_job_types()
     listings = db.get_snippet_feed(
         threshold=threshold,
         min_score=min_score,
@@ -566,7 +567,6 @@ def snippets():
         search=search,
         job_type=job_type,
         sort=sort,
-        db_path=DB_PATH,
     )
     return render_template(
         "snippets.html",
@@ -586,7 +586,7 @@ def snippets():
 @app.route("/stats")
 def stats():
     """API usage and cost statistics, plus runtime version information."""
-    data = db.get_usage_stats(db_path=DB_PATH)
+    data = db.get_usage_stats()
     return render_template(
         "stats.html",
         stats=data,
@@ -604,7 +604,7 @@ def dismiss(listing_id: int):
     on the card element, replacing it with the empty string — this removes
     the card from the DOM without a page reload.
     """
-    db.set_dismissed(listing_id, 1, db_path=DB_PATH)
+    db.set_dismissed(listing_id, 1)
     return make_response("", 200)
 
 
@@ -622,7 +622,7 @@ def mark_listing_opened(listing_id: int):
     style recalculation for <summary> descendants when <details> gains [open],
     so relying solely on CSS is not reliable across all browsers.
     """
-    db.mark_opened(listing_id, db_path=DB_PATH)
+    db.mark_opened(listing_id)
     # hx-swap-oob="outerHTML" replaces the target element entirely with the new
     # element.  An empty <span> with the same id effectively removes the badge.
     oob_fragment = f'<span id="badge-new-{listing_id}" hx-swap-oob="outerHTML"></span>'
@@ -1033,7 +1033,7 @@ def settings():
     if request.method == "POST" and error:
         pass  # fall through to render with error
 
-    listing_count = db.get_listing_count(db_path=DB_PATH)
+    listing_count = db.get_listing_count()
 
     # Pass technical search fields to the Search Settings tab.
     search_cfg = load_config(_CONFIG_PATH).get("search") or {}
@@ -1267,7 +1267,7 @@ def admin_clear_db():
         return make_response(html, 400)
 
     try:
-        conn = db.get_connection(DB_PATH)
+        conn = db.get_connection()
         try:
             deleted = db.clear_all_listings(conn)
         finally:
@@ -1519,11 +1519,11 @@ if __name__ == "__main__":
 
     if args.demo:
         DEMO_MODE = True
-        DB_PATH = "jobs.demo.db"
+        # TODO: demo mode is not supported in the PostgreSQL deployment
         _PROFILE_PATH = os.path.join(_CONFIG_DIR, "profile.demo.json")
         _PROVIDERS_PATH = os.path.join(_CONFIG_DIR, "providers.demo.json")
-        print("Demo mode enabled — using jobs.demo.db and demo config files.")
+        print("Demo mode enabled — using demo config files.")
 
-    db.init_db(db_path=DB_PATH)
+    db.init_db()
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
     app.run(debug=debug, port=5000)

@@ -1761,3 +1761,32 @@ body {
   padding: 0.4rem 1rem;
   box-sizing: border-box;
 }
+
+/* ── Environment status bar ─────────────────────────────────────── */
+.env-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.25rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.env-status-bar--dev {
+  background: var(--score-mid-bg);
+  color: var(--score-mid-text);
+  border-bottom: 1px solid var(--score-mid-border);
+}
+
+.env-status-bar--prod {
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.env-status-bar__sep {
+  color: var(--text-muted);
+}

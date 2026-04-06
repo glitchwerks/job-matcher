@@ -35,8 +35,6 @@ from job_sources import make_enabled_sources
 from providers import build_provider_chain, LLMProvider
 from credentials import CredentialError, load_providers
 
-_DB_PATH: str = os.environ.get("DB_PATH", "jobs.db")
-
 _CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
 _DEFAULT_CONFIG_PATH = os.path.join(_CONFIG_DIR, "config.json")
 _DEFAULT_PROFILE_PATH = os.path.join(_CONFIG_DIR, "profile.json")
@@ -66,8 +64,10 @@ def _configure_file_logging() -> None:
     """
     MAX_LOG_FILES = 30
 
-    db_abs  = os.path.abspath(os.environ.get("DB_PATH", "jobs.db"))
-    log_dir = os.path.join(os.path.dirname(db_abs), "logs")
+    log_dir = os.environ.get(
+        "LOG_DIR",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    )
     os.makedirs(log_dir, exist_ok=True)
 
     ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -331,12 +331,11 @@ class GeoFilter:
         geo_discarded:  Number of listings discarded by the radius check.
     """
 
-    def __init__(self, profile: dict, db_path: str) -> None:
+    def __init__(self, profile: dict) -> None:
         loc = profile.get("location", {})
         self._center_str: str | None = loc.get("center")
         self._radius_km: float | None = loc.get("radius_km")
         self._fallback: str = (loc.get("geocode_fallback") or "pass").lower()
-        self._db_path = db_path
 
         # In-memory layer over the DB geocache — avoids repeated DB hits for
         # the same location within a single run.
@@ -411,7 +410,7 @@ class GeoFilter:
             return self._mem[location_text]
 
         # 2. DB cache hit.
-        with db.get_connection(self._db_path) as conn:
+        with db.get_connection() as conn:
             db_hits = db.geocache_get_many(conn, [location_text])
         if location_text in db_hits:
             self.hits += 1
@@ -435,7 +434,7 @@ class GeoFilter:
         self.misses += 1
 
         if coords is not None:
-            with db.get_connection(self._db_path) as conn:
+            with db.get_connection() as conn:
                 db.geocache_put(conn, location_text, coords[0], coords[1])
             self._mem[location_text] = coords
         else:
@@ -928,11 +927,11 @@ def run(
     if hours is not None:
         config["search"]["max_days_old"] = math.ceil(hours / 24)
 
-    db.init_db(db_path=_DB_PATH)
+    db.init_db()
 
     # Initialise the geospatial filter.  Geocodes location.center up-front if
     # location.center and location.radius_km are both set in the profile.
-    geo = GeoFilter(profile=profile, db_path=_DB_PATH)
+    geo = GeoFilter(profile=profile)
     if geo.is_active:
         _loc = profile.get("location", {})
         logger.info(
@@ -1064,7 +1063,7 @@ def run(
                 # --- Dedup ---
                 # Open one connection and reuse it for both dedup checks to avoid
                 # two open/close round-trips per listing.
-                with db.get_connection(_DB_PATH) as _dedup_conn:
+                with db.get_connection() as _dedup_conn:
                     _is_dupe = db.listing_exists(
                         _dedup_conn, listing["source"], listing["source_id"]
                     )
@@ -1189,7 +1188,7 @@ def run(
                     listing["posted_at"] = listing.get("created_at") or None
 
                 try:
-                    db.insert_listing(listing, db_path=_DB_PATH)
+                    db.insert_listing(listing)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("DB insert failed  [%s] %s: %s", src_name, title, exc)
 
@@ -1269,7 +1268,7 @@ def rescore(
     chain = build_provider_chain(providers)
     dead_providers: set[str] = set()
 
-    listings = db.get_all_scored(db_path=_DB_PATH)
+    listings = db.get_all_scored()
     if not listings:
         logger.info("No scored listings to rescore.")
         return
@@ -1302,7 +1301,7 @@ def rescore(
         )
 
         if result is not None:
-            db.update_score(listing["source"], listing["source_id"], result, db_path=_DB_PATH)
+            db.update_score(listing["source"], listing["source_id"], result)
             rescored += 1
             tok_in = result.get("tokens_input") or 0
             tok_out = result.get("tokens_output") or 0

@@ -72,10 +72,9 @@ class TestLogPruning:
         log_dir.mkdir()
         _make_fake_logs(str(log_dir), 35)
 
-        # Point DB_PATH at tmp_path so _configure_file_logging() derives
-        # the log dir as <tmp_path>/logs — matching the directory we just
-        # created above.
-        monkeypatch.setenv("DB_PATH", str(tmp_path / "jobs.db"))
+        # Point LOG_DIR at the tmp log directory so _configure_file_logging()
+        # writes into the directory we pre-populated above.
+        monkeypatch.setenv("LOG_DIR", str(log_dir))
 
         # Track handlers added to root logger so we can clean up afterward.
         root = logging.getLogger()
@@ -108,7 +107,7 @@ class TestLogPruning:
         log_dir.mkdir()
         fake_names = _make_fake_logs(str(log_dir), 35)
 
-        monkeypatch.setenv("DB_PATH", str(tmp_path / "jobs.db"))
+        monkeypatch.setenv("LOG_DIR", str(log_dir))
 
         root = logging.getLogger()
         handlers_before = set(root.handlers)
@@ -139,7 +138,7 @@ class TestLogPruning:
         log_dir.mkdir()
         fake_names = _make_fake_logs(str(log_dir), 35)
 
-        monkeypatch.setenv("DB_PATH", str(tmp_path / "jobs.db"))
+        monkeypatch.setenv("LOG_DIR", str(log_dir))
 
         root = logging.getLogger()
         handlers_before = set(root.handlers)
@@ -169,7 +168,7 @@ class TestLogPruning:
         log_dir.mkdir()
         fake_names = _make_fake_logs(str(log_dir), 10)
 
-        monkeypatch.setenv("DB_PATH", str(tmp_path / "jobs.db"))
+        monkeypatch.setenv("LOG_DIR", str(log_dir))
 
         root = logging.getLogger()
         handlers_before = set(root.handlers)
@@ -195,7 +194,7 @@ class TestLogPruning:
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
-        monkeypatch.setenv("DB_PATH", str(tmp_path / "jobs.db"))
+        monkeypatch.setenv("LOG_DIR", str(log_dir))
 
         root = logging.getLogger()
         handlers_before = set(root.handlers)

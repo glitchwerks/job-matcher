@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sqlite3
 import sys
 
 import pytest
@@ -19,7 +18,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import app as app_module
-import db
+from db import _lookup_pricing
 from app import app as flask_app
 from credentials import save_providers
 from job_sources import SOURCES, make_enabled_sources, JobSource
@@ -389,190 +388,67 @@ class TestIssue282ConfigWarningsFalsePositive:
 
 # ===========================================================================
 # Issue #283 — get_usage_stats() applies flat Haiku pricing to all providers
+#
+# The pricing logic lives in db._lookup_pricing() (pure Python, no DB needed).
+# Tests assert the correct rates are returned for each known model.
 # ===========================================================================
 
 
-def _make_test_db(tmp_path: str, rows: list[dict]) -> str:
-    """Create a minimal test DB with given listing rows and return its path."""
-    db_path = os.path.join(tmp_path, "test_stats.db")
-    conn = sqlite3.connect(db_path)
-    conn.execute("""
-        CREATE TABLE listings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            fetched_at TEXT,
-            score REAL,
-            tokens_input INTEGER,
-            tokens_output INTEGER,
-            model_used TEXT
-        )
-    """)
-    for row in rows:
-        conn.execute(
-            "INSERT INTO listings (fetched_at, score, tokens_input, tokens_output, model_used) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (
-                row.get("fetched_at", "2026-01-01T00:00:00"),
-                row.get("score", 8.0),
-                row.get("tokens_input", 1000),
-                row.get("tokens_output", 200),
-                row.get("model_used"),
-            ),
-        )
-    conn.commit()
-    conn.close()
-    return db_path
-
-
 class TestIssue283PerModelPricing:
-    """get_usage_stats() must use per-model pricing, not flat Haiku rates."""
+    """_lookup_pricing() must use per-model pricing, not flat Haiku rates."""
 
-    def test_anthropic_haiku_uses_correct_rates(self, tmp_path):
+    def _cost(self, model_used: str, tokens_in: int, tokens_out: int) -> float | None:
+        """Compute expected cost using _lookup_pricing directly."""
+        pricing = _lookup_pricing(model_used)
+        if pricing is None:
+            return None
+        in_rate, out_rate = pricing
+        return tokens_in / 1_000_000 * in_rate + tokens_out / 1_000_000 * out_rate
+
+    def test_anthropic_haiku_uses_correct_rates(self):
         """Haiku tokens are priced at $0.80/$4.00 per million (not flat default)."""
-        db_path = _make_test_db(str(tmp_path), [
-            {
-                "fetched_at": "2026-01-01T12:00:00",
-                "score": 8.0,
-                "tokens_input": 1_000_000,
-                "tokens_output": 1_000_000,
-                "model_used": "anthropic/claude-haiku-4-5-20251001",
-            }
-        ])
-        stats = db.get_usage_stats(db_path=db_path)
-        # Haiku: $0.80/M input + $4.00/M output = $4.80
-        assert stats["estimated_cost_usd"] is not None
-        assert abs(stats["estimated_cost_usd"] - 4.80) < 0.001
+        cost = self._cost("anthropic/claude-haiku-4-5-20251001", 1_000_000, 1_000_000)
+        # $0.80/M input + $4.00/M output = $4.80
+        assert cost is not None
+        assert abs(cost - 4.80) < 0.001
 
-    def test_openai_gpt4o_mini_uses_correct_rates(self, tmp_path):
+    def test_openai_gpt4o_mini_uses_correct_rates(self):
         """gpt-4o-mini tokens are priced at $0.15/$0.60 per million."""
-        db_path = _make_test_db(str(tmp_path), [
-            {
-                "fetched_at": "2026-01-01T12:00:00",
-                "score": 7.0,
-                "tokens_input": 1_000_000,
-                "tokens_output": 1_000_000,
-                "model_used": "openai/gpt-4o-mini",
-            }
-        ])
-        stats = db.get_usage_stats(db_path=db_path)
-        # gpt-4o-mini: $0.15/M input + $0.60/M output = $0.75
-        assert stats["estimated_cost_usd"] is not None
-        assert abs(stats["estimated_cost_usd"] - 0.75) < 0.001
+        cost = self._cost("openai/gpt-4o-mini", 1_000_000, 1_000_000)
+        # $0.15/M input + $0.60/M output = $0.75
+        assert cost is not None
+        assert abs(cost - 0.75) < 0.001
 
-    def test_gemini_flash_uses_correct_rates(self, tmp_path):
+    def test_gemini_flash_uses_correct_rates(self):
         """gemini-1.5-flash tokens are priced at $0.075/$0.30 per million."""
-        db_path = _make_test_db(str(tmp_path), [
-            {
-                "fetched_at": "2026-01-01T12:00:00",
-                "score": 6.0,
-                "tokens_input": 1_000_000,
-                "tokens_output": 1_000_000,
-                "model_used": "gemini/gemini-1.5-flash",
-            }
-        ])
-        stats = db.get_usage_stats(db_path=db_path)
-        # gemini-1.5-flash: $0.075/M input + $0.30/M output = $0.375
-        assert stats["estimated_cost_usd"] is not None
-        assert abs(stats["estimated_cost_usd"] - 0.375) < 0.001
+        cost = self._cost("gemini/gemini-1.5-flash", 1_000_000, 1_000_000)
+        # $0.075/M input + $0.30/M output = $0.375
+        assert cost is not None
+        assert abs(cost - 0.375) < 0.001
 
-    def test_unknown_model_returns_none_cost(self, tmp_path):
-        """An unknown model_used value must yield None for cost, not a wrong number."""
-        db_path = _make_test_db(str(tmp_path), [
-            {
-                "fetched_at": "2026-01-01T12:00:00",
-                "score": 5.0,
-                "tokens_input": 500_000,
-                "tokens_output": 100_000,
-                "model_used": "unknown-provider/unknown-model-xyz",
-            }
-        ])
-        stats = db.get_usage_stats(db_path=db_path)
-        assert stats["estimated_cost_usd"] is None
+    def test_unknown_model_returns_none(self):
+        """An unknown model_used value must return None."""
+        assert _lookup_pricing("unknown-provider/unknown-model-xyz") is None
 
-    def test_null_model_used_returns_none_cost(self, tmp_path):
-        """NULL model_used (unscored rows) must yield None for cost."""
-        db_path = _make_test_db(str(tmp_path), [
-            {
-                "fetched_at": "2026-01-01T12:00:00",
-                "score": None,
-                "tokens_input": 0,
-                "tokens_output": 0,
-                "model_used": None,
-            }
-        ])
-        stats = db.get_usage_stats(db_path=db_path)
-        assert stats["estimated_cost_usd"] is None
+    def test_null_model_used_returns_none(self):
+        """NULL model_used must return None."""
+        assert _lookup_pricing(None) is None
 
-    def test_mixed_known_unknown_models_returns_none_cost(self, tmp_path):
-        """If any row has an unknown model, total cost is None."""
-        db_path = _make_test_db(str(tmp_path), [
-            {
-                "fetched_at": "2026-01-01T12:00:00",
-                "score": 8.0,
-                "tokens_input": 100_000,
-                "tokens_output": 20_000,
-                "model_used": "anthropic/claude-haiku-4-5-20251001",
-            },
-            {
-                "fetched_at": "2026-01-01T13:00:00",
-                "score": 7.0,
-                "tokens_input": 100_000,
-                "tokens_output": 20_000,
-                "model_used": "mystery/model-99",
-            },
-        ])
-        stats = db.get_usage_stats(db_path=db_path)
-        assert stats["estimated_cost_usd"] is None
+    def test_gemini_costs_differ_from_haiku(self):
+        """Gemini flash ($0.075/$0.30) is cheaper than Haiku ($0.80/$4.00).
 
-    def test_gemini_costs_differ_from_haiku_flat_rate(self, tmp_path):
-        """Before fix, Gemini was priced at Haiku rates ($0.80/$4.00).
-
-        After fix, Gemini flash ($0.075/$0.30) should produce a much lower cost.
-        This test would have FAILED before the fix because the old flat rate
-        would give the same (wrong) answer for both providers.
+        Before the fix, Gemini was priced at Haiku rates — costs would be equal.
         """
-        gemini_dir = tmp_path / "gemini"
-        haiku_dir = tmp_path / "haiku"
-        gemini_dir.mkdir()
-        haiku_dir.mkdir()
-        db_path_gemini = _make_test_db(str(gemini_dir), [
-            {
-                "fetched_at": "2026-01-01T12:00:00",
-                "score": 7.0,
-                "tokens_input": 1_000_000,
-                "tokens_output": 1_000_000,
-                "model_used": "gemini/gemini-1.5-flash",
-            }
-        ])
-        db_path_haiku = _make_test_db(str(haiku_dir), [
-            {
-                "fetched_at": "2026-01-01T12:00:00",
-                "score": 7.0,
-                "tokens_input": 1_000_000,
-                "tokens_output": 1_000_000,
-                "model_used": "anthropic/claude-haiku-4-5-20251001",
-            }
-        ])
-        stats_gemini = db.get_usage_stats(db_path=db_path_gemini)
-        stats_haiku = db.get_usage_stats(db_path=db_path_haiku)
+        cost_gemini = self._cost("gemini/gemini-1.5-flash", 1_000_000, 1_000_000)
+        cost_haiku = self._cost("anthropic/claude-haiku-4-5-20251001", 1_000_000, 1_000_000)
+        assert cost_gemini is not None
+        assert cost_haiku is not None
+        assert cost_gemini != cost_haiku
+        assert cost_gemini < cost_haiku
 
-        # Gemini flash is cheaper than Haiku — costs must differ.
-        assert stats_gemini["estimated_cost_usd"] != stats_haiku["estimated_cost_usd"]
-        assert stats_gemini["estimated_cost_usd"] < stats_haiku["estimated_cost_usd"]
-
-    def test_by_date_cost_is_none_for_unknown_model(self, tmp_path):
-        """per-day cost_usd must also be None when model_used is unknown."""
-        db_path = _make_test_db(str(tmp_path), [
-            {
-                "fetched_at": "2026-01-05T12:00:00",
-                "score": 7.0,
-                "tokens_input": 100_000,
-                "tokens_output": 20_000,
-                "model_used": "future-provider/new-model",
-            }
-        ])
-        stats = db.get_usage_stats(db_path=db_path)
-        assert len(stats["by_date"]) == 1
-        assert stats["by_date"][0]["cost_usd"] is None
+    def test_lookup_pricing_unknown_provider_returns_none(self):
+        """A future-provider/new-model string must return None."""
+        assert _lookup_pricing("future-provider/new-model") is None
 
 
 # ===========================================================================

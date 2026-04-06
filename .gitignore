@@ -18,10 +18,19 @@ __pycache__/
 *.pyo
 *.egg-info/
 
-# Virtual environments
+# Virtual environments / env files
 .env
+/.env
+.env.dev
+.env.prod
 .venv/
 venv/
+
+# Docker
+docker-compose.override.yml
+
+# Database backups
+backups/
 
 # Build artifacts
 dist/

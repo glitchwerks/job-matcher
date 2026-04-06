@@ -31,6 +31,20 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: jobmatcher
+          POSTGRES_PASSWORD: jobmatcher
+          POSTGRES_DB: jobmatcher
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -49,4 +63,6 @@ jobs:
         run: uv pip install -r requirements.txt -r requirements-dev.txt --system
 
       - name: Run tests
+        env:
+          DATABASE_URL: postgresql://jobmatcher:jobmatcher@localhost:5432/jobmatcher
         run: pytest
