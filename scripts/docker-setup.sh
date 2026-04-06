@@ -34,7 +34,8 @@ fi
 
 echo "==> Setting up directories..."
 mkdir -p "$PROJECT_DIR/config"
-# uid 1000 = appuser inside container — required for Settings UI to write providers.json
+# uid 1000 = appuser defined in the Dockerfile — required so the web container
+# can write to config/ (the /settings UI saves providers.json at runtime).
 chown -R 1000:1000 "$PROJECT_DIR/config"
 echo "    config/ owned by uid 1000"
 

@@ -56,5 +56,5 @@ jobs:
             cd /opt/job-matcher-pr || exit 1
             docker compose pull || exit 1
             docker compose up -d --remove-orphans || exit 1
-            docker compose ps | grep -q "Up" || { echo "ERROR: Stack did not come up cleanly" >&2; exit 1; }
+            docker compose ps --status running --services | grep -q "web" || { echo "ERROR: Web service not running" >&2; exit 1; }
             docker image prune -f --filter "label=com.docker.compose.project=job-matcher-pr"

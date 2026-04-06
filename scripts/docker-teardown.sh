@@ -35,4 +35,4 @@ fi
 
 echo ""
 echo "Done. Config files in $PROJECT_DIR/config/ were not deleted."
-echo "To fully remove images: docker rmi ghcr.io/cbeaulieu-gt/job-matcher-pr:latest"
+echo "To fully remove images: docker rmi \$(docker images --format '{{.Repository}}:{{.Tag}}' | grep 'job-matcher-pr')"
