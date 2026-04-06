@@ -250,14 +250,14 @@ if [[ "${RUN_SETUP}" =~ ^[Yy]$ ]]; then
     step "Launching docker-setup.sh on ${REMOTE_HOST} via interactive SSH..."
     echo ""
     # -t allocates a pseudo-TTY so that interactive prompts (read -p) work.
-    ssh -t "${SSH_TARGET}" "cd '${REMOTE_PATH}' && sudo ./scripts/docker-setup.sh"
+    ssh -t "${SSH_TARGET}" "cd '${REMOTE_PATH}' && sudo bash scripts/docker-setup.sh"
     ok "docker-setup.sh completed."
 else
     echo -e "${CYAN}Skipped. To run docker-setup.sh manually, SSH into the server and run:${RESET}"
     echo ""
     echo "    ssh ${SSH_TARGET}"
     echo "    cd ${REMOTE_PATH}"
-    echo "    sudo ./scripts/docker-setup.sh"
+    echo "    sudo bash scripts/docker-setup.sh"
     echo ""
     echo "  docker-setup.sh will:"
     echo "    - Create .env.prod and .env.dev from the example files (with prompts)"
@@ -287,7 +287,7 @@ if [[ ! "${RUN_SETUP}" =~ ^[Yy]$ ]]; then
     echo -e "${CYAN}Complete setup manually:${RESET}"
     echo "  ssh ${SSH_TARGET}"
     echo "  cd ${REMOTE_PATH}"
-    echo "  sudo ./scripts/docker-setup.sh"
+    echo "  sudo bash scripts/docker-setup.sh"
     echo ""
 fi
 
