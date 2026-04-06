@@ -3,10 +3,10 @@
   <text
     x="16"
     y="23"
-    font-family="ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace"
+    font-family="Menlo, Consolas, 'Cascadia Code', 'Courier New', monospace"
     font-size="14"
     font-weight="700"
-    fill="#4ade80"
+    fill="#4df590"
     text-anchor="middle"
     letter-spacing="-0.5"
   >JM</text>
