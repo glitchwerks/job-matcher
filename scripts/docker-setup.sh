@@ -15,6 +15,10 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
+# If this script fails partway through, it is safe to re-run — all steps check
+# whether the target file/directory already exists before acting, and will skip
+# anything already configured.
+
 echo "==> Checking Docker..."
 if ! command -v docker &>/dev/null; then
   echo "ERROR: Docker is not installed. Install Docker Engine first." >&2
@@ -34,40 +38,94 @@ fi
 
 echo "==> Setting up directories..."
 mkdir -p "$PROJECT_DIR/config"
+mkdir -p "$PROJECT_DIR/config-dev"
+mkdir -p "$PROJECT_DIR/logs"
+mkdir -p "$PROJECT_DIR/logs-dev"
 # uid 1000 = appuser defined in the Dockerfile — required so the web container
 # can write to config/ (the /settings UI saves providers.json at runtime).
 chown -R 1000:1000 "$PROJECT_DIR/config"
-echo "    config/ owned by uid 1000"
+chown -R 1000:1000 "$PROJECT_DIR/config-dev"
+echo "    config/ and config-dev/ owned by uid 1000"
 
-echo "==> Creating .env from .env.example..."
-if [[ ! -f "$PROJECT_DIR/.env" ]]; then
-  cp "$PROJECT_DIR/.env.example" "$PROJECT_DIR/.env"
-  echo "    Created .env — IMPORTANT: edit it and set a strong POSTGRES_PASSWORD before continuing"
+# ---------------------------------------------------------------------------
+# .env.dev
+# ---------------------------------------------------------------------------
+echo "==> Creating .env.dev from .env.dev.example..."
+if [[ ! -f "$PROJECT_DIR/.env.dev" ]]; then
+  cp "$PROJECT_DIR/.env.dev.example" "$PROJECT_DIR/.env.dev"
+  echo "    Created .env.dev — IMPORTANT: edit it and set a strong POSTGRES_PASSWORD before continuing"
   echo ""
-  echo "    nano $PROJECT_DIR/.env"
+  echo "    nano $PROJECT_DIR/.env.dev"
   echo ""
-  read -r -p "Press Enter when .env is configured, or Ctrl+C to abort..."
-  if grep -q "your-strong-password-here\|changeme" "$PROJECT_DIR/.env" 2>/dev/null; then
-    echo "ERROR: POSTGRES_PASSWORD in .env still contains the example value. Set a real password first." >&2
+  read -r -p "Press Enter when .env.dev is configured, or Ctrl+C to abort..."
+  if grep -q "your-strong-password-here\|changeme" "$PROJECT_DIR/.env.dev" 2>/dev/null; then
+    echo "ERROR: POSTGRES_PASSWORD in .env.dev still contains the example value. Set a real password first." >&2
+    exit 1
+  fi
+  PW=$(grep '^POSTGRES_PASSWORD=' "$PROJECT_DIR/.env.dev" | cut -d= -f2)
+  if [[ ${#PW} -lt 12 ]]; then
+    echo "ERROR: POSTGRES_PASSWORD in .env.dev must be at least 12 characters." >&2
     exit 1
   fi
 else
-  echo "    .env already exists, skipping"
+  echo "    .env.dev already exists, skipping"
 fi
 
+# ---------------------------------------------------------------------------
+# .env.prod
+# ---------------------------------------------------------------------------
+echo "==> Creating .env.prod from .env.prod.example..."
+if [[ ! -f "$PROJECT_DIR/.env.prod" ]]; then
+  cp "$PROJECT_DIR/.env.prod.example" "$PROJECT_DIR/.env.prod"
+  echo "    Created .env.prod — IMPORTANT: edit it and set a strong POSTGRES_PASSWORD before continuing"
+  echo ""
+  echo "    nano $PROJECT_DIR/.env.prod"
+  echo ""
+  read -r -p "Press Enter when .env.prod is configured, or Ctrl+C to abort..."
+  if grep -q "your-strong-password-here\|changeme" "$PROJECT_DIR/.env.prod" 2>/dev/null; then
+    echo "ERROR: POSTGRES_PASSWORD in .env.prod still contains the example value. Set a real password first." >&2
+    exit 1
+  fi
+  PW=$(grep '^POSTGRES_PASSWORD=' "$PROJECT_DIR/.env.prod" | cut -d= -f2)
+  if [[ ${#PW} -lt 12 ]]; then
+    echo "ERROR: POSTGRES_PASSWORD in .env.prod must be at least 12 characters." >&2
+    exit 1
+  fi
+else
+  echo "    .env.prod already exists, skipping"
+fi
+
+# ---------------------------------------------------------------------------
+# Config files — copy examples into both config/ and config-dev/
+# ---------------------------------------------------------------------------
 echo "==> Copying example config files..."
+shopt -s nullglob
 for example in "$PROJECT_DIR/config/"*.example.json; do
-  target="${example%.example.json}.json"
-  target_name="$(basename "$target")"
-  if [[ ! -f "$target" ]]; then
-    cp "$example" "$target"
-    chown 1000:1000 "$target"
-    echo "    Created config/$target_name"
+  base="$(basename "${example%.example.json}.json")"
+
+  target_prod="$PROJECT_DIR/config/$base"
+  if [[ ! -f "$target_prod" ]]; then
+    cp "$example" "$target_prod"
+    chown 1000:1000 "$target_prod"
+    echo "    Created config/$base"
   else
-    echo "    config/$target_name already exists, skipping"
+    echo "    config/$base already exists, skipping"
+  fi
+
+  target_dev="$PROJECT_DIR/config-dev/$base"
+  if [[ ! -f "$target_dev" ]]; then
+    cp "$example" "$target_dev"
+    chown 1000:1000 "$target_dev"
+    echo "    Created config-dev/$base"
+  else
+    echo "    config-dev/$base already exists, skipping"
   fi
 done
+shopt -u nullglob
 
+# ---------------------------------------------------------------------------
+# GHCR login
+# ---------------------------------------------------------------------------
 echo "==> Logging in to GitHub Container Registry..."
 if [[ -n "${GHCR_TOKEN:-}" && -n "${GHCR_USERNAME:-}" ]]; then
   echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
@@ -77,19 +135,32 @@ else
   docker login ghcr.io
 fi
 
-echo "==> Pulling images..."
-docker compose -f "$PROJECT_DIR/docker-compose.yml" pull
+# ---------------------------------------------------------------------------
+# Pull and start both stacks
+# ---------------------------------------------------------------------------
+echo "==> Pulling dev stack images..."
+docker compose -f "$PROJECT_DIR/docker-compose.dev.yml" pull
 
-echo "==> Starting stack..."
-docker compose -f "$PROJECT_DIR/docker-compose.yml" up -d
+echo "==> Starting dev stack (port 5000)..."
+docker compose -f "$PROJECT_DIR/docker-compose.dev.yml" up -d
+
+echo "==> Pulling prod stack images..."
+docker compose -f "$PROJECT_DIR/docker-compose.prod.yml" pull
+
+echo "==> Starting prod stack (port 5001)..."
+docker compose -f "$PROJECT_DIR/docker-compose.prod.yml" up -d
 
 echo ""
-echo "✓ Stack is running!"
+echo "Both stacks are running!"
 echo ""
 echo "Next steps:"
-echo "  1. Open http://<this-vm-ip>:5000/settings to configure API keys"
-echo "  2. Run your first ingest: docker compose exec web python ingest.py --hours 48"
-echo "  3. Check status: ./scripts/docker-status.sh"
+echo "  Dev  (port 5000): http://<this-vm-ip>:5000/settings — configure dev API keys"
+echo "  Prod (port 5001): http://<this-vm-ip>:5001/settings — configure prod API keys"
+echo ""
+echo "  Run your first dev ingest:"
+echo "    docker compose -f docker-compose.dev.yml exec web python ingest.py --hours 48"
+echo ""
+echo "  Check status: ./scripts/docker-status.sh"
 echo ""
 echo "==> Setting up scheduled ingest (host cron)..."
 chmod +x "$PROJECT_DIR/scripts/ingest-cron.sh"

@@ -5,12 +5,16 @@ These tests exercise the full orchestrator end-to-end without making any HTTP
 requests, LLM API calls, or reading real config files from disk.  They use:
 
   - A minimal ``JobSource`` subclass that yields a fixed fixture dataset.
-  - A real temp SQLite database via pytest's ``tmp_path`` fixture.
+  - The shared PostgreSQL database (DATABASE_URL required).
   - Patched ``scrape_description`` and ``score_listing_with_fallback`` at the
     ``ingest`` module level so no network or LLM calls are made.
   - Temp JSON files for config, profile, and providers so ``load_config()``,
     ``load_profile()``, and ``credentials.load_providers()`` succeed without
     touching the real project files.
+
+Each test class cleans up its rows (source = 'mock' or 'jooble' with
+source_id LIKE 'mock-%' / 'jooble-%') in teardown_method so the shared DB
+remains tidy across test runs.
 
 The summary line printed by ``run()`` is validated against the same regex
 that ``app.py``'s ``_INGEST_SUMMARY_RE`` uses, ensuring the two stay in sync.
@@ -199,6 +203,29 @@ def _fixed_score_result() -> dict:
     }
 
 
+def _cleanup(*source_id_prefixes: str) -> None:
+    """Delete all listings whose source_id starts with any of the given prefixes."""
+    with db.get_connection() as conn:
+        for prefix in source_id_prefixes:
+            conn.execute(
+                "DELETE FROM listings WHERE source_id LIKE %s",
+                (prefix + "%",),
+            )
+
+
+def _count_by_prefix(*prefixes: str) -> int:
+    """Return row count for listings matching any of the given source_id prefixes."""
+    with db.get_connection() as conn:
+        total = 0
+        for prefix in prefixes:
+            row = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM listings WHERE source_id LIKE %s",
+                (prefix + "%",),
+            ).fetchone()
+            total += row["cnt"]
+    return total
+
+
 # ---------------------------------------------------------------------------
 # Integration tests
 # ---------------------------------------------------------------------------
@@ -206,14 +233,17 @@ def _fixed_score_result() -> dict:
 class TestIngestRunHappyPath:
     """Both listings score successfully and are persisted to the DB."""
 
+    def setup_method(self):
+        _cleanup("mock-")
+
+    def teardown_method(self):
+        _cleanup("mock-")
+
     def test_inserted_row_count(self, tmp_path, capsys):
         """run() with two fixture listings inserts exactly two rows."""
-        db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
         keys_path = _make_temp_keys(tmp_path)
-
-        db.init_db(db_path=db_path)
 
         mock_source = MockJobSource()
 
@@ -221,7 +251,6 @@ class TestIngestRunHappyPath:
             patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
-            patch.object(ingest, "_DB_PATH", db_path),
         ):
             ingest.run(
                 config_path=config_path,
@@ -229,22 +258,14 @@ class TestIngestRunHappyPath:
                 keys_path=keys_path,
             )
 
-        conn = db.get_connection(db_path)
-        try:
-            count = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
-        finally:
-            conn.close()
-
+        count = _count_by_prefix("mock-")
         assert count == 2, f"Expected 2 rows but got {count}"
 
     def test_get_feed_returns_inserted_listings(self, tmp_path, capsys):
         """db.get_feed() returns the two listings after run() completes."""
-        db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
         keys_path = _make_temp_keys(tmp_path)
-
-        db.init_db(db_path=db_path)
 
         mock_source = MockJobSource()
 
@@ -252,7 +273,6 @@ class TestIngestRunHappyPath:
             patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
-            patch.object(ingest, "_DB_PATH", db_path),
         ):
             ingest.run(
                 config_path=config_path,
@@ -261,21 +281,22 @@ class TestIngestRunHappyPath:
             )
 
         # get_feed() uses threshold=6.0; our score is 8 so both should appear.
-        feed = db.get_feed(threshold=6.0, db_path=db_path)
-        assert len(feed) == 2
+        # Filter to only our test rows to avoid interference from other test data.
+        with db.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT title FROM listings WHERE source_id LIKE %s AND score >= %s",
+                ("mock-%", 6.0),
+            ).fetchall()
 
-        titles = {row["title"] for row in feed}
+        titles = {row["title"] for row in rows}
         assert "Senior Python Engineer" in titles
         assert "Backend Developer" in titles
 
     def test_summary_line_matches_app_regex(self, tmp_path, caplog):
         """The logged summary line matches ``app._INGEST_SUMMARY_RE``."""
-        db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
         keys_path = _make_temp_keys(tmp_path)
-
-        db.init_db(db_path=db_path)
 
         mock_source = MockJobSource()
 
@@ -283,7 +304,6 @@ class TestIngestRunHappyPath:
             patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
-            patch.object(ingest, "_DB_PATH", db_path),
             caplog.at_level(logging.INFO, logger="ingest"),
         ):
             ingest.run(
@@ -310,12 +330,9 @@ class TestIngestRunHappyPath:
 
     def test_listings_stored_with_correct_fields(self, tmp_path):
         """Persisted listings have the expected source, score, and seen flag."""
-        db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
         keys_path = _make_temp_keys(tmp_path)
-
-        db.init_db(db_path=db_path)
 
         mock_source = MockJobSource()
 
@@ -323,7 +340,6 @@ class TestIngestRunHappyPath:
             patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
-            patch.object(ingest, "_DB_PATH", db_path),
         ):
             ingest.run(
                 config_path=config_path,
@@ -331,13 +347,12 @@ class TestIngestRunHappyPath:
                 keys_path=keys_path,
             )
 
-        conn = db.get_connection(db_path)
-        try:
+        with db.get_connection() as conn:
             rows = conn.execute(
-                "SELECT source, source_id, score, seen FROM listings ORDER BY source_id"
+                "SELECT source, source_id, score, seen FROM listings "
+                "WHERE source_id LIKE %s ORDER BY source_id",
+                ("mock-%",),
             ).fetchall()
-        finally:
-            conn.close()
 
         assert len(rows) == 2
 
@@ -350,14 +365,17 @@ class TestIngestRunHappyPath:
 class TestIngestRunScoringFailure:
     """Listings that fail scoring are inserted as unseen (seen=0), not dropped."""
 
+    def setup_method(self):
+        _cleanup("mock-")
+
+    def teardown_method(self):
+        _cleanup("mock-")
+
     def test_score_failure_listing_is_inserted_unseen(self, tmp_path, capsys):
         """When score_listing_with_fallback returns None, the listing is stored with seen=0."""
-        db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
         keys_path = _make_temp_keys(tmp_path)
-
-        db.init_db(db_path=db_path)
 
         # Single listing source.
         mock_source = MockJobSource(listings=[_LISTING_1])
@@ -366,7 +384,6 @@ class TestIngestRunScoringFailure:
             patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=None),
-            patch.object(ingest, "_DB_PATH", db_path),
         ):
             ingest.run(
                 config_path=config_path,
@@ -374,13 +391,11 @@ class TestIngestRunScoringFailure:
                 keys_path=keys_path,
             )
 
-        conn = db.get_connection(db_path)
-        try:
+        with db.get_connection() as conn:
             rows = conn.execute(
-                "SELECT source_id, score, seen FROM listings"
+                "SELECT source_id, score, seen FROM listings WHERE source_id LIKE %s",
+                ("mock-%",),
             ).fetchall()
-        finally:
-            conn.close()
 
         # The listing must be stored even on score failure.
         assert len(rows) == 1, "Score-failed listing should still be inserted"
@@ -391,12 +406,9 @@ class TestIngestRunScoringFailure:
 
     def test_score_failure_not_in_feed(self, tmp_path):
         """A listing with NULL score does not appear in get_feed() (score >= threshold)."""
-        db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
         keys_path = _make_temp_keys(tmp_path)
-
-        db.init_db(db_path=db_path)
 
         mock_source = MockJobSource(listings=[_LISTING_1])
 
@@ -404,7 +416,6 @@ class TestIngestRunScoringFailure:
             patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=None),
-            patch.object(ingest, "_DB_PATH", db_path),
         ):
             ingest.run(
                 config_path=config_path,
@@ -412,17 +423,18 @@ class TestIngestRunScoringFailure:
                 keys_path=keys_path,
             )
 
-        feed = db.get_feed(threshold=6.0, db_path=db_path)
-        assert feed == [], "Score-failed listing must not appear in the feed"
+        with db.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT source_id FROM listings WHERE source_id LIKE %s AND score >= %s",
+                ("mock-%", 6.0),
+            ).fetchall()
+        assert rows == [], "Score-failed listing must not appear in the feed"
 
     def test_score_failure_summary_reports_one_failed(self, tmp_path, caplog):
         """The summary line records score_failed=1 when one listing fails scoring."""
-        db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
         keys_path = _make_temp_keys(tmp_path)
-
-        db.init_db(db_path=db_path)
 
         mock_source = MockJobSource(listings=[_LISTING_1])
 
@@ -430,7 +442,6 @@ class TestIngestRunScoringFailure:
             patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=None),
-            patch.object(ingest, "_DB_PATH", db_path),
             caplog.at_level(logging.INFO, logger="ingest"),
         ):
             ingest.run(
@@ -454,14 +465,17 @@ class TestIngestRunScoringFailure:
 class TestIngestRunDedup:
     """Listings already in the DB are skipped (dedup check)."""
 
+    def setup_method(self):
+        _cleanup("mock-")
+
+    def teardown_method(self):
+        _cleanup("mock-")
+
     def test_duplicate_listing_not_inserted_twice(self, tmp_path, capsys):
         """Running run() twice with the same listings results in only 2 DB rows."""
-        db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
         keys_path = _make_temp_keys(tmp_path)
-
-        db.init_db(db_path=db_path)
 
         # side_effect receives (providers_data, config) — return a list.
         def _make_mock_sources(_providers_data=None, _config=None):
@@ -471,27 +485,18 @@ class TestIngestRunDedup:
             patch("ingest.make_enabled_sources", side_effect=_make_mock_sources),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
-            patch.object(ingest, "_DB_PATH", db_path),
         ):
             ingest.run(config_path=config_path, profile_path=profile_path, keys_path=keys_path)
             ingest.run(config_path=config_path, profile_path=profile_path, keys_path=keys_path)
 
-        conn = db.get_connection(db_path)
-        try:
-            count = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
-        finally:
-            conn.close()
-
+        count = _count_by_prefix("mock-")
         assert count == 2, f"Expected 2 rows (no dupes), got {count}"
 
     def test_duplicate_reflected_in_summary(self, tmp_path, caplog):
         """Second run reports 2 dupes skipped in its summary line."""
-        db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
         keys_path = _make_temp_keys(tmp_path)
-
-        db.init_db(db_path=db_path)
 
         _dupe_summary_re = re.compile(
             r"Run complete:\s*\d+\s*source\(s\)\s*\|"
@@ -508,7 +513,6 @@ class TestIngestRunDedup:
             patch("ingest.make_enabled_sources", side_effect=_make_mock_sources),
             patch("ingest.scrape_description", return_value=("Full job description text here.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
-            patch.object(ingest, "_DB_PATH", db_path),
             caplog.at_level(logging.INFO, logger="ingest"),
         ):
             ingest.run(config_path=config_path, profile_path=profile_path, keys_path=keys_path)
@@ -531,14 +535,17 @@ class TestIngestRunDedup:
 class TestIngestRunSkipScrape:
     """Listings with skip_scrape=True bypass scrape_description()."""
 
+    def setup_method(self):
+        _cleanup("mock-", "jooble-")
+
+    def teardown_method(self):
+        _cleanup("mock-", "jooble-")
+
     def test_skip_scrape_listing_not_scraped(self, tmp_path):
         """scrape_description is never called when a listing sets skip_scrape=True."""
-        db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
         keys_path = _make_temp_keys(tmp_path)
-
-        db.init_db(db_path=db_path)
 
         skip_listing = {
             **_LISTING_1,
@@ -554,7 +561,6 @@ class TestIngestRunSkipScrape:
             patch("ingest.make_enabled_sources", return_value=[mock_source]),
             scrape_mock as mock_scrape,
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
-            patch.object(ingest, "_DB_PATH", db_path),
         ):
             ingest.run(
                 config_path=config_path,
@@ -566,12 +572,9 @@ class TestIngestRunSkipScrape:
 
     def test_skip_scrape_listing_is_inserted(self, tmp_path):
         """A listing with skip_scrape=True is still scored and inserted into the DB."""
-        db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
         keys_path = _make_temp_keys(tmp_path)
-
-        db.init_db(db_path=db_path)
 
         skip_listing = {
             **_LISTING_1,
@@ -586,7 +589,6 @@ class TestIngestRunSkipScrape:
             patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Should not be called.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
-            patch.object(ingest, "_DB_PATH", db_path),
         ):
             ingest.run(
                 config_path=config_path,
@@ -594,22 +596,14 @@ class TestIngestRunSkipScrape:
                 keys_path=keys_path,
             )
 
-        conn = db.get_connection(db_path)
-        try:
-            count = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
-        finally:
-            conn.close()
-
+        count = _count_by_prefix("jooble-")
         assert count == 1, f"Expected 1 inserted row, got {count}"
 
     def test_skip_scrape_logs_scrape_skip(self, tmp_path, caplog):
         """A listing with skip_scrape=True logs 'SCRAPE SKIP' instead of 'SCRAPE FALLBACK'."""
-        db_path = str(tmp_path / "jobs.db")
         config_path = _make_temp_config(tmp_path)
         profile_path = _make_temp_profile(tmp_path)
         keys_path = _make_temp_keys(tmp_path)
-
-        db.init_db(db_path=db_path)
 
         skip_listing = {
             **_LISTING_1,
@@ -624,7 +618,6 @@ class TestIngestRunSkipScrape:
             patch("ingest.make_enabled_sources", return_value=[mock_source]),
             patch("ingest.scrape_description", return_value=("Should not be called.", True)),
             patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
-            patch.object(ingest, "_DB_PATH", db_path),
             caplog.at_level(logging.INFO, logger="ingest"),
         ):
             ingest.run(

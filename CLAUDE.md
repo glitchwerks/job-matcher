@@ -22,17 +22,17 @@ python app.py
 
 # Run tests (requires PostgreSQL — set DATABASE_URL before running)
 # Option A: use the docker-compose dev database
-
 # PowerShell
 #   $env:DATABASE_URL = "postgresql://jobmatcher:<password>@localhost:5432/jobmatcher"; pytest
 # Bash/zsh
 #   export DATABASE_URL="postgresql://jobmatcher:<password>@localhost:5432/jobmatcher" && pytest
 # (<password> is in .env.dev or docker-compose.dev.yml)
-
 # Option B: DATABASE_URL already exported in your shell
 pytest
 pytest tests/test_prefilter.py     # Single file
 pytest -k "test_title_include"     # By name pattern
+# NOTE: test isolation uses TRUNCATE on a shared PostgreSQL instance, not isolated
+# SQLite files. Always run tests against a throwaway/dev database — never production.
 ```
 
 ## Architecture
@@ -78,7 +78,15 @@ Results include a `model_used` field stored as `"provider/model"` per listing. S
 
 ## Deployment
 
-**Windows native (active deployment path):**
+**Docker (active deployment path):**
+- Dev stack (port 5000): `docker compose -f docker-compose.dev.yml up -d`
+- Prod stack (port 5001): `docker compose -f docker-compose.prod.yml up -d`
+- Credentials: copy `.env.dev.example` → `.env.dev` and `.env.prod.example` → `.env.prod`
+- Config/logs: dev uses `./config-dev` and `./logs-dev`; prod uses `./config` and `./logs`
+- `scripts/docker-setup.sh` — one-time VM provisioning
+- `scripts/docker-status.sh` / `scripts/docker-teardown.sh` — ops helpers
+
+**Windows native (legacy):**
 - `scripts/setup.ps1` — Registers waitress as an NSSM Windows service and creates a Task Scheduler job for daily ingest.
 - `scripts/status.ps1` / `scripts/teardown.ps1` — Ops helpers.
 

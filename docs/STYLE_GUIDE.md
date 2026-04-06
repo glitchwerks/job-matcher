@@ -191,6 +191,31 @@ A full-width sticky bar rendered immediately after `<body>` and before `.page-wr
 |---|---|---|
 | `.demo-banner` | `<div>` | `position: sticky; top: 0; z-index: 100`; bg `--bg-raised`; text `--text-accent`; border-bottom `--btn-amber-border`; `--font-mono` 0.75rem uppercase, letter-spaced; centered |
 
+### Environment Status Bar
+
+A full-width bar rendered immediately after `<body>` (before the demo banner when both are present) via `{% include '_status_bar.html' %}`. **Only visible when `APP_ENV != 'local'`** — absent during local development entirely (the Jinja `{% if %}` block renders nothing).
+
+The bar displays the active environment name and the short git SHA (`APP_VERSION`), giving a persistent at-a-glance reminder of which stack is being viewed.
+
+**Variants:**
+
+| Class | Environment | Tokens | Notes |
+|---|---|---|---|
+| `.env-status-bar--dev` | `APP_ENV=dev` | `--score-mid-bg` / `--score-mid-text` / `--score-mid-border` | Amber — signals a non-production deployment |
+| `.env-status-bar--prod` | `APP_ENV=prod` | `--bg-surface` / `--text-muted` / `--border-subtle` | Neutral — production is the default, no alarm color needed |
+
+**Child elements:**
+
+| Class | Notes |
+|---|---|
+| `.env-status-bar__env` | The environment label (`dev` or `prod`), uppercase via CSS |
+| `.env-status-bar__sep` | Middle-dot separator (`·`); `--text-muted` regardless of variant |
+| `.env-status-bar__sha` | The `APP_VERSION` value (short SHA injected by the deploy workflow); uppercase via CSS |
+
+**Base styles (shared by both variants):** `display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.25rem 1rem; font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.04em; text-transform: uppercase`.
+
+**When `APP_ENV` is injected:** `app.py` sets `app.jinja_env.globals['APP_ENV']` from the `APP_ENV` environment variable, defaulting to `'local'`. The compose files set `APP_ENV=dev` / `APP_ENV=prod` respectively. Local runs without Docker receive no env var and therefore see no bar.
+
 ### Navigation
 
 | Class | Element | Notes |

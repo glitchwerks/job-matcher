@@ -10,15 +10,14 @@ Tests cover:
 - Filter is skipped when location_radius_km is absent
 - Center not geocodable → filter skipped (fail-open)
 - geo_filter() module-level helper API
-- GeoFilter class with in-memory geocache
+- GeoFilter class with PostgreSQL geocache
 
-All tests use the module-level geo_filter() helper (no DB, no network).
-GeoFilter integration tests use a temporary SQLite DB.
+All tests use the module-level geo_filter() helper (no network calls).
+GeoFilter integration tests use the PostgreSQL geocache (requires DATABASE_URL).
 """
 
 import os
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -257,82 +256,82 @@ def test_geo_filter_center_not_in_geocache_skips_filter():
 
 
 # ---------------------------------------------------------------------------
-# GeoFilter class — with a real temporary SQLite DB
+# GeoFilter class — integration tests using PostgreSQL geocache
 # ---------------------------------------------------------------------------
 
-def _make_temp_db() -> str:
-    """Create a temporary jobs.db for testing and return its path."""
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    db.init_db(db_path=path)
-    return path
-
-
-def _prepopulate_geocache(db_path: str, entries: dict[str, tuple]) -> None:
-    """Insert geocache entries directly into the DB for test setup."""
-    conn = db.get_connection(db_path)
-    try:
+def _prepopulate_geocache(entries: dict[str, tuple]) -> None:
+    """Insert geocache entries into the PostgreSQL geocache for test setup."""
+    with db.get_connection() as conn:
         for loc, (lat, lon) in entries.items():
             db.geocache_put(conn, loc, lat, lon)
-    finally:
-        conn.close()
+
+
+def _cleanup_geocache(*location_texts: str) -> None:
+    """Remove geocache entries by location_text after a test."""
+    with db.get_connection() as conn:
+        for loc in location_texts:
+            conn.execute(
+                "DELETE FROM location_geocache WHERE location_text = %s", (loc,)
+            )
 
 
 class TestGeoFilterClass:
-    """Integration tests for GeoFilter using an in-process SQLite DB."""
+    """Integration tests for GeoFilter using the PostgreSQL geocache.
+
+    Each test cleans up its geocache entries in teardown_method.
+    """
+
+    def teardown_method(self):
+        _cleanup_geocache(
+            "Miami, FL", "Fort Lauderdale, FL", "Orlando, FL",
+            "Nonexistent Place, ZZ",
+        )
 
     def test_inactive_when_no_center(self):
-        path = _make_temp_db()
-        gf = GeoFilter(profile={"location": {"radius_km": 80}}, db_path=path)
+        gf = GeoFilter(profile={"location": {"radius_km": 80}})
         assert gf.is_active is False
 
     def test_inactive_when_no_radius(self):
-        path = _make_temp_db()
-        gf = GeoFilter(profile={"location": {"center": "Miami, FL"}}, db_path=path)
+        gf = GeoFilter(profile={"location": {"center": "Miami, FL"}})
         assert gf.is_active is False
 
     def test_check_returns_none_when_inactive(self):
-        path = _make_temp_db()
-        gf = GeoFilter(profile={}, db_path=path)
+        gf = GeoFilter(profile={})
         listing = _listing("Orlando, FL")
         assert gf.check(listing) is None
 
     def test_remote_listing_passes_when_active(self):
-        path = _make_temp_db()
-        _prepopulate_geocache(path, {"Miami, FL": _MIAMI})
-        gf = GeoFilter(profile=_BASE_PROFILE, db_path=path)
+        _prepopulate_geocache({"Miami, FL": _MIAMI})
+        gf = GeoFilter(profile=_BASE_PROFILE)
         assert gf.check(_listing("Remote")) is None
 
     def test_within_radius_from_db_cache(self):
         """Listing within radius passes when coords come from the DB geocache."""
-        path = _make_temp_db()
-        _prepopulate_geocache(path, {
+        _prepopulate_geocache({
             "Miami, FL": _MIAMI,
             "Fort Lauderdale, FL": _FORT_LAUDERDALE,
         })
-        gf = GeoFilter(profile=_BASE_PROFILE, db_path=path)
+        gf = GeoFilter(profile=_BASE_PROFILE)
         assert gf.check(_listing("Fort Lauderdale, FL")) is None
 
     def test_outside_radius_from_db_cache(self):
         """Listing outside radius is rejected when coords come from the DB geocache."""
-        path = _make_temp_db()
-        _prepopulate_geocache(path, {
+        _prepopulate_geocache({
             "Miami, FL": _MIAMI,
             "Orlando, FL": _ORLANDO,
         })
-        gf = GeoFilter(profile=_BASE_PROFILE, db_path=path)
+        gf = GeoFilter(profile=_BASE_PROFILE)
         result = gf.check(_listing("Orlando, FL"))
         assert result is not None
         assert "geo_filter" in result
 
     def test_geocache_hit_counter(self):
         """DB cache hits are counted in gf.hits."""
-        path = _make_temp_db()
-        _prepopulate_geocache(path, {
+        _prepopulate_geocache({
             "Miami, FL": _MIAMI,
             "Fort Lauderdale, FL": _FORT_LAUDERDALE,
         })
-        gf = GeoFilter(profile=_BASE_PROFILE, db_path=path)
+        gf = GeoFilter(profile=_BASE_PROFILE)
         # The center "Miami, FL" was resolved during __init__ via DB cache.
         # Now check a listing whose location is also in the DB cache.
         gf.check(_listing("Fort Lauderdale, FL"))
@@ -340,41 +339,37 @@ class TestGeoFilterClass:
 
     def test_ungeocoded_fallback_discard_via_class(self):
         """GeoFilter.check() respects geocode_fallback=discard for unresolvable locations."""
-        path = _make_temp_db()
-        _prepopulate_geocache(path, {"Miami, FL": _MIAMI})
+        _prepopulate_geocache({"Miami, FL": _MIAMI})
         profile = {"location": {**_BASE_PROFILE["location"], "geocode_fallback": "discard"}}
-        gf = GeoFilter(profile=profile, db_path=path)
+        gf = GeoFilter(profile=profile)
         result = gf.check(_listing("Nonexistent Place, ZZ"))
         assert result is not None
         assert "could not be geocoded" in result
 
     def test_ungeocoded_fallback_pass_via_class(self):
         """GeoFilter.check() lets unresolvable locations through when geocode_fallback=pass."""
-        path = _make_temp_db()
-        _prepopulate_geocache(path, {"Miami, FL": _MIAMI})
+        _prepopulate_geocache({"Miami, FL": _MIAMI})
         profile = {"location": {**_BASE_PROFILE["location"], "geocode_fallback": "pass"}}
-        gf = GeoFilter(profile=profile, db_path=path)
+        gf = GeoFilter(profile=profile)
         assert gf.check(_listing("Nonexistent Place, ZZ")) is None
 
     def test_geo_discarded_counter_increments(self):
         """geo_discarded counter increments when a listing is rejected by radius."""
-        path = _make_temp_db()
-        _prepopulate_geocache(path, {
+        _prepopulate_geocache({
             "Miami, FL": _MIAMI,
             "Orlando, FL": _ORLANDO,
         })
-        gf = GeoFilter(profile=_BASE_PROFILE, db_path=path)
+        gf = GeoFilter(profile=_BASE_PROFILE)
         gf.check(_listing("Orlando, FL"))
         assert gf.geo_discarded == 1
 
     def test_in_memory_cache_prevents_repeated_db_reads(self):
         """Second check for same location uses in-memory cache, not DB."""
-        path = _make_temp_db()
-        _prepopulate_geocache(path, {
+        _prepopulate_geocache({
             "Miami, FL": _MIAMI,
             "Fort Lauderdale, FL": _FORT_LAUDERDALE,
         })
-        gf = GeoFilter(profile=_BASE_PROFILE, db_path=path)
+        gf = GeoFilter(profile=_BASE_PROFILE)
 
         # First check — reads from DB (1 hit for Fort Lauderdale).
         gf.check(_listing("Fort Lauderdale, FL"))
@@ -474,10 +469,9 @@ def test_flat_location_fields_ignored_by_geo_filter():
 
 def test_flat_fields_do_not_activate_geo_filter_class():
     """GeoFilter.is_active is False when only old flat fields are present."""
-    path = _make_temp_db()
     old_style_profile = {
         "location_center": "Miami, FL",
         "location_radius_km": 80,
     }
-    gf = GeoFilter(profile=old_style_profile, db_path=path)
+    gf = GeoFilter(profile=old_style_profile)
     assert gf.is_active is False

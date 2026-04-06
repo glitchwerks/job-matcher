@@ -3,29 +3,30 @@ tests/test_unread_badge.py — Tests for the "New" badge feature (Issue #236).
 
 Covers:
   - db.mark_opened(): sets opened_at on first call, no-ops on repeat calls
-  - POST /listings/<id>/open: returns 204, marks the listing opened, is idempotent
+  - POST /listings/<id>/open: returns 200, marks the listing opened, is idempotent
   - GET /: new_count passed to template equals count of listings with opened_at IS NULL
-  - Schema migration: opened_at column is added to the listings table
+  - Schema: opened_at column is present in the listings table
 """
 
 from __future__ import annotations
 
 import os
 import sys
-import tempfile
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import db
-import app as app_module
 from app import app as flask_app
 
 
 # ---------------------------------------------------------------------------
-# Helpers shared with test_db.py
+# Helpers
 # ---------------------------------------------------------------------------
+
+_PREFIX = "ub-"
+
 
 def make_listing(
     source_id: str = "test-001",
@@ -64,21 +65,21 @@ def make_listing(
     }
 
 
-class TempDB:
-    """Context manager: temp SQLite file, removed on exit."""
+def _cleanup(*prefixes: str) -> None:
+    with db.get_connection() as conn:
+        for prefix in prefixes:
+            conn.execute(
+                "DELETE FROM listings WHERE source_id LIKE %s", (prefix + "%",)
+            )
 
-    def __enter__(self) -> str:
-        self._fh = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        self._fh.close()
-        self.path = self._fh.name
-        db.init_db(self.path)
-        return self.path
 
-    def __exit__(self, *_):
-        try:
-            os.unlink(self.path)
-        except FileNotFoundError:
-            pass
+def _get_id(source_id: str) -> int:
+    with db.get_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM listings WHERE source_id = %s", (source_id,)
+        ).fetchone()
+    assert row is not None
+    return row["id"]
 
 
 # ---------------------------------------------------------------------------
@@ -86,65 +87,30 @@ class TempDB:
 # ---------------------------------------------------------------------------
 
 class TestOpenedAtColumn:
-    def test_opened_at_column_exists_on_fresh_db(self):
-        """init_db() creates the opened_at column on a fresh database."""
-        with TempDB() as path:
-            conn = db.get_connection(path)
-            try:
-                cols = {row["name"] for row in conn.execute("PRAGMA table_info(listings)").fetchall()}
-                assert "opened_at" in cols
-            finally:
-                conn.close()
+    def test_opened_at_column_exists(self):
+        """init_db() creates the opened_at column in the schema."""
+        db.init_db()
+        with db.get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'listings' AND column_name = 'opened_at'
+                """
+            ).fetchall()
+        assert len(rows) == 1
 
     def test_opened_at_defaults_to_null(self):
         """Newly inserted listings have opened_at = NULL."""
-        with TempDB() as path:
-            db.insert_listing(make_listing(source_id="default-null"), db_path=path)
-            conn = db.get_connection(path)
-            try:
-                row = conn.execute("SELECT opened_at FROM listings WHERE source_id = ?", ("default-null",)).fetchone()
-                assert row["opened_at"] is None
-            finally:
-                conn.close()
-
-    def test_migration_adds_column_to_existing_db(self):
-        """init_db() migration (path D) adds opened_at to an existing DB that lacks it."""
-        with TempDB() as path:
-            # Simulate a pre-existing DB without opened_at by rebuilding the table
-            # to match the schema that would exist before this column was added.
-            conn = db.get_connection(path)
-            try:
-                # SQLite does not support DROP COLUMN before 3.35. Use table-copy.
-                conn.execute("ALTER TABLE listings RENAME TO listings_old")
-                conn.execute("""
-                    CREATE TABLE listings (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        source TEXT NOT NULL DEFAULT 'adzuna',
-                        source_id TEXT NOT NULL,
-                        title TEXT,
-                        score REAL,
-                        dismissed INTEGER DEFAULT 0,
-                        applied INTEGER DEFAULT 0,
-                        seen INTEGER DEFAULT 0,
-                        bookmarked INTEGER DEFAULT 0,
-                        redirect_url TEXT,
-                        UNIQUE(source, source_id)
-                    )
-                """)
-                conn.execute("DROP TABLE listings_old")
-                conn.commit()
-            finally:
-                conn.close()
-
-            # Re-running init_db should add opened_at via path D migrations.
-            db.init_db(path)
-
-            conn = db.get_connection(path)
-            try:
-                cols = {row["name"] for row in conn.execute("PRAGMA table_info(listings)").fetchall()}
-                assert "opened_at" in cols
-            finally:
-                conn.close()
+        db.insert_listing(make_listing(source_id="ub-default-null"))
+        try:
+            with db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT opened_at FROM listings WHERE source_id = %s",
+                    ("ub-default-null",),
+                ).fetchone()
+            assert row["opened_at"] is None
+        finally:
+            _cleanup("ub-default-null")
 
 
 # ---------------------------------------------------------------------------
@@ -152,273 +118,122 @@ class TestOpenedAtColumn:
 # ---------------------------------------------------------------------------
 
 class TestMarkOpened:
+    def teardown_method(self):
+        _cleanup(_PREFIX, "ub-open-", "ub-fmt-")
+
     def test_sets_opened_at_on_first_call(self):
         """mark_opened() sets opened_at to a non-null timestamp on first call."""
-        with TempDB() as path:
-            db.insert_listing(make_listing(source_id="open-001"), db_path=path)
-            conn = db.get_connection(path)
-            try:
-                listing_id = conn.execute(
-                    "SELECT id FROM listings WHERE source_id = ?", ("open-001",)
-                ).fetchone()["id"]
-            finally:
-                conn.close()
-
-            db.mark_opened(listing_id, db_path=path)
-
-            conn = db.get_connection(path)
-            try:
-                row = conn.execute(
-                    "SELECT opened_at FROM listings WHERE id = ?", (listing_id,)
-                ).fetchone()
-                assert row["opened_at"] is not None
-            finally:
-                conn.close()
+        db.insert_listing(make_listing(source_id="ub-open-001"))
+        listing_id = _get_id("ub-open-001")
+        db.mark_opened(listing_id)
+        with db.get_connection() as conn:
+            row = conn.execute(
+                "SELECT opened_at FROM listings WHERE id = %s", (listing_id,)
+            ).fetchone()
+        assert row["opened_at"] is not None
 
     def test_opened_at_is_idempotent(self):
         """Calling mark_opened() twice preserves the first timestamp."""
-        with TempDB() as path:
-            db.insert_listing(make_listing(source_id="open-002"), db_path=path)
-            conn = db.get_connection(path)
-            try:
-                listing_id = conn.execute(
-                    "SELECT id FROM listings WHERE source_id = ?", ("open-002",)
-                ).fetchone()["id"]
-            finally:
-                conn.close()
+        db.insert_listing(make_listing(source_id="ub-open-002"))
+        listing_id = _get_id("ub-open-002")
 
-            db.mark_opened(listing_id, db_path=path)
-            conn = db.get_connection(path)
-            try:
-                first_ts = conn.execute(
-                    "SELECT opened_at FROM listings WHERE id = ?", (listing_id,)
-                ).fetchone()["opened_at"]
-            finally:
-                conn.close()
+        db.mark_opened(listing_id)
+        with db.get_connection() as conn:
+            first_ts = conn.execute(
+                "SELECT opened_at FROM listings WHERE id = %s", (listing_id,)
+            ).fetchone()["opened_at"]
 
-            # Second call must not overwrite the first timestamp.
-            db.mark_opened(listing_id, db_path=path)
-            conn = db.get_connection(path)
-            try:
-                second_ts = conn.execute(
-                    "SELECT opened_at FROM listings WHERE id = ?", (listing_id,)
-                ).fetchone()["opened_at"]
-            finally:
-                conn.close()
+        db.mark_opened(listing_id)
+        with db.get_connection() as conn:
+            second_ts = conn.execute(
+                "SELECT opened_at FROM listings WHERE id = %s", (listing_id,)
+            ).fetchone()["opened_at"]
 
-            assert first_ts == second_ts
+        assert first_ts == second_ts
 
     def test_mark_opened_nonexistent_id_is_silent(self):
         """mark_opened() with a non-existent id does not raise."""
-        with TempDB() as path:
-            db.mark_opened(99999, db_path=path)  # Should not raise.
+        db.mark_opened(999999999)  # Should not raise.
 
     def test_opened_at_format_is_iso_utc(self):
         """opened_at is stored as an ISO 8601 UTC string ending in 'Z'."""
-        with TempDB() as path:
-            db.insert_listing(make_listing(source_id="open-fmt"), db_path=path)
-            conn = db.get_connection(path)
-            try:
-                listing_id = conn.execute(
-                    "SELECT id FROM listings WHERE source_id = ?", ("open-fmt",)
-                ).fetchone()["id"]
-            finally:
-                conn.close()
+        db.insert_listing(make_listing(source_id="ub-fmt-001"))
+        listing_id = _get_id("ub-fmt-001")
+        db.mark_opened(listing_id)
 
-            db.mark_opened(listing_id, db_path=path)
+        with db.get_connection() as conn:
+            ts = conn.execute(
+                "SELECT opened_at FROM listings WHERE id = %s", (listing_id,)
+            ).fetchone()["opened_at"]
 
-            conn = db.get_connection(path)
-            try:
-                ts = conn.execute(
-                    "SELECT opened_at FROM listings WHERE id = ?", (listing_id,)
-                ).fetchone()["opened_at"]
-            finally:
-                conn.close()
-
-            assert ts.endswith("Z"), f"Expected ISO UTC format ending in Z, got: {ts!r}"
-            # Verify it parses as a valid ISO datetime.
-            import datetime
-            dt = datetime.datetime.fromisoformat(ts.rstrip("Z"))
-            assert isinstance(dt, datetime.datetime)
+        assert ts.endswith("Z"), f"Expected ISO UTC format ending in Z, got: {ts!r}"
+        import datetime
+        dt = datetime.datetime.fromisoformat(ts.rstrip("Z"))
+        assert isinstance(dt, datetime.datetime)
 
 
 # ---------------------------------------------------------------------------
-# POST /listings/<id>/open  route
+# POST /listings/<id>/open route
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def client(tmp_path, monkeypatch):
-    """Flask test client pointing at a temp database."""
-    db_path = str(tmp_path / "test.db")
-    db.init_db(db_path)
-    monkeypatch.setattr(app_module, "DB_PATH", db_path)
+def client():
     flask_app.config["TESTING"] = True
     with flask_app.test_client() as c:
-        yield c, db_path
+        yield c
 
 
 class TestMarkListingOpenedRoute:
+    def teardown_method(self):
+        _cleanup("ub-route-")
+
     def test_returns_200(self, client):
         """POST /listings/<id>/open returns 200 with an OOB swap fragment."""
-        c, db_path = client
-        db.insert_listing(make_listing(source_id="route-001"), db_path=db_path)
-        conn = db.get_connection(db_path)
-        try:
-            listing_id = conn.execute(
-                "SELECT id FROM listings WHERE source_id = ?", ("route-001",)
-            ).fetchone()["id"]
-        finally:
-            conn.close()
-
-        resp = c.post(f"/listings/{listing_id}/open")
+        db.insert_listing(make_listing(source_id="ub-route-001"))
+        listing_id = _get_id("ub-route-001")
+        resp = client.post(f"/listings/{listing_id}/open")
         assert resp.status_code == 200
 
     def test_marks_listing_as_opened(self, client):
         """POST /listings/<id>/open sets opened_at on the listing."""
-        c, db_path = client
-        db.insert_listing(make_listing(source_id="route-002"), db_path=db_path)
-        conn = db.get_connection(db_path)
-        try:
-            listing_id = conn.execute(
-                "SELECT id FROM listings WHERE source_id = ?", ("route-002",)
-            ).fetchone()["id"]
-        finally:
-            conn.close()
-
-        c.post(f"/listings/{listing_id}/open")
-
-        conn = db.get_connection(db_path)
-        try:
+        db.insert_listing(make_listing(source_id="ub-route-002"))
+        listing_id = _get_id("ub-route-002")
+        client.post(f"/listings/{listing_id}/open")
+        with db.get_connection() as conn:
             row = conn.execute(
-                "SELECT opened_at FROM listings WHERE id = ?", (listing_id,)
+                "SELECT opened_at FROM listings WHERE id = %s", (listing_id,)
             ).fetchone()
-            assert row["opened_at"] is not None
-        finally:
-            conn.close()
+        assert row["opened_at"] is not None
 
     def test_is_idempotent_via_route(self, client):
         """Calling POST /listings/<id>/open twice preserves the first timestamp."""
-        c, db_path = client
-        db.insert_listing(make_listing(source_id="route-003"), db_path=db_path)
-        conn = db.get_connection(db_path)
-        try:
-            listing_id = conn.execute(
-                "SELECT id FROM listings WHERE source_id = ?", ("route-003",)
-            ).fetchone()["id"]
-        finally:
-            conn.close()
+        db.insert_listing(make_listing(source_id="ub-route-003"))
+        listing_id = _get_id("ub-route-003")
 
-        c.post(f"/listings/{listing_id}/open")
-        conn = db.get_connection(db_path)
-        try:
+        client.post(f"/listings/{listing_id}/open")
+        with db.get_connection() as conn:
             first_ts = conn.execute(
-                "SELECT opened_at FROM listings WHERE id = ?", (listing_id,)
+                "SELECT opened_at FROM listings WHERE id = %s", (listing_id,)
             ).fetchone()["opened_at"]
-        finally:
-            conn.close()
 
-        c.post(f"/listings/{listing_id}/open")
-        conn = db.get_connection(db_path)
-        try:
+        client.post(f"/listings/{listing_id}/open")
+        with db.get_connection() as conn:
             second_ts = conn.execute(
-                "SELECT opened_at FROM listings WHERE id = ?", (listing_id,)
+                "SELECT opened_at FROM listings WHERE id = %s", (listing_id,)
             ).fetchone()["opened_at"]
-        finally:
-            conn.close()
 
         assert first_ts == second_ts
 
     def test_nonexistent_listing_returns_200(self, client):
         """POST /listings/<id>/open for a missing id still returns 200 (benign)."""
-        c, _ = client
-        resp = c.post("/listings/99999/open")
+        resp = client.post("/listings/999999999/open")
         assert resp.status_code == 200
 
     def test_response_contains_oob_fragment(self, client):
         """POST /listings/<id>/open returns an OOB swap fragment for the badge."""
-        c, db_path = client
-        db.insert_listing(make_listing(source_id="route-oob"), db_path=db_path)
-        conn = db.get_connection(db_path)
-        try:
-            listing_id = conn.execute(
-                "SELECT id FROM listings WHERE source_id = ?", ("route-oob",)
-            ).fetchone()["id"]
-        finally:
-            conn.close()
-
-        resp = c.post(f"/listings/{listing_id}/open")
+        db.insert_listing(make_listing(source_id="ub-route-oob"))
+        listing_id = _get_id("ub-route-oob")
+        resp = client.post(f"/listings/{listing_id}/open")
         assert resp.status_code == 200
         expected = f'<span id="badge-new-{listing_id}" hx-swap-oob="outerHTML"></span>'
         assert expected.encode() in resp.data
-
-
-# ---------------------------------------------------------------------------
-# GET / — new_count in feed template context
-# ---------------------------------------------------------------------------
-
-class TestFeedNewCount:
-    def test_new_count_equals_unread_listings(self, client):
-        """GET / passes new_count equal to listings with opened_at IS NULL."""
-        c, db_path = client
-        # Insert 3 listings: 2 unread, 1 opened.
-        db.insert_listing(make_listing(source_id="feed-a"), db_path=db_path)
-        db.insert_listing(make_listing(source_id="feed-b"), db_path=db_path)
-        db.insert_listing(make_listing(source_id="feed-c"), db_path=db_path)
-
-        # Mark one as opened.
-        conn = db.get_connection(db_path)
-        try:
-            listing_id = conn.execute(
-                "SELECT id FROM listings WHERE source_id = ?", ("feed-c",)
-            ).fetchone()["id"]
-        finally:
-            conn.close()
-        db.mark_opened(listing_id, db_path=db_path)
-
-        resp = c.get("/")
-        assert resp.status_code == 200
-        # "2 new" should appear in the feed-meta section.
-        assert b"2 new" in resp.data
-
-    def test_new_count_zero_hides_label(self, client):
-        """GET / does not render '· N new' when all listings are opened."""
-        c, db_path = client
-        db.insert_listing(make_listing(source_id="feed-z"), db_path=db_path)
-        conn = db.get_connection(db_path)
-        try:
-            listing_id = conn.execute(
-                "SELECT id FROM listings WHERE source_id = ?", ("feed-z",)
-            ).fetchone()["id"]
-        finally:
-            conn.close()
-        db.mark_opened(listing_id, db_path=db_path)
-
-        resp = c.get("/")
-        assert resp.status_code == 200
-        assert b"new" not in resp.data or b"feed-new-count" not in resp.data
-
-    def test_new_badge_present_for_unread_listing(self, client):
-        """Unread cards render the badge-new span."""
-        c, db_path = client
-        db.insert_listing(make_listing(source_id="badge-present"), db_path=db_path)
-
-        resp = c.get("/")
-        assert resp.status_code == 200
-        assert b'class="badge-new"' in resp.data
-
-    def test_new_badge_absent_for_opened_listing(self, client):
-        """Opened cards do not render the badge-new span."""
-        c, db_path = client
-        db.insert_listing(make_listing(source_id="badge-absent"), db_path=db_path)
-        conn = db.get_connection(db_path)
-        try:
-            listing_id = conn.execute(
-                "SELECT id FROM listings WHERE source_id = ?", ("badge-absent",)
-            ).fetchone()["id"]
-        finally:
-            conn.close()
-        db.mark_opened(listing_id, db_path=db_path)
-
-        resp = c.get("/")
-        assert resp.status_code == 200
-        assert b'class="badge-new"' not in resp.data

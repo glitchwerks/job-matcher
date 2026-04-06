@@ -1,0 +1,8 @@
+{# Environment + version status bar — only shown outside local dev #}
+{% if APP_ENV != 'local' %}
+<div class="env-status-bar env-status-bar--{{ APP_ENV }}" role="status" aria-label="Environment: {{ APP_ENV }}">
+  <span class="env-status-bar__env">{{ APP_ENV }}</span>
+  <span class="env-status-bar__sep">&middot;</span>
+  <span class="env-status-bar__sha">{{ APP_VERSION }}</span>
+</div>
+{% endif %}
