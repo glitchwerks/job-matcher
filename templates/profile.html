@@ -113,6 +113,34 @@
 
       <hr class="form-section-divider">
 
+      {# ── Education ── #}
+      <label class="settings-label">Education</label>
+      <p class="field-hint">One degree or credential per row. Format freely &mdash; e.g. &ldquo;B.S. Computer Science, State University, 2012&rdquo;.</p>
+      <div class="row-list" id="list-education">
+        {% set education_entries = prof.get('education', []) %}
+        {% if education_entries %}
+          {% for entry in education_entries %}
+            <div class="row-item">
+              <input class="settings-input" type="text" name="education[]"
+                     value="{{ entry }}" autocomplete="off">
+              <button type="button" class="btn-row-remove"
+                      aria-label="Remove row">&#x2212;</button>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="row-item">
+            <input class="settings-input" type="text" name="education[]"
+                   autocomplete="off">
+            <button type="button" class="btn-row-remove"
+                    aria-label="Remove row">&#x2212;</button>
+          </div>
+        {% endif %}
+      </div>
+      <button type="button" class="btn-row-add"
+              data-list-id="list-education" data-name="education[]">+ Add education</button>
+
+      <hr class="form-section-divider">
+
       {# ── Seniority ── #}
       <label class="settings-label" for="seniority">Seniority</label>
       <p class="field-hint">e.g. &ldquo;Senior / Staff&rdquo;. Injected into the scoring prompt.</p>

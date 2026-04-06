@@ -1123,6 +1123,7 @@ def profile():
             new_profile: dict = {
                 "primary_skills": _parse_repeating_rows(request.form, "primary_skills"),
                 "anti_preferences": _parse_repeating_rows(request.form, "anti_preferences"),
+                "education": _parse_repeating_rows(request.form, "education"),
                 "seniority": request.form.get("seniority", "").strip(),
                 "preferred_industries": _parse_repeating_rows(request.form, "preferred_industries"),
                 "location": location_block,

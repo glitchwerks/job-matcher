@@ -249,6 +249,26 @@ class TestProfileGet:
         body = client.get("/profile").data.decode()
         assert "config_json" not in body
 
+    def test_renders_education_entries(
+        self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
+    ):
+        """GET /profile must pre-populate education[] inputs from profile.json."""
+        _write_config(tmp_config_path)
+        _write_profile(tmp_profile_path, {
+            **{
+                "primary_skills": [],
+                "anti_preferences": [],
+                "seniority": "",
+                "preferred_industries": [],
+                "location": {"geocode_fallback": "pass"},
+                "scoring_notes": [],
+            },
+            "education": ["B.S. CS, MIT, 2010"],
+        })
+        body = client.get("/profile").data.decode()
+        assert 'value="B.S. CS, MIT, 2010"' in body
+        assert 'name="education[]"' in body
+
     def test_renders_when_profile_absent(
         self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
     ):
@@ -297,6 +317,19 @@ class TestProfilePost:
         with open(tmp_profile_path, encoding="utf-8") as f:
             prof = json.load(f)
         assert prof["anti_preferences"] == ["no QA", "no frontend"]
+
+    def test_writes_education(
+        self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
+    ):
+        """POST with multiple education[] values must persist all entries to profile.json."""
+        _write_config(tmp_config_path)
+        self._post(
+            client,
+            **{"education[]": ["B.S. CS, MIT, 2010", "M.S. SE, Stanford, 2012"]},
+        )
+        with open(tmp_profile_path, encoding="utf-8") as f:
+            prof = json.load(f)
+        assert prof["education"] == ["B.S. CS, MIT, 2010", "M.S. SE, Stanford, 2012"]
 
     def test_writes_seniority(
         self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
