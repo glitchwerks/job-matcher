@@ -49,6 +49,10 @@ _DEFAULT_PROVIDERS_PATH = os.path.join(_CONFIG_DIR, "providers.json")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("ingest")
 
+# Set to True by --verbose / -v CLI flag. Used at scoring callsites to emit
+# the full breakdown (verdict, matched/missing skills, concerns) at INFO level.
+_verbose = False
+
 
 def _configure_file_logging() -> None:
     """Attach a FileHandler writing to a timestamped per-run log file.
@@ -1125,12 +1129,21 @@ def run(
                         src_name,
                         title,
                     )
-                    logger.debug(
-                        "  verdict: %s | matched: %s | missing: %s",
-                        score_result.get("verdict", ""),
-                        ", ".join(score_result.get("matched_skills") or []) or "none",
-                        ", ".join(score_result.get("missing_skills") or []) or "none",
-                    )
+                    if _verbose:
+                        logger.info(
+                            "  verdict: %s\n  matched: %s\n  missing: %s\n  concerns: %s",
+                            score_result.get("verdict", ""),
+                            ", ".join(score_result.get("matched_skills") or []) or "none",
+                            ", ".join(score_result.get("missing_skills") or []) or "none",
+                            ", ".join(score_result.get("concerns") or []) or "none",
+                        )
+                    else:
+                        logger.debug(
+                            "  verdict: %s | matched: %s | missing: %s",
+                            score_result.get("verdict", ""),
+                            ", ".join(score_result.get("matched_skills") or []) or "none",
+                            ", ".join(score_result.get("missing_skills") or []) or "none",
+                        )
                     tok_in = score_result.get("tokens_input") or 0
                     tok_out = score_result.get("tokens_output") or 0
                     total_tokens_input += tok_in
@@ -1296,6 +1309,14 @@ def rescore(
             tokens_input += tok_in
             tokens_output += tok_out
             logger.info("RESCORED %d/10  %s", result.get("score", 0), title)
+            if _verbose:
+                logger.info(
+                    "  verdict: %s\n  matched: %s\n  missing: %s\n  concerns: %s",
+                    result.get("verdict", ""),
+                    ", ".join(result.get("matched_skills") or []) or "none",
+                    ", ".join(result.get("missing_skills") or []) or "none",
+                    ", ".join(result.get("concerns") or []) or "none",
+                )
 
             used_provider = result.get("model_used", "").split("/")[0] or "unknown"
             if used_provider not in provider_costs:
@@ -1363,6 +1384,12 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Log the full scoring breakdown (verdict, matched/missing skills, concerns) "
+             "for every listing at INFO level.",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable DEBUG level logging (verbose output for troubleshooting).",
@@ -1370,6 +1397,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     _configure_file_logging()
+
+    if args.verbose:
+        _verbose = True
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)

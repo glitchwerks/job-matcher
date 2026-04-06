@@ -14,6 +14,8 @@ uv pip install -r requirements.txt
 python ingest.py
 python ingest.py --hours 25        # Only process listings from the last 25 hours
 python ingest.py --rescore         # Re-score all stored listings against updated config/profile.json
+python ingest.py --verbose         # Log full scoring breakdown (verdict, matched/missing skills, concerns) per listing
+python ingest.py -v                # Short form of --verbose
 
 # Run web UI (http://localhost:5000)
 python app.py
