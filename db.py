@@ -19,6 +19,14 @@ _DATABASE_URL: str = os.environ.get(
     "DATABASE_URL",
     "postgresql://jobmatcher:jobmatcher@localhost:5432/jobmatcher"
 )
+_USING_DEFAULT_DATABASE_URL: bool = "DATABASE_URL" not in os.environ
+
+if _USING_DEFAULT_DATABASE_URL:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "DATABASE_URL is not set — using default local development credentials. "
+        "Set DATABASE_URL in your environment or .env file for production."
+    )
 
 # Explicit allowlist for user-supplied sort keys → safe SQL ORDER BY clauses.
 # Never interpolate a raw user value into SQL; look it up here instead.
@@ -150,7 +158,11 @@ def get_connection(db_path=None):  # db_path kept for signature compat, ignored
     The caller is responsible for closing the connection (or using it as a
     context manager for transactions).
     """
-    raw = psycopg2.connect(_DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    raw = psycopg2.connect(
+        _DATABASE_URL,
+        cursor_factory=psycopg2.extras.RealDictCursor,
+        connect_timeout=5,
+    )
     return _Conn(raw)
 
 
@@ -248,6 +260,8 @@ def geocache_get_many(
     """
     if not location_texts:
         return {}
+    # Build "%s,%s,..." placeholder string — safe because only the count varies,
+    # not the values; all user data is passed via the parameterised tuple.
     placeholders = ",".join(["%s"] * len(location_texts))
     rows = conn.execute(
         f"SELECT location_text, lat, lon FROM location_geocache WHERE location_text IN ({placeholders})",
