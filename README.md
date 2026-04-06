@@ -401,3 +401,45 @@ Add these in **Settings → Secrets and variables → Actions** for the CI failu
 |---|---|
 | `ANTHROPIC_API_KEY` | Anthropic API key used by Claude to diagnose CI failures |
 | `GH_PAT` | GitHub Personal Access Token with `repo` scope — needed to post PR comments and push auto-fix commits |
+
+---
+
+## Docker deployment (Linux VM)
+
+Use this approach to run Job Matcher as a Docker Compose stack on a Linux VM. The stack consists of a `web` container (Flask + waitress) and a `db` container (PostgreSQL). All job data — bookmarks, applied listings, dismiss decisions — is stored in the `pgdata` Docker volume on the host.
+
+### Quick start
+
+```bash
+sudo ./scripts/docker-setup.sh
+```
+
+This script checks for Docker, creates required directories, copies example config files, and starts the stack. Follow the on-screen prompts. After it completes, open `http://<vm-ip>:5000/settings` to configure API keys.
+
+### Backups
+
+The `pgdata` Docker volume is the only copy of your data. **Running `docker compose down -v` destroys it permanently.** Take regular backups.
+
+**Manual backup**
+
+```bash
+./scripts/backup.sh
+```
+
+Backups are written to `./backups/` (gitignored) as timestamped SQL dumps (`jobs_YYYYMMDD_HHMMSS.sql`). The script keeps the 10 most recent and removes older ones automatically.
+
+**Automated daily backup (recommended)**
+
+Add to the host crontab (`crontab -e`):
+
+```cron
+30 1 * * * /opt/job-matcher-pr/scripts/backup.sh >> /opt/job-matcher-pr/logs/backup.log 2>&1
+```
+
+**Restore from a backup**
+
+```bash
+docker compose exec -T db psql -U jobmatcher jobmatcher < backups/jobs_YYYYMMDD_HHMMSS.sql
+```
+
+Replace `jobs_YYYYMMDD_HHMMSS.sql` with the filename of the backup you want to restore.

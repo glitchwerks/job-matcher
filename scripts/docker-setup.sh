@@ -102,3 +102,16 @@ echo "    0 2 * * * $PROJECT_DIR/scripts/ingest-cron.sh >> $PROJECT_DIR/logs/ing
 echo ""
 echo "    This runs ingest inside the web container via 'docker compose exec'."
 echo "    No Docker socket mount is required."
+echo ""
+echo "==> Optional: automated daily backup"
+chmod +x "$PROJECT_DIR/scripts/backup.sh"
+echo "    Made scripts/backup.sh executable"
+echo ""
+echo "    To schedule a daily backup at 01:30, add to host crontab (crontab -e):"
+echo ""
+# Optional: automated daily backup (add to host crontab)
+# 30 1 * * * /opt/job-matcher-pr/scripts/backup.sh >> /opt/job-matcher-pr/logs/backup.log 2>&1
+echo "    30 1 * * * $PROJECT_DIR/scripts/backup.sh >> $PROJECT_DIR/logs/backup.log 2>&1"
+echo ""
+echo "    Backups are written to $PROJECT_DIR/backups/ and the 10 most recent are kept."
+echo "    To restore: docker compose exec -T db psql -U jobmatcher jobmatcher < backups/jobs_YYYYMMDD_HHMMSS.sql"

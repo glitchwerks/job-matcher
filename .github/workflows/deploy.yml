@@ -58,7 +58,41 @@ jobs:
       - name: Deploy stack
         working-directory: /opt/job-matcher-pr
         run: |
+          # Capture current image digest before replacing it so we have a rollback target.
+          PREVIOUS_IMAGE=$(docker inspect --format='{{.Image}}' job-matcher-pr-web 2>/dev/null || echo "")
+
           docker compose pull
           docker compose up -d --remove-orphans
-          docker compose ps --status running --services | grep -q "web" || { echo "ERROR: Web service not running" >&2; exit 1; }
+
+          # Wait for the web container healthcheck to pass.
+          # Worst case: 15s start period + 3×30s retries = ~105s; poll for 120s.
+          echo "Waiting for web service to become healthy..."
+          TIMEOUT=120
+          ELAPSED=0
+          STATUS="unknown"
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            STATUS=$(docker inspect --format='{{.State.Health.Status}}' job-matcher-pr-web 2>/dev/null || echo "missing")
+            if [ "$STATUS" = "healthy" ]; then
+              echo "Web service is healthy."
+              break
+            fi
+            if [ "$STATUS" = "unhealthy" ]; then
+              echo "ERROR: Web service is unhealthy." >&2
+              break
+            fi
+            sleep 5
+            ELAPSED=$((ELAPSED + 5))
+          done
+
+          if [ "$STATUS" != "healthy" ]; then
+            echo "ERROR: Web service did not become healthy within ${TIMEOUT}s (status: ${STATUS})" >&2
+            if [ -n "$PREVIOUS_IMAGE" ]; then
+              echo "Rolling back to previous image: $PREVIOUS_IMAGE"
+              docker compose down
+              docker tag "$PREVIOUS_IMAGE" ghcr.io/${{ github.repository_owner }}/job-matcher-pr:latest 2>/dev/null || true
+              docker compose up -d --remove-orphans
+            fi
+            exit 1
+          fi
+
           docker image prune -f --filter "label=com.docker.compose.project=job-matcher-pr"

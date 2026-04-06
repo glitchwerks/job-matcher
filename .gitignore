@@ -27,6 +27,9 @@ venv/
 # Docker
 docker-compose.override.yml
 
+# Database backups
+backups/
+
 # Build artifacts
 dist/
 build/
