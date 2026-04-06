@@ -16,6 +16,7 @@ services:
     restart: unless-stopped
 
   web:
+    build: .
     image: ghcr.io/cbeaulieu-gt/job-matcher-pr:latest
     container_name: job-matcher-pr-web
     depends_on:
@@ -24,7 +25,8 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ./config:/app/config:rw
+      - ./config:/app/config:rw   # rw required: /settings UI writes providers.json
+      - ./logs:/app/logs:rw
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       FLASK_DEBUG: "0"
@@ -41,6 +43,10 @@ services:
     depends_on:
       - web
     volumes:
+      # Security note: Ofelia requires Docker socket access to exec into the web
+      # container. The socket is mounted read-only (:ro) which limits but does not
+      # eliminate risk. Keep the Ofelia image updated and consider a Docker socket
+      # proxy (e.g. Tecnativa/docker-socket-proxy) for stricter access control.
       - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
     command: daemon --docker
