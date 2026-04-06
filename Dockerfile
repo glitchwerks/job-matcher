@@ -9,9 +9,11 @@ RUN groupadd --gid 1000 appuser && useradd --uid 1000 --gid appuser --shell /bin
 COPY --from=builder /install /usr/local
 WORKDIR /app
 COPY --chown=appuser:appuser . .
-RUN mkdir -p /app/logs && chown appuser:appuser /app/logs
+RUN mkdir -p /app/logs && chown appuser:appuser /app/logs \
+    && chmod +x /app/scripts/entrypoint.sh
 USER appuser
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/')" || exit 1
 EXPOSE 5000
+ENTRYPOINT ["/app/scripts/entrypoint.sh"]
 CMD ["waitress-serve", "--host=0.0.0.0", "--port=5000", "app:app"]
