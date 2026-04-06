@@ -15,6 +15,10 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
+# If this script fails partway through, it is safe to re-run — all steps check
+# whether the target file/directory already exists before acting, and will skip
+# anything already configured.
+
 echo "==> Checking Docker..."
 if ! command -v docker &>/dev/null; then
   echo "ERROR: Docker is not installed. Install Docker Engine first." >&2
@@ -58,6 +62,11 @@ if [[ ! -f "$PROJECT_DIR/.env.dev" ]]; then
     echo "ERROR: POSTGRES_PASSWORD in .env.dev still contains the example value. Set a real password first." >&2
     exit 1
   fi
+  PW=$(grep '^POSTGRES_PASSWORD=' "$PROJECT_DIR/.env.dev" | cut -d= -f2)
+  if [[ ${#PW} -lt 12 ]]; then
+    echo "ERROR: POSTGRES_PASSWORD in .env.dev must be at least 12 characters." >&2
+    exit 1
+  fi
 else
   echo "    .env.dev already exists, skipping"
 fi
@@ -77,6 +86,11 @@ if [[ ! -f "$PROJECT_DIR/.env.prod" ]]; then
     echo "ERROR: POSTGRES_PASSWORD in .env.prod still contains the example value. Set a real password first." >&2
     exit 1
   fi
+  PW=$(grep '^POSTGRES_PASSWORD=' "$PROJECT_DIR/.env.prod" | cut -d= -f2)
+  if [[ ${#PW} -lt 12 ]]; then
+    echo "ERROR: POSTGRES_PASSWORD in .env.prod must be at least 12 characters." >&2
+    exit 1
+  fi
 else
   echo "    .env.prod already exists, skipping"
 fi
@@ -85,6 +99,7 @@ fi
 # Config files — copy examples into both config/ and config-dev/
 # ---------------------------------------------------------------------------
 echo "==> Copying example config files..."
+shopt -s nullglob
 for example in "$PROJECT_DIR/config/"*.example.json; do
   base="$(basename "${example%.example.json}.json")"
 
@@ -106,6 +121,7 @@ for example in "$PROJECT_DIR/config/"*.example.json; do
     echo "    config-dev/$base already exists, skipping"
   fi
 done
+shopt -u nullglob
 
 # ---------------------------------------------------------------------------
 # GHCR login
