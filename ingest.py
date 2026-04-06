@@ -1399,7 +1399,6 @@ if __name__ == "__main__":
     _configure_file_logging()
 
     if args.verbose:
-        global _verbose
         _verbose = True
 
     if args.debug:
