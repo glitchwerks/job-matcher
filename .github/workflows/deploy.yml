@@ -78,7 +78,6 @@ jobs:
         env:
           APP_VERSION: ${{ github.event.workflow_run.head_sha }}
         run: |
-          APP_VERSION=$(echo "$APP_VERSION" | cut -c1-7)
           export APP_VERSION
           docker compose --env-file /opt/job-matcher-pr/.env.dev -f /opt/job-matcher-pr/docker-compose.dev.yml pull
           docker compose --env-file /opt/job-matcher-pr/.env.dev -f /opt/job-matcher-pr/docker-compose.dev.yml up -d --remove-orphans
@@ -110,7 +109,6 @@ jobs:
         env:
           APP_VERSION: ${{ github.event.workflow_run.head_sha }}
         run: |
-          APP_VERSION=$(echo "$APP_VERSION" | cut -c1-7)
           export APP_VERSION
           docker compose --env-file /opt/job-matcher-pr/.env.prod -f /opt/job-matcher-pr/docker-compose.prod.yml pull
           docker compose --env-file /opt/job-matcher-pr/.env.prod -f /opt/job-matcher-pr/docker-compose.prod.yml up -d --remove-orphans
