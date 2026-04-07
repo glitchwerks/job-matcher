@@ -415,6 +415,18 @@ class TestGeminiProvider:
 
 
 # ---------------------------------------------------------------------------
+# LLMProvider.generate()
+# ---------------------------------------------------------------------------
+
+class TestGenerateAbstract:
+    def test_generate_is_abstract_method(self):
+        """LLMProvider.generate is declared as an abstract method."""
+        from providers.base import LLMProvider
+        assert hasattr(LLMProvider, "generate")
+        assert getattr(LLMProvider.generate, "__isabstractmethod__", False)
+
+
+# ---------------------------------------------------------------------------
 # make_provider() factory
 # ---------------------------------------------------------------------------
 

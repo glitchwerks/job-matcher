@@ -71,6 +71,29 @@ class LLMProvider(ABC):
         """
         ...
 
+    @abstractmethod
+    def generate(self, prompt: str) -> str:
+        """Send *prompt* to the LLM and return the raw response text.
+
+        This is the low-level interface for arbitrary LLM calls.  Unlike
+        ``complete()``, it performs no JSON parsing or key validation —
+        callers are responsible for interpreting the returned string.
+
+        Implementors must:
+        * Attempt the API call up to 2 times (2-second delay between attempts).
+        * Raise ``RuntimeError`` if both attempts fail.
+
+        Args:
+            prompt: Arbitrary prompt string.
+
+        Returns:
+            Raw response text from the LLM.
+
+        Raises:
+            RuntimeError: If all retry attempts fail.
+        """
+        ...
+
     @property
     @abstractmethod
     def input_cost_per_mtok(self) -> float:
