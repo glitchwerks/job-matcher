@@ -139,16 +139,16 @@ fi
 # Pull and start both stacks
 # ---------------------------------------------------------------------------
 echo "==> Pulling dev stack images..."
-docker compose -f "$PROJECT_DIR/docker-compose.dev.yml" pull
+docker compose --env-file "$PROJECT_DIR/.env.dev" -f "$PROJECT_DIR/docker-compose.dev.yml" pull
 
 echo "==> Starting dev stack (port 5000)..."
-docker compose -f "$PROJECT_DIR/docker-compose.dev.yml" up -d
+docker compose --env-file "$PROJECT_DIR/.env.dev" -f "$PROJECT_DIR/docker-compose.dev.yml" up -d
 
 echo "==> Pulling prod stack images..."
-docker compose -f "$PROJECT_DIR/docker-compose.prod.yml" pull
+docker compose --env-file "$PROJECT_DIR/.env.prod" -f "$PROJECT_DIR/docker-compose.prod.yml" pull
 
 echo "==> Starting prod stack (port 5001)..."
-docker compose -f "$PROJECT_DIR/docker-compose.prod.yml" up -d
+docker compose --env-file "$PROJECT_DIR/.env.prod" -f "$PROJECT_DIR/docker-compose.prod.yml" up -d
 
 echo ""
 echo "Both stacks are running!"
