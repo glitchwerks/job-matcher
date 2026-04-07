@@ -740,6 +740,34 @@ def _is_auth_error(exc: RuntimeError) -> bool:
     return any(marker in msg for marker in _AUTH_MARKERS)
 
 
+def format_skills_for_prompt(profile: dict) -> dict:
+    """Convert structured skill objects to LLM-optimised strings for the scoring prompt.
+
+    If ``primary_skills`` is already a list of strings (old flat format), it is
+    passed through unchanged for backward compatibility.
+
+    Args:
+        profile: Candidate profile dict.  A shallow copy is returned — the
+                 original is never mutated.
+
+    Returns:
+        A new dict identical to *profile* except that ``primary_skills`` is
+        replaced with a list of human-readable strings when the input contains
+        structured skill objects.
+    """
+    profile = dict(profile)  # shallow copy — do not mutate caller's dict
+    skills = profile.get("primary_skills", [])
+    if skills and all(isinstance(s, dict) for s in skills):
+        formatted = []
+        for s in skills:
+            status = "active" if s.get("active", True) else "dormant"
+            years = s.get("years_active", 0)
+            year_label = "year" if years == 1 else "years"
+            formatted.append(f"{s['description']} ({years} {year_label}, {status})")
+        profile["primary_skills"] = formatted
+    return profile
+
+
 def score_listing_with_fallback(
     listing: dict,
     profile: dict,
@@ -787,6 +815,9 @@ def score_listing_with_fallback(
     scoring_profile = {k: v for k, v in profile.items() if k != "location"}
     if location_notes:
         scoring_profile["location_notes"] = location_notes
+
+    # Convert structured skill objects to LLM-readable strings before serialising.
+    scoring_profile = format_skills_for_prompt(scoring_profile)
 
     prompt = _PROMPT_TEMPLATE.format(
         profile_json=json.dumps(scoring_profile, indent=2),

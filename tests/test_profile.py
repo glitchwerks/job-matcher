@@ -134,7 +134,10 @@ def _write_profile(path: str, data: dict | None = None) -> None:
     """Write a minimal profile.json fixture."""
     if data is None:
         data = {
-            "primary_skills": ["Python, 5yr, active", "Go, 2yr, active"],
+            "primary_skills": [
+                {"description": "Python", "years_active": 5, "active": True},
+                {"description": "Go", "years_active": 2, "active": True},
+            ],
             "anti_preferences": ["no QA roles"],
             "seniority": "Senior / Staff",
             "preferred_industries": ["developer tooling", "fintech"],
@@ -167,11 +170,16 @@ class TestProfileGet:
     def test_renders_primary_skills(
         self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
     ):
+        """GET /profile renders skill names and years from structured skill objects."""
         _write_config(tmp_config_path)
         _write_profile(tmp_profile_path)
         body = client.get("/profile").data.decode()
-        assert "Python, 5yr, active" in body
-        assert "Go, 2yr, active" in body
+        # Skill description must appear as an input value in the table.
+        assert 'value="Python"' in body
+        assert 'value="Go"' in body
+        # Years must appear in number inputs.
+        assert 'value="5"' in body
+        assert 'value="2"' in body
 
     def test_renders_seniority(
         self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
@@ -300,14 +308,22 @@ class TestProfilePost:
     def test_writes_primary_skills(
         self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
     ):
+        """POST with structured skill fields writes typed objects to profile.json."""
         _write_config(tmp_config_path)
         self._post(
             client,
-            **{"primary_skills[]": ["Python, 5yr, active", "Go, 2yr, active"]},
+            **{
+                "skill_description[]": ["Python", "Go"],
+                "skill_years_active[]": ["5", "2"],
+                "skill_active_idx[]": ["0", "1"],
+            },
         )
         with open(tmp_profile_path, encoding="utf-8") as f:
             prof = json.load(f)
-        assert prof["primary_skills"] == ["Python, 5yr, active", "Go, 2yr, active"]
+        assert prof["primary_skills"] == [
+            {"description": "Python", "years_active": 5, "active": True},
+            {"description": "Go", "years_active": 2, "active": True},
+        ]
 
     def test_writes_anti_preferences(
         self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
@@ -470,15 +486,23 @@ class TestProfilePost:
     def test_empty_rows_are_excluded(
         self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
     ):
-        """Whitespace-only rows submitted from the repeating-row widget must be dropped."""
+        """Empty or whitespace-only skill descriptions must be dropped."""
         _write_config(tmp_config_path)
         self._post(
             client,
-            **{"primary_skills[]": ["Python, 5yr, active", "  ", "Go, 2yr, active", ""]},
+            **{
+                "skill_description[]": ["Python", "  ", "Go", ""],
+                "skill_years_active[]": ["5", "0", "2", "0"],
+                "skill_active_idx[]": ["0", "2"],
+            },
         )
         with open(tmp_profile_path, encoding="utf-8") as f:
             prof = json.load(f)
-        assert prof["primary_skills"] == ["Python, 5yr, active", "Go, 2yr, active"]
+        # Indices 0 and 2 are non-empty; index 0 is active (in active_idx), index 2 is active.
+        assert prof["primary_skills"] == [
+            {"description": "Python", "years_active": 5, "active": True},
+            {"description": "Go", "years_active": 2, "active": True},
+        ]
 
 
 # ===========================================================================
@@ -744,3 +768,104 @@ class TestProfileNumericValidation:
         _write_config(tmp_config_path)
         resp = self._post(client, search_max_days_old="two")
         assert resp.status_code == 422
+
+
+# ===========================================================================
+# POST /profile — structured primary_skills validation
+# ===========================================================================
+
+
+class TestStructuredSkillsValidation:
+    """Tests for the new typed primary_skills fields (issue #74)."""
+
+    def _post(self, client, **kwargs):
+        data = {
+            "scoring_threshold": "7.0",
+            "search_country": "us",
+            "search_what": "engineer",
+            "search_where": "miami",
+            "location_geocode_fallback": "pass",
+        }
+        data.update(kwargs)
+        return client.post("/profile", data=data)
+
+    def test_writes_primary_skills_active_flag(
+        self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
+    ):
+        """active=True when index appears in skill_active_idx[], False otherwise."""
+        _write_config(tmp_config_path)
+        self._post(
+            client,
+            **{
+                "skill_description[]": ["Python", "C++"],
+                "skill_years_active[]": ["5", "4"],
+                # Only index 0 (Python) is active; C++ at index 1 is dormant.
+                "skill_active_idx[]": ["0"],
+            },
+        )
+        with open(tmp_profile_path, encoding="utf-8") as f:
+            prof = json.load(f)
+        skills = prof["primary_skills"]
+        assert skills[0] == {"description": "Python", "years_active": 5, "active": True}
+        assert skills[1] == {"description": "C++", "years_active": 4, "active": False}
+
+    def test_years_active_negative_returns_422(
+        self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
+    ):
+        """Negative years_active must be rejected with HTTP 422."""
+        _write_config(tmp_config_path)
+        resp = self._post(
+            client,
+            **{
+                "skill_description[]": ["Python"],
+                "skill_years_active[]": ["-1"],
+                "skill_active_idx[]": ["0"],
+            },
+        )
+        assert resp.status_code == 422
+
+    def test_years_active_non_numeric_returns_422(
+        self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
+    ):
+        """Non-numeric years_active must be rejected with HTTP 422."""
+        _write_config(tmp_config_path)
+        resp = self._post(
+            client,
+            **{
+                "skill_description[]": ["Python"],
+                "skill_years_active[]": ["five"],
+                "skill_active_idx[]": ["0"],
+            },
+        )
+        assert resp.status_code == 422
+
+    def test_renders_structured_skills_in_table(
+        self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
+    ):
+        """GET /profile must render a <table> with structured skill data."""
+        _write_config(tmp_config_path)
+        _write_profile(tmp_profile_path, {
+            "primary_skills": [
+                {"description": "Rust", "years_active": 3, "active": True},
+                {"description": "COBOL", "years_active": 10, "active": False},
+            ],
+            "anti_preferences": [],
+            "seniority": "",
+            "preferred_industries": [],
+            "location": {"geocode_fallback": "pass"},
+            "scoring_notes": [],
+        })
+        body = client.get("/profile").data.decode()
+        # Table must be present.
+        assert "<table" in body
+        assert "skills-table" in body
+        # Skill names must appear as input values.
+        assert 'value="Rust"' in body
+        assert 'value="COBOL"' in body
+        # Years must appear.
+        assert 'value="3"' in body
+        assert 'value="10"' in body
+        # Active skill must have checked attribute; dormant must not.
+        # We check that the Rust row has checked somewhere near its description.
+        # A simple approach: count checked vs unchecked.
+        assert "checked" in body  # at least one checked input

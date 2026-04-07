@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from ingest import prefilter, score_listing_with_fallback
+from ingest import prefilter, score_listing_with_fallback, format_skills_for_prompt
 from app import salary_fmt, timeago
 from providers.anthropic_provider import strip_fences
 
@@ -381,3 +381,84 @@ class TestTimeago:
         future = datetime.now(tz=timezone.utc) + timedelta(hours=1)
         result = timeago(future)
         assert "UTC" in result
+
+
+# ---------------------------------------------------------------------------
+# format_skills_for_prompt tests
+# ---------------------------------------------------------------------------
+
+
+class TestFormatSkillsForPrompt:
+    """Tests for format_skills_for_prompt() in ingest.py (issue #74)."""
+
+    def test_structured_skills_converted_to_strings(self):
+        """Structured skill objects are rendered as 'Name (N years, status)' strings."""
+        profile = {
+            "primary_skills": [
+                {"description": "Python", "years_active": 5, "active": True},
+                {"description": "C++", "years_active": 4, "active": False},
+            ]
+        }
+        result = format_skills_for_prompt(profile)
+        assert result["primary_skills"] == [
+            "Python (5 years, active)",
+            "C++ (4 years, dormant)",
+        ]
+
+    def test_singular_year_label(self):
+        """A skill with exactly 1 year uses 'year' (singular), not 'years'."""
+        profile = {
+            "primary_skills": [
+                {"description": "Kubernetes", "years_active": 1, "active": True},
+            ]
+        }
+        result = format_skills_for_prompt(profile)
+        assert result["primary_skills"] == ["Kubernetes (1 year, active)"]
+
+    def test_plural_years_label(self):
+        """Skills with 0 or more than 1 year use 'years' (plural)."""
+        profile = {
+            "primary_skills": [
+                {"description": "Go", "years_active": 0, "active": True},
+                {"description": "SQL", "years_active": 6, "active": True},
+            ]
+        }
+        result = format_skills_for_prompt(profile)
+        assert result["primary_skills"] == [
+            "Go (0 years, active)",
+            "SQL (6 years, active)",
+        ]
+
+    def test_flat_string_skills_pass_through_unchanged(self):
+        """If primary_skills is already flat strings (old format), they are not modified."""
+        profile = {
+            "primary_skills": ["Python (5 years, active)", "C++ (4 years, dormant)"]
+        }
+        result = format_skills_for_prompt(profile)
+        # Same strings, untouched.
+        assert result["primary_skills"] == ["Python (5 years, active)", "C++ (4 years, dormant)"]
+
+    def test_empty_skills_list_untouched(self):
+        """An empty primary_skills list is returned as-is."""
+        profile = {"primary_skills": []}
+        result = format_skills_for_prompt(profile)
+        assert result["primary_skills"] == []
+
+    def test_original_profile_not_mutated(self):
+        """format_skills_for_prompt must not mutate the caller's profile dict."""
+        original_skills = [{"description": "Python", "years_active": 5, "active": True}]
+        profile = {"primary_skills": original_skills}
+        format_skills_for_prompt(profile)
+        # Original list must still contain a dict, not a string.
+        assert isinstance(profile["primary_skills"][0], dict)
+
+    def test_other_profile_fields_preserved(self):
+        """Fields other than primary_skills must pass through unchanged."""
+        profile = {
+            "primary_skills": [{"description": "Go", "years_active": 2, "active": True}],
+            "seniority": "Senior",
+            "anti_preferences": ["no QA"],
+        }
+        result = format_skills_for_prompt(profile)
+        assert result["seniority"] == "Senior"
+        assert result["anti_preferences"] == ["no QA"]

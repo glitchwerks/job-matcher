@@ -245,7 +245,7 @@ class TestImportMergeLogic:
 
     def test_new_skills_are_appended(self):
         """Skills in the import that are absent from current are added."""
-        current = {"primary_skills": ["Python, 5yr, active"]}
+        current = {"primary_skills": [{"description": "Python", "years_active": 5, "active": True}]}
         imported = {
             "primary_skills": [{"skill": "Go", "years": 2, "status": "active"}],
             "education": [],
@@ -254,11 +254,11 @@ class TestImportMergeLogic:
             "location_center": None,
         }
         result = app_module._merge_import_result(current, imported)
-        assert any("Go" in s for s in result["primary_skills"])
+        assert any(s.get("description") == "Go" for s in result["primary_skills"] if isinstance(s, dict))
 
     def test_existing_skills_are_preserved(self):
         """Skills already in the current profile are kept intact."""
-        current = {"primary_skills": ["Python, 5yr, active"]}
+        current = {"primary_skills": [{"description": "Python", "years_active": 5, "active": True}]}
         imported = {
             "primary_skills": [{"skill": "Go", "years": 2, "status": "active"}],
             "education": [],
@@ -267,11 +267,11 @@ class TestImportMergeLogic:
             "location_center": None,
         }
         result = app_module._merge_import_result(current, imported)
-        assert "Python, 5yr, active" in result["primary_skills"]
+        assert any(s.get("description") == "Python" for s in result["primary_skills"] if isinstance(s, dict))
 
     def test_duplicate_skills_are_not_added(self):
         """A skill already in current is not added again even if case differs."""
-        current = {"primary_skills": ["Python, 5yr, active"]}
+        current = {"primary_skills": [{"description": "Python", "years_active": 5, "active": True}]}
         imported = {
             "primary_skills": [{"skill": "python", "years": 3, "status": "active"}],
             "education": [],
@@ -280,7 +280,7 @@ class TestImportMergeLogic:
             "location_center": None,
         }
         result = app_module._merge_import_result(current, imported)
-        python_entries = [s for s in result["primary_skills"] if "python" in s.lower()]
+        python_entries = [s for s in result["primary_skills"] if isinstance(s, dict) and "python" in s.get("description", "").lower()]
         assert len(python_entries) == 1
 
     def test_new_education_entries_are_appended(self):
@@ -387,7 +387,7 @@ class TestImportMergeLogic:
             "location_center": None,
         }
         result = app_module._merge_import_result(current, imported)
-        assert any("Rust" in s for s in result["primary_skills"])
+        assert any(s.get("description") == "Rust" for s in result["primary_skills"] if isinstance(s, dict))
         assert "BS CS, CMU, 2020" in result["education"]
 
 
@@ -494,13 +494,13 @@ class TestImportEndpoint:
         assert "profile" in body
         assert body["model_used"] == "anthropic/claude-haiku"
         assert body["profile"]["seniority"] == "Senior"
-        assert any("Python" in s for s in body["profile"]["primary_skills"])
+        assert any(s.get("description") == "Python" for s in body["profile"]["primary_skills"] if isinstance(s, dict))
 
     def test_returns_200_with_profile_on_merge_import(self, client, tmp_profile_path, tmp_providers_path, tmp_keys_path):
         """Merge mode loads current profile and merges imported data."""
         # Write an existing profile
         existing = {
-            "primary_skills": ["Java, 8yr, active"],
+            "primary_skills": [{"description": "Java", "years_active": 8, "active": True}],
             "education": ["BS CS, MIT, 2015"],
             "seniority": "Staff",
             "preferred_industries": ["fintech"],
@@ -532,9 +532,9 @@ class TestImportEndpoint:
         # Existing seniority preserved
         assert profile["seniority"] == "Staff"
         # New skill added
-        assert any("Go" in s for s in profile["primary_skills"])
+        assert any(s.get("description") == "Go" for s in profile["primary_skills"] if isinstance(s, dict))
         # Existing skill preserved
-        assert any("Java" in s for s in profile["primary_skills"])
+        assert any(s.get("description") == "Java" for s in profile["primary_skills"] if isinstance(s, dict))
 
     def test_does_not_write_profile_json(self, client, tmp_profile_path, tmp_providers_path, tmp_keys_path):
         """The endpoint must NOT write to profile.json — it returns JSON for client pre-fill only."""

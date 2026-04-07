@@ -1226,15 +1226,40 @@ def _merge_import_result(current: dict, imported: dict) -> dict:
     """
     result = {}
 
-    # Skills: existing preserved, new appended as "skill, Nyr, status" strings
-    existing_skills = list(current.get("primary_skills", []))
-    existing_skill_names = {s.split(",")[0].strip().lower() for s in existing_skills}
+    # Skills: existing preserved (as structured objects), new appended from import.
+    # Existing skills may be structured dicts or legacy flat strings — normalise
+    # to structured objects so the merged result is always typed.
+    def _normalise_skill(s: object) -> dict:
+        """Convert a legacy flat string or a structured dict to a skill object."""
+        if isinstance(s, dict):
+            return s
+        # Legacy format: "Python, 5yr, active" or "Python, 5yr, dormant"
+        parts = [p.strip() for p in str(s).split(",")]
+        description = parts[0] if parts else str(s)
+        years = 0
+        active = True
+        if len(parts) >= 2:
+            yr_part = parts[1].lower().replace("yr", "").strip()
+            try:
+                years = int(yr_part)
+            except ValueError:
+                pass
+        if len(parts) >= 3:
+            active = parts[2].lower().strip() != "dormant"
+        return {"description": description, "years_active": years, "active": active}
+
+    existing_skills: list[dict] = [_normalise_skill(s) for s in current.get("primary_skills", [])]
+    existing_skill_names = {s["description"].lower() for s in existing_skills}
     for skill_obj in imported.get("primary_skills", []):
         name = skill_obj.get("skill", "")
         if name.lower() not in existing_skill_names:
             years = skill_obj.get("years", 0)
             status = skill_obj.get("status", "active")
-            existing_skills.append(f"{name}, {years}yr, {status}")
+            existing_skills.append({
+                "description": name,
+                "years_active": int(years) if years else 0,
+                "active": status != "dormant",
+            })
             existing_skill_names.add(name.lower())
     result["primary_skills"] = existing_skills
 
@@ -1354,14 +1379,18 @@ def profile_import_pdf():
     if mode == "merge":
         profile_result = _merge_import_result(current_profile, parsed)
     else:
-        formatted_skills = []
+        structured_skills = []
         for s in parsed.get("primary_skills", []):
             name = s.get("skill", "")
             years = s.get("years", 0)
             status = s.get("status", "active")
-            formatted_skills.append(f"{name}, {years}yr, {status}")
+            structured_skills.append({
+                "description": name,
+                "years_active": int(years) if years else 0,
+                "active": status != "dormant",
+            })
         profile_result = {
-            "primary_skills": formatted_skills,
+            "primary_skills": structured_skills,
             "education": parsed.get("education", []),
             "seniority": parsed.get("seniority", ""),
             "preferred_industries": parsed.get("preferred_industries", []),
@@ -1422,8 +1451,47 @@ def profile():
             if loc_notes:
                 location_block["notes"] = loc_notes
 
+            # Parse structured primary_skills fields.
+            # Each skill is submitted as parallel arrays:
+            #   skill_description[]   — the skill name
+            #   skill_years_active[]  — years of experience (integer)
+            #   skill_active_idx[]    — indices (0-based) of rows where active=true
+            # We use an index list for active because unchecked checkboxes are not
+            # submitted by browsers; the hidden-input trick captures which rows
+            # the user toggled ON.
+            descriptions = request.form.getlist("skill_description[]")
+            years_raw = request.form.getlist("skill_years_active[]")
+            active_indices_raw = request.form.getlist("skill_active_idx[]")
+            try:
+                active_indices = {int(x) for x in active_indices_raw if x.strip()}
+            except ValueError:
+                active_indices = set()
+
+            primary_skills: list[dict] = []
+            for i, desc in enumerate(descriptions):
+                desc = desc.strip()
+                if not desc:
+                    continue  # skip empty rows
+                years_str = years_raw[i] if i < len(years_raw) else "0"
+                try:
+                    years = int(years_str)
+                except (ValueError, TypeError):
+                    field_errors.append(
+                        f"Primary skill '{desc}': years must be a whole number, got '{years_str}'"
+                    )
+                    continue
+                if years < 0:
+                    field_errors.append(
+                        f"Primary skill '{desc}': years_active cannot be negative"
+                    )
+                primary_skills.append({
+                    "description": desc,
+                    "years_active": years,
+                    "active": i in active_indices,
+                })
+
             new_profile: dict = {
-                "primary_skills": _parse_repeating_rows(request.form, "primary_skills"),
+                "primary_skills": primary_skills,
                 "anti_preferences": _parse_repeating_rows(request.form, "anti_preferences"),
                 "education": _parse_repeating_rows(request.form, "education"),
                 "seniority": request.form.get("seniority", "").strip(),

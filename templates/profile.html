@@ -6,6 +6,162 @@
   <title>Job Matcher · Profile</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/style.css">
+  <style>
+    /* ── Skills table (Primary Skills section) ─────────────────────────────── */
+    .skills-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 4px;
+    }
+
+    .skills-th {
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      font-weight: normal;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      padding: 0 6px 6px 0;
+      text-align: left;
+    }
+
+    .skills-th--years {
+      width: 80px;
+      text-align: center;
+    }
+
+    .skills-th--active {
+      width: 90px;
+      text-align: center;
+    }
+
+    .skills-th--remove {
+      width: 32px;
+    }
+
+    .skills-td {
+      padding: 3px 6px 3px 0;
+      vertical-align: middle;
+    }
+
+    .skills-td--years {
+      text-align: center;
+    }
+
+    .skills-td--active {
+      text-align: center;
+    }
+
+    .skills-td--remove {
+      text-align: right;
+    }
+
+    .skills-input {
+      font-family: var(--font-ui);
+      font-size: 0.78rem;
+      color: var(--text-primary);
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: var(--radius-md);
+      padding: 4px 6px;
+      width: 100%;
+      outline: none;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .skills-input:hover {
+      border-color: var(--border-subtle);
+      background: var(--bg-raised);
+    }
+
+    .skills-input:focus {
+      border-color: var(--border-strong);
+      background: var(--bg-raised);
+    }
+
+    .skills-input--years {
+      width: 72px;
+      text-align: center;
+    }
+
+    /* ── Skill active/dormant toggle ─────────────────────────────────────── */
+    .skill-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    /* Hide the real checkbox accessibly */
+    .skill-toggle-checkbox {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+      pointer-events: none;
+    }
+
+    .skill-toggle-track {
+      position: relative;
+      display: inline-block;
+      width: 32px;
+      height: 18px;
+      border-radius: 9px;
+      background: var(--border-mid);
+      border: 1px solid var(--border-strong);
+      transition: background 0.2s, border-color 0.2s;
+      flex-shrink: 0;
+    }
+
+    .skill-toggle-knob {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      transition: transform 0.2s, background 0.2s;
+    }
+
+    /* Checked state — green track (score-high tokens), knob slides right */
+    .skill-toggle-checkbox:checked ~ .skill-toggle-track {
+      background: var(--score-high-text);
+      border-color: var(--score-high-border);
+    }
+
+    .skill-toggle-checkbox:checked ~ .skill-toggle-track .skill-toggle-knob {
+      transform: translateX(calc(32px - 12px - 6px));
+      background: var(--color-white);
+    }
+
+    .skill-toggle-checkbox:focus-visible ~ .skill-toggle-track {
+      outline: 2px solid var(--score-high-text);
+      outline-offset: 2px;
+    }
+
+    /* State label — "dormant" by default, "active" when checked */
+    .skill-toggle-label {
+      font-family: var(--font-mono);
+      font-size: 0.64rem;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      user-select: none;
+      min-width: 3.2rem;
+    }
+
+    .skill-toggle-label::before {
+      content: "dormant";
+    }
+
+    .skill-toggle-checkbox:checked ~ .skill-toggle-track ~ .skill-toggle-label {
+      color: var(--score-high-text);
+    }
+
+    .skill-toggle-checkbox:checked ~ .skill-toggle-track ~ .skill-toggle-label::before {
+      content: "active";
+    }
+  </style>
 </head>
 <body>
 {% include '_status_bar.html' %}
@@ -99,31 +255,86 @@
         <span class="provider-name">Skills &amp; Preferences</span>
       </div>
 
-      {# ── Primary skills ── #}
+      {# ── Primary skills (compact table) ── #}
       <label class="settings-label">Primary Skills</label>
-      <p class="field-hint">One skill per row. Injected into the LLM scoring prompt for matching.</p>
-      <div class="row-list" id="list-primary_skills">
-        {% set skills = prof.get('primary_skills', []) %}
-        {% if skills %}
-          {% for skill in skills %}
-            <div class="row-item">
-              <input class="settings-input" type="text" name="primary_skills[]"
-                     value="{{ skill }}" autocomplete="off">
-              <button type="button" class="btn-row-remove"
-                      aria-label="Remove row">&#x2212;</button>
-            </div>
-          {% endfor %}
-        {% else %}
-          <div class="row-item">
-            <input class="settings-input" type="text" name="primary_skills[]"
-                   autocomplete="off">
-            <button type="button" class="btn-row-remove"
-                    aria-label="Remove row">&#x2212;</button>
-          </div>
-        {% endif %}
-      </div>
-      <button type="button" class="btn-row-add"
-              data-list-id="list-primary_skills" data-name="primary_skills[]">+ Add skill</button>
+      <p class="field-hint">Skill name, years of experience, and whether the skill is currently active. Injected into the LLM scoring prompt for matching.</p>
+      <table class="skills-table" id="list-primary_skills">
+        <thead>
+          <tr>
+            <th class="skills-th">Skill</th>
+            <th class="skills-th skills-th--years">Years</th>
+            <th class="skills-th skills-th--active">Active</th>
+            <th class="skills-th skills-th--remove"></th>
+          </tr>
+        </thead>
+        <tbody id="skills-tbody">
+          {% set skills = prof.get('primary_skills', []) %}
+          {% if skills %}
+            {% for skill in skills %}
+              {% set row_idx = loop.index0 %}
+              <tr class="skill-row">
+                <td class="skills-td">
+                  <input class="skills-input" type="text" name="skill_description[]"
+                         value="{{ skill.description if skill is mapping else skill }}"
+                         autocomplete="off" placeholder="e.g. Python">
+                </td>
+                <td class="skills-td skills-td--years">
+                  <input class="skills-input skills-input--years" type="number"
+                         name="skill_years_active[]" min="0"
+                         value="{{ skill.years_active if skill is mapping else 0 }}">
+                </td>
+                <td class="skills-td skills-td--active">
+                  <label class="skill-toggle">
+                    <input type="checkbox" class="skill-toggle-checkbox"
+                           data-row-idx="{{ row_idx }}"
+                           {% if skill is mapping %}{% if skill.active %}checked{% endif %}{% else %}checked{% endif %}>
+                    <input type="hidden" name="skill_active_idx[]"
+                           class="skill-active-hidden"
+                           value="{% if skill is mapping %}{% if skill.active %}{{ row_idx }}{% endif %}{% else %}{{ row_idx }}{% endif %}">
+                    <span class="skill-toggle-track">
+                      <span class="skill-toggle-knob"></span>
+                    </span>
+                    <span class="skill-toggle-label"></span>
+                  </label>
+                </td>
+                <td class="skills-td skills-td--remove">
+                  <button type="button" class="btn-row-remove btn-skill-remove"
+                          aria-label="Remove skill">&#x2212;</button>
+                </td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr class="skill-row">
+              <td class="skills-td">
+                <input class="skills-input" type="text" name="skill_description[]"
+                       autocomplete="off" placeholder="e.g. Python">
+              </td>
+              <td class="skills-td skills-td--years">
+                <input class="skills-input skills-input--years" type="number"
+                       name="skill_years_active[]" min="0" value="0">
+              </td>
+              <td class="skills-td skills-td--active">
+                <label class="skill-toggle">
+                  <input type="checkbox" class="skill-toggle-checkbox"
+                         data-row-idx="0" checked>
+                  <input type="hidden" name="skill_active_idx[]"
+                         class="skill-active-hidden" value="0">
+                  <span class="skill-toggle-track">
+                    <span class="skill-toggle-knob"></span>
+                  </span>
+                  <span class="skill-toggle-label"></span>
+                </label>
+              </td>
+              <td class="skills-td skills-td--remove">
+                <button type="button" class="btn-row-remove btn-skill-remove"
+                        aria-label="Remove skill">&#x2212;</button>
+              </td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+      <button type="button" class="btn-row-add btn-skill-add"
+              id="btn-add-skill">+ Add skill</button>
 
       <hr class="form-section-divider">
 
@@ -486,7 +697,7 @@
 
         var prof = result.data.profile;
 
-        _fillRepeatingRows('primary_skills', prof.primary_skills || []);
+        _fillSkillsTable(prof.primary_skills || []);
         _fillRepeatingRows('education', prof.education || []);
         _fillRepeatingRows('preferred_industries', prof.preferred_industries || []);
 
@@ -533,6 +744,39 @@
       div.querySelector('input').value = val;
       list.appendChild(div);
     });
+  }
+
+  /**
+   * Repopulate the skills table from an array of structured skill objects
+   * returned by the PDF import endpoint. Each item may be:
+   *   - an object: { description, years_active, active }
+   *   - a plain string (legacy fallback)
+   *
+   * @param {Array} skills
+   */
+  function _fillSkillsTable(skills) {
+    var tbody = document.getElementById('skills-tbody');
+    if (!tbody) return;
+
+    tbody.querySelectorAll('.skill-row').forEach(function (r) { r.remove(); });
+
+    var items = skills.length ? skills : [{ description: '', years_active: 0, active: true }];
+    items.forEach(function (s, idx) {
+      var desc, years, active;
+      if (typeof s === 'object' && s !== null) {
+        desc = s.description || '';
+        years = typeof s.years_active === 'number' ? s.years_active : 0;
+        active = s.active !== false;
+      } else {
+        desc = String(s);
+        years = 0;
+        active = true;
+      }
+      // _makeSkillRow is exposed on window by the row-JS IIFE below.
+      tbody.appendChild(window._makeSkillRow(idx, desc, years, active));
+    });
+    // _reindexSkillRows is exposed on window by the row-JS IIFE below.
+    window._reindexSkillRows();
   }
 })();
 </script>
@@ -581,8 +825,125 @@
     row.parentNode.removeChild(row);
   }
 
+  // ── Skills table helpers ──────────────────────────────────────────────────
+
+  /**
+   * Build a <tr> for the skills table at the given 0-based index.
+   * Exposed on window so the PDF-import IIFE (loaded first) can call it.
+   *
+   * @param {number} idx     - row index used for active hidden-input values
+   * @param {string} desc    - skill name (may be empty for a blank new row)
+   * @param {number} years   - years of experience
+   * @param {boolean} active - whether the skill is currently active
+   * @returns {HTMLTableRowElement}
+   */
+  function _makeSkillRow(idx, desc, years, active) {
+    var tr = document.createElement('tr');
+    tr.className = 'skill-row';
+
+    var checkedAttr = active ? ' checked' : '';
+    var hiddenVal   = active ? String(idx) : '';
+
+    tr.innerHTML =
+      '<td class="skills-td">' +
+        '<input class="skills-input" type="text" name="skill_description[]"' +
+        ' value="" autocomplete="off" placeholder="e.g. Python">' +
+      '</td>' +
+      '<td class="skills-td skills-td--years">' +
+        '<input class="skills-input skills-input--years" type="number"' +
+        ' name="skill_years_active[]" min="0" value="' + (years || 0) + '">' +
+      '</td>' +
+      '<td class="skills-td skills-td--active">' +
+        '<label class="skill-toggle">' +
+          '<input type="checkbox" class="skill-toggle-checkbox"' +
+          ' data-row-idx="' + idx + '"' + checkedAttr + '>' +
+          '<input type="hidden" name="skill_active_idx[]"' +
+          ' class="skill-active-hidden" value="' + hiddenVal + '">' +
+          '<span class="skill-toggle-track"><span class="skill-toggle-knob"></span></span>' +
+          '<span class="skill-toggle-label"></span>' +
+        '</label>' +
+      '</td>' +
+      '<td class="skills-td skills-td--remove">' +
+        '<button type="button" class="btn-row-remove btn-skill-remove"' +
+        ' aria-label="Remove skill">&#x2212;</button>' +
+      '</td>';
+
+    // Set description value via property to avoid XSS from innerHTML + value
+    tr.querySelector('input[name="skill_description[]"]').value = desc || '';
+    return tr;
+  }
+
+  /**
+   * Reindex all skill rows so their active hidden inputs have correct 0-based
+   * indices. Must be called after any row is added or removed.
+   */
+  function _reindexSkillRows() {
+    var tbody = document.getElementById('skills-tbody');
+    if (!tbody) return;
+    tbody.querySelectorAll('.skill-row').forEach(function (tr, i) {
+      var checkbox = tr.querySelector('.skill-toggle-checkbox');
+      var hidden   = tr.querySelector('.skill-active-hidden');
+      if (!checkbox || !hidden) return;
+      checkbox.dataset.rowIdx = i;
+      hidden.value = checkbox.checked ? String(i) : '';
+    });
+  }
+
+  /**
+   * Add a blank row to the skills table.
+   */
+  function addSkillRow() {
+    var tbody = document.getElementById('skills-tbody');
+    if (!tbody) return;
+    var existingRows = tbody.querySelectorAll('.skill-row');
+    var newIdx = existingRows.length;
+    var tr = _makeSkillRow(newIdx, '', 0, true);
+    tbody.appendChild(tr);
+    tr.querySelector('input[name="skill_description[]"]').focus();
+    // No reindex needed — new row already has the correct index.
+  }
+
+  /**
+   * Remove a skill row. Ensures at least one row always remains.
+   *
+   * @param {HTMLElement} btn - the remove button that was clicked
+   */
+  function removeSkillRow(btn) {
+    var tbody = document.getElementById('skills-tbody');
+    if (!tbody) return;
+    var tr = btn.closest('.skill-row');
+    if (!tr) return;
+    var rows = tbody.querySelectorAll('.skill-row');
+    if (rows.length <= 1) {
+      // Clear fields instead of removing the last row.
+      var descInput = tr.querySelector('input[name="skill_description[]"]');
+      var yearsInput = tr.querySelector('input[name="skill_years_active[]"]');
+      if (descInput) descInput.value = '';
+      if (yearsInput) yearsInput.value = '0';
+      return;
+    }
+    tr.parentNode.removeChild(tr);
+    _reindexSkillRows();
+  }
+
+  // Expose helpers that the PDF-import IIFE (defined earlier in the page)
+  // references from click handlers fired after both scripts have loaded.
+  window._makeSkillRow    = _makeSkillRow;
+  window._reindexSkillRows = _reindexSkillRows;
+
   // Event delegation — handles both statically-rendered and dynamically-added buttons.
   document.addEventListener('click', function (e) {
+    // Skills table — remove row
+    if (e.target.matches('.btn-skill-remove')) {
+      removeSkillRow(e.target);
+      return;
+    }
+    // Skills table — add row
+    if (e.target.matches('#btn-add-skill')) {
+      addSkillRow();
+      return;
+    }
+    // Standard repeating-row remove
     if (e.target.matches('.btn-row-remove')) {
       removeRow(e.target);
     }
@@ -593,6 +954,18 @@
       if (listId && name) {
         addRow(listId, name);
       }
+    }
+  });
+
+  // Skills table toggle — sync hidden input when checkbox changes.
+  document.addEventListener('change', function (e) {
+    if (e.target.matches('.skill-toggle-checkbox')) {
+      var checkbox = e.target;
+      var tr       = checkbox.closest('.skill-row');
+      if (!tr) return;
+      var hidden   = tr.querySelector('.skill-active-hidden');
+      if (!hidden) return;
+      hidden.value = checkbox.checked ? String(checkbox.dataset.rowIdx) : '';
     }
   });
 }());
