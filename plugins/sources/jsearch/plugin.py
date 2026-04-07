@@ -45,10 +45,12 @@ _SALARY_PERIOD_MAP: dict[str, str] = {
 def _normalise_contract_time(raw: str | None) -> str | None:
     """Map a JSearch employment-type string to the canonical contract_time value.
 
-    Lookup is case-insensitive.  Known values such as ``"FULLTIME"`` are mapped
-    to their canonical equivalents.  Unknown values are lowercased and passed
-    through so that the prefilter can still act on them.  ``None`` or empty
-    string returns ``None``.
+    Hyphens and spaces are stripped before lookup, so ``"full-time"``,
+    ``"FULL-TIME"``, and ``"full time"`` all resolve to the same canonical
+    value.  Lookup is case-insensitive.  Known values such as ``"FULLTIME"``
+    are mapped to their canonical equivalents.  Unknown values are lowercased
+    and passed through so that the prefilter can still act on them.  ``None``
+    or empty string returns ``None``.
 
     Args:
         raw: Raw employment-type string from the JSearch API (e.g. ``"FULLTIME"``).

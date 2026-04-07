@@ -173,6 +173,30 @@ class TestNormaliseContractTime:
         """Unknown value 'temporary' is lowercased and passed through."""
         assert _normalise_contract_time("temporary") == "temporary"
 
+    # ------------------------------------------------------------------
+    # Space-separated inputs (regression for #83 review feedback)
+    # ------------------------------------------------------------------
+
+    def test_space_separated_full_time_uppercase(self):
+        """'FULL TIME' (space instead of hyphen) normalises to 'full_time'."""
+        assert _normalise_contract_time("FULL TIME") == "full_time"
+
+    def test_space_separated_part_time_titlecase(self):
+        """'Part Time' (titlecase with space) normalises to 'part_time'."""
+        assert _normalise_contract_time("Part Time") == "part_time"
+
+    # ------------------------------------------------------------------
+    # Regression: map entries for CONTRACTOR and INTERN
+    # ------------------------------------------------------------------
+
+    def test_contractor_regression(self):
+        """'CONTRACTOR' maps to 'contract' via _CONTRACT_TIME_MAP."""
+        assert _normalise_contract_time("CONTRACTOR") == "contract"
+
+    def test_intern_regression(self):
+        """'INTERN' maps to 'intern' via _CONTRACT_TIME_MAP."""
+        assert _normalise_contract_time("INTERN") == "intern"
+
 
 # ---------------------------------------------------------------------------
 # _normalise_salary_period()
