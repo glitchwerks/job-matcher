@@ -514,11 +514,15 @@ class TestOpenAIGenerate:
 
     def test_generate_raises_after_two_failures(self):
         """generate() raises RuntimeError after 2 failed attempts."""
+        import openai as openai_sdk
+
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = Exception("API error")
+        mock_client.chat.completions.create.side_effect = openai_sdk.APIError(
+            "API error", request=MagicMock(), body=None
+        )
 
         with patch("providers.openai_provider.openai") as mock_openai:
-            mock_openai.APIError = Exception
+            mock_openai.APIError = openai_sdk.APIError
             from providers.openai_provider import OpenAIProvider
             provider = OpenAIProvider.__new__(OpenAIProvider)
             provider._client = mock_client

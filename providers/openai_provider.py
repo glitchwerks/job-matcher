@@ -144,6 +144,50 @@ class OpenAIProvider(LLMProvider):
         """USD cost per million output tokens for the configured model."""
         return self._output_cost
 
+    def generate(self, prompt: str) -> str:
+        """Call the OpenAI Chat Completions API and return raw text.
+
+        Unlike ``complete()``, no JSON parsing is performed — the raw text
+        from the first choice is returned directly.  Retries once on API
+        error (2-second delay).  Raises ``RuntimeError`` if both attempts fail.
+
+        Args:
+            prompt: Fully rendered prompt string.
+
+        Returns:
+            Raw text string from the model response.
+
+        Raises:
+            RuntimeError: After two consecutive failures.
+        """
+        for attempt in range(2):
+            if attempt > 0:
+                time.sleep(2)
+
+            try:
+                response = self._client.chat.completions.create(
+                    model=self._model,
+                    max_tokens=1024,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+            except openai.APIError as exc:
+                logger.warning(
+                    "OpenAI API error (attempt %d/2): %s", attempt + 1, exc
+                )
+                continue
+
+            try:
+                return response.choices[0].message.content or ""
+            except (IndexError, AttributeError) as exc:
+                logger.warning(
+                    "Unexpected OpenAI response structure (attempt %d/2): %s",
+                    attempt + 1,
+                    exc,
+                )
+                continue
+
+        raise RuntimeError("OpenAI generate failed after 2 attempts")
+
     def complete(self, prompt: str) -> dict:
         """Call the OpenAI Chat Completions API and return a parsed scoring dict.
 
