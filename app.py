@@ -20,7 +20,12 @@ from flask import Flask, render_template, make_response, request, jsonify, redir
 
 import db
 from credentials import CredentialError, load_providers, save_providers
-from providers import _PROVIDER_CLASS_MAP
+from io import BytesIO
+
+from pypdf import PdfReader
+
+from providers import _PROVIDER_CLASS_MAP, build_provider_chain, generate_with_fallback
+from providers.anthropic_provider import strip_fences
 from providers.base import _sanitise_detail
 from job_sources import get_sources
 
@@ -1067,6 +1072,261 @@ def _parse_repeating_rows(form, field_name: str) -> list[str]:
     """
     values = form.getlist(f"{field_name}[]")
     return [v.strip() for v in values if v.strip()]
+
+
+# ---------------------------------------------------------------------------
+# PDF resume import — helpers
+# ---------------------------------------------------------------------------
+
+
+def _extract_pdf_text(pdf_bytes: bytes) -> str:
+    """Extract all text from a PDF given its raw bytes.
+
+    Args:
+        pdf_bytes: Raw bytes of the uploaded PDF file.
+
+    Returns:
+        Concatenated text from all pages (empty string if no text found).
+
+    Raises:
+        ValueError: If pypdf cannot parse the bytes as a valid PDF.
+    """
+    try:
+        reader = PdfReader(BytesIO(pdf_bytes))
+    except Exception as exc:
+        raise ValueError(f"Could not read PDF: {exc}") from exc
+    return "".join(page.extract_text() or "" for page in reader.pages)
+
+
+_IMPORT_PROMPT_FRESH = """You are extracting structured profile data from a resume/CV.
+
+RESUME TEXT:
+{resume_text}
+
+Extract the following fields and respond with ONLY a JSON object. No explanation, no markdown, no code fences.
+
+The JSON must have exactly these keys:
+- "primary_skills": array of objects, each with "skill" (string), "years" (integer estimate), "status" ("active" or "dormant")
+- "education": array of strings, each formatted as "Degree, Institution, Year" (e.g. "BS Computer Science, MIT, 2015")
+- "seniority": string inferred from job titles (e.g. "Junior", "Mid-level", "Senior", "Staff", "Lead", "Principal")
+- "preferred_industries": array of strings inferred from work history (e.g. "fintech", "healthtech", "developer tooling")
+- "location_center": string from contact info if present (e.g. "Miami, FL"), or null if not found
+
+If a field cannot be confidently extracted, use an empty array, empty string, or null as appropriate. Do not guess or hallucinate values.
+
+JSON only:"""
+
+_IMPORT_PROMPT_MERGE = """You are extracting structured profile data from a resume/CV to merge with an existing candidate profile.
+
+EXISTING PROFILE:
+{current_profile}
+
+RESUME TEXT:
+{resume_text}
+
+Extract the following fields and respond with ONLY a JSON object. No explanation, no markdown, no code fences.
+
+The JSON must have exactly these keys:
+- "primary_skills": array of objects, each with "skill" (string), "years" (integer estimate), "status" ("active" or "dormant"). Include ALL skills from both the resume and existing profile. Do not remove existing skills.
+- "education": array of strings, each formatted as "Degree, Institution, Year". Include entries from both resume and existing profile. Do not duplicate identical entries.
+- "seniority": string inferred from job titles. If the existing profile already has a seniority value, keep it unchanged. Only fill this if the existing value is empty.
+- "preferred_industries": array of strings inferred from work history. Include industries from both resume and existing profile without duplicates.
+- "location_center": string from contact info if present (e.g. "Miami, FL"), or null if not found. If the existing profile has a location, keep it.
+
+If a field cannot be confidently extracted, preserve the existing value. Do not guess or hallucinate values.
+
+JSON only:"""
+
+
+def _build_import_prompt(resume_text: str, mode: str, current_profile: dict | None) -> str:
+    """Build the LLM prompt for PDF resume import.
+
+    Args:
+        resume_text:     Extracted plain text from the uploaded PDF.
+        mode:            ``"fresh"`` or ``"merge"``.
+        current_profile: Existing profile dict (used only in merge mode).
+
+    Returns:
+        Formatted prompt string ready to send to the LLM.
+    """
+    if mode == "merge" and current_profile:
+        return _IMPORT_PROMPT_MERGE.format(
+            current_profile=json.dumps(current_profile, indent=2),
+            resume_text=resume_text,
+        )
+    return _IMPORT_PROMPT_FRESH.format(resume_text=resume_text)
+
+
+def _parse_import_response(raw: str) -> dict | None:
+    """Parse the LLM's JSON response for a PDF import request.
+
+    Strips markdown code fences, parses JSON, and fills missing keys with
+    safe defaults so callers can always rely on the expected keys existing.
+
+    Args:
+        raw: Raw text response from the LLM.
+
+    Returns:
+        Parsed dict with all expected keys, or ``None`` if parsing fails.
+    """
+    try:
+        cleaned = strip_fences(raw)
+        data = json.loads(cleaned)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    data.setdefault("primary_skills", [])
+    data.setdefault("education", [])
+    data.setdefault("seniority", "")
+    data.setdefault("preferred_industries", [])
+    data.setdefault("location_center", None)
+    return data
+
+
+def _merge_import_result(current: dict, imported: dict) -> dict:
+    """Merge LLM-extracted import data into the existing profile.
+
+    Merging rules:
+    - Skills: preserve all existing; append new ones (case-insensitive dedup).
+    - Education: preserve all existing; append new ones (case-insensitive dedup).
+    - Seniority: keep existing if non-empty; otherwise use imported value.
+    - Industries: union of both lists, case-insensitive dedup.
+    - Location: keep existing center if set; otherwise use imported value.
+
+    Args:
+        current:  Existing profile dict (may be empty).
+        imported: Parsed LLM response dict from ``_parse_import_response()``.
+
+    Returns:
+        Merged profile dict containing all combined data.
+    """
+    result = {}
+
+    # Skills: existing preserved, new appended as "skill, Nyr, status" strings
+    existing_skills = list(current.get("primary_skills", []))
+    existing_skill_names = {s.split(",")[0].strip().lower() for s in existing_skills}
+    for skill_obj in imported.get("primary_skills", []):
+        name = skill_obj.get("skill", "")
+        if name.lower() not in existing_skill_names:
+            years = skill_obj.get("years", 0)
+            status = skill_obj.get("status", "active")
+            existing_skills.append(f"{name}, {years}yr, {status}")
+            existing_skill_names.add(name.lower())
+    result["primary_skills"] = existing_skills
+
+    # Education: append new, skip duplicates (case-insensitive)
+    existing_edu = list(current.get("education", []))
+    existing_edu_lower = {e.lower() for e in existing_edu}
+    for entry in imported.get("education", []):
+        if entry.lower() not in existing_edu_lower:
+            existing_edu.append(entry)
+            existing_edu_lower.add(entry.lower())
+    result["education"] = existing_edu
+
+    # Seniority: keep existing if set, fill from import if empty
+    current_seniority = current.get("seniority", "")
+    result["seniority"] = current_seniority if current_seniority else imported.get("seniority", "")
+
+    # Industries: union, deduplicated
+    existing_industries = list(current.get("preferred_industries", []))
+    existing_lower = {i.lower() for i in existing_industries}
+    for industry in imported.get("preferred_industries", []):
+        if industry.lower() not in existing_lower:
+            existing_industries.append(industry)
+            existing_lower.add(industry.lower())
+    result["preferred_industries"] = existing_industries
+
+    # Location: keep existing if set
+    current_location = current.get("location", {})
+    current_center = current_location.get("center", "") if isinstance(current_location, dict) else ""
+    result["location_center"] = current_center if current_center else imported.get("location_center")
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# PDF resume import — endpoint
+# ---------------------------------------------------------------------------
+
+
+@app.route("/profile/import-pdf", methods=["POST"])
+def profile_import_pdf():
+    """Import profile data from an uploaded PDF resume via LLM extraction.
+
+    Accepts a multipart/form-data POST with:
+    - ``file``: PDF file upload (required).
+    - ``mode``: ``"fresh"`` (default) or ``"merge"``.
+
+    Returns JSON — does NOT write profile.json.  The response payload is
+    intended for client-side form pre-fill so the user can review before saving.
+
+    Returns:
+        200 ``{"success": True, "profile": {...}, "model_used": "provider/model"}``
+        400 invalid input (no file, non-PDF, unreadable PDF)
+        422 extracted text too short to be useful
+        502 LLM failure (all providers failed or unparseable response)
+        503 no LLM provider configured
+    """
+    # Validate file
+    uploaded = request.files.get("file")
+    if not uploaded or not uploaded.filename:
+        return jsonify({"success": False, "error": "No file uploaded."}), 400
+    if not uploaded.filename.lower().endswith(".pdf"):
+        return jsonify({"success": False, "error": "Only PDF files are accepted."}), 400
+
+    mode = request.form.get("mode", "fresh")
+    if mode not in ("fresh", "merge"):
+        mode = "fresh"
+
+    # Extract text
+    pdf_bytes = uploaded.read()
+    try:
+        resume_text = _extract_pdf_text(pdf_bytes)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+
+    if len(resume_text.strip()) < 50:
+        return jsonify({"success": False, "error": "Could not extract meaningful text from this PDF."}), 422
+
+    # Build provider chain
+    providers_dict = _load_providers_safe()
+    chain = build_provider_chain(providers_dict)
+    if not chain:
+        return jsonify({"success": False, "error": "No LLM provider is configured. Add one in Settings first."}), 503
+
+    # Build prompt and call LLM
+    current_profile = load_profile(_PROFILE_PATH) if mode == "merge" else None
+    prompt = _build_import_prompt(resume_text, mode, current_profile)
+    result = generate_with_fallback(prompt, chain, set())
+    if result is None:
+        return jsonify({"success": False, "error": "All LLM providers failed. Check your API keys in Settings."}), 502
+
+    raw_text, model_used = result
+
+    # Parse response
+    parsed = _parse_import_response(raw_text)
+    if parsed is None:
+        return jsonify({"success": False, "error": "LLM returned an unparseable response. Try again."}), 502
+
+    # Apply merge or format for fresh
+    if mode == "merge":
+        current = load_profile(_PROFILE_PATH)
+        profile_result = _merge_import_result(current, parsed)
+    else:
+        formatted_skills = []
+        for s in parsed.get("primary_skills", []):
+            name = s.get("skill", "")
+            years = s.get("years", 0)
+            status = s.get("status", "active")
+            formatted_skills.append(f"{name}, {years}yr, {status}")
+        profile_result = {
+            "primary_skills": formatted_skills,
+            "education": parsed.get("education", []),
+            "seniority": parsed.get("seniority", ""),
+            "preferred_industries": parsed.get("preferred_industries", []),
+            "location_center": parsed.get("location_center"),
+        }
+
+    return jsonify({"success": True, "profile": profile_result, "model_used": model_used}), 200
 
 
 @app.route("/profile", methods=["GET", "POST"])
