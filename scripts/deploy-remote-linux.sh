@@ -150,8 +150,21 @@ echo "COMPOSE_VER=\"${COMPOSE_VER}\""
 REMOTE
 )
 
-# Parse the key=value pairs emitted by the heredoc above.
-eval "${REMOTE_CHECKS}"
+# Safely parse the key=value pairs emitted by the heredoc above.
+# Uses a case statement instead of eval to prevent command injection
+# from a compromised remote host.
+while IFS='=' read -r key value; do
+    # Strip surrounding quotes from value
+    value="${value#\"}"
+    value="${value%\"}"
+    case "$key" in
+        DOCKER_OK)    DOCKER_OK="$value" ;;
+        COMPOSE_OK)   COMPOSE_OK="$value" ;;
+        DOCKER_VER)   DOCKER_VER="$value" ;;
+        COMPOSE_VER)  COMPOSE_VER="$value" ;;
+        *)            ;;  # Ignore unexpected keys
+    esac
+done <<< "$REMOTE_CHECKS"
 
 PREREQ_FAILED=0
 
@@ -263,7 +276,7 @@ done
 # Bash on the remote will choke on \r in shell scripts (e.g. "set -euo pipefail\r"
 # becomes ": invalid option name"). Convert all text files to LF.
 step "Converting line endings to LF on remote..."
-ssh "${SSH_TARGET}" "sed -i 's/\r\$//' '${REMOTE_PATH}'/docker-compose.*.yml '${REMOTE_PATH}'/scripts/*.sh '${REMOTE_PATH}'/config/*.json 2>/dev/null; true"
+ssh "${SSH_TARGET}" "cd '${REMOTE_PATH}' && sed -i 's/\r\$//' docker-compose.*.yml scripts/*.sh config/*.json .env*.example 2>/dev/null || true"
 ok "Line endings converted."
 
 ok "All deployment files copied to ${REMOTE_PATH}."
