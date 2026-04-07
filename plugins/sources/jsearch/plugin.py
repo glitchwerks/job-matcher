@@ -7,9 +7,10 @@ API response — no scraping step required.
 
 Free tier: 200 requests/month.  Each call to ``fetch_page()`` makes **two** API
 requests: one local query (``"{what} in {where}"`` with a ``radius`` refinement)
-and one remote-only query (``remote_jobs_only=true``).  With ``max_pages=5`` the
-default that is 10 API calls per run — roughly 20 runs/month on the free tier.
-The configured ``max_pages`` default of 3 is intentionally conservative.
+and one remote-only query (``remote_jobs_only=true``).  At the configured default
+of ``max_pages=5``, each run makes 10 API calls — roughly 20 runs/month on the
+free tier.  Consider reducing ``max_pages`` to 3 for more conservative usage (~30
+runs/month).
 """
 
 from __future__ import annotations
