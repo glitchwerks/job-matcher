@@ -23,7 +23,7 @@ jobs:
       - name: Get PR number
         id: pr
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           PR=$(gh api repos/${{ github.repository }}/pulls \
             --jq ".[] | select(.head.sha == \"${{ github.event.workflow_run.head_sha }}\") | .number" \
@@ -33,7 +33,7 @@ jobs:
       - name: Check if lint job failed
         id: check
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           FAILED=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs \
             --jq '[.jobs[] | select(.conclusion == "failure") | .name]')
@@ -57,4 +57,5 @@ jobs:
       auto_apply: true
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      gh_pat: ${{ secrets.GH_TOKEN }}
+      app_id: ${{ secrets.APP_ID }}
+      app_private_key: ${{ secrets.APP_PRIVATE_KEY }}
