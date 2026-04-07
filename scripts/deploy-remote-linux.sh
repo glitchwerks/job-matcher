@@ -258,6 +258,14 @@ for ENV_EXAMPLE in .env.prod.example .env.dev.example; do
     fi
 done
 
+# --- Fix line endings (Windows → Unix) ---
+# scp from a Windows workstation copies files with CRLF line endings.
+# Bash on the remote will choke on \r in shell scripts (e.g. "set -euo pipefail\r"
+# becomes ": invalid option name"). Convert all text files to LF.
+step "Converting line endings to LF on remote..."
+ssh "${SSH_TARGET}" "sed -i 's/\r\$//' '${REMOTE_PATH}'/docker-compose.*.yml '${REMOTE_PATH}'/scripts/*.sh '${REMOTE_PATH}'/config/*.json 2>/dev/null; true"
+ok "Line endings converted."
+
 ok "All deployment files copied to ${REMOTE_PATH}."
 
 # ---------------------------------------------------------------------------
