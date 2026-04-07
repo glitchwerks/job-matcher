@@ -23,6 +23,7 @@ from credentials import CredentialError, load_providers, save_providers
 from io import BytesIO
 
 from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 from providers import _PROVIDER_CLASS_MAP, build_provider_chain, generate_with_fallback
 from providers.anthropic_provider import strip_fences
@@ -1094,7 +1095,7 @@ def _extract_pdf_text(pdf_bytes: bytes) -> str:
     try:
         reader = PdfReader(BytesIO(pdf_bytes))
         return "".join(page.extract_text() or "" for page in reader.pages)
-    except Exception as exc:
+    except (PdfReadError, ValueError, IOError) as exc:
         raise ValueError(f"Could not read PDF: {exc}") from exc
 
 
@@ -1253,15 +1254,26 @@ def profile_import_pdf():
     """Import profile data from an uploaded PDF resume via LLM extraction.
 
     Accepts a multipart/form-data POST with:
-    - ``file``: PDF file upload (required).
+    - ``file``: PDF file upload (required, max 10 MB).
     - ``mode``: ``"fresh"`` (default) or ``"merge"``.
 
     Returns JSON — does NOT write profile.json.  The response payload is
     intended for client-side form pre-fill so the user can review before saving.
 
+    .. note::
+        **Blocking**: this endpoint synchronously calls the configured LLM
+        provider and may take 5–30 seconds depending on PDF size and provider
+        response time.  Do not call it from a context that cannot tolerate a
+        long-running request.
+
+        **CSRF protection**: the endpoint is guarded by the app's
+        localhost/private-network origin check, which rejects cross-origin
+        requests from outside the trusted network.
+
     Returns:
         200 ``{"success": True, "profile": {...}, "model_used": "provider/model"}``
         400 invalid input (no file, non-PDF, unreadable PDF)
+        413 file or extracted text exceeds size limits
         422 extracted text too short to be useful
         502 LLM failure (all providers failed or unparseable response)
         503 no LLM provider configured
@@ -1279,6 +1291,8 @@ def profile_import_pdf():
 
     # Extract text
     pdf_bytes = uploaded.read()
+    if len(pdf_bytes) > 10 * 1024 * 1024:
+        return jsonify({"success": False, "error": "PDF exceeds the 10 MB size limit."}), 413
     try:
         resume_text = _extract_pdf_text(pdf_bytes)
     except ValueError as exc:
@@ -1286,6 +1300,11 @@ def profile_import_pdf():
 
     if len(resume_text.strip()) < 50:
         return jsonify({"success": False, "error": "Could not extract meaningful text from this PDF."}), 422
+
+    # Prompt injection mitigation: enforce length cap and strip control characters
+    if len(resume_text) > 50_000:
+        return jsonify({"success": False, "error": "Extracted PDF text exceeds the 50,000 character limit."}), 413
+    resume_text = "".join(ch for ch in resume_text if ch.isprintable() or ch in "\n\r\t")
 
     # Build provider chain
     providers_dict = _load_providers_safe()

@@ -476,7 +476,11 @@
         importBtn.textContent = 'Import';
 
         if (!result.ok || !result.data.success) {
-          statusDiv.innerHTML = '<p class="save-error">' + (result.data.error || 'Import failed.') + '</p>';
+          statusDiv.innerHTML = '';
+          var errP = document.createElement('p');
+          errP.className = 'save-error';
+          errP.textContent = result.data.error || 'Import failed.';
+          statusDiv.appendChild(errP);
           return;
         }
 
@@ -492,19 +496,29 @@
         var locationInput = document.querySelector('input[name="location_center"]');
         if (locationInput && prof.location_center) locationInput.value = prof.location_center;
 
-        statusDiv.innerHTML = '<p class="save-notice">Profile pre-filled from resume (' +
-          result.data.model_used + '). Review the fields below and click Save.</p>';
+        statusDiv.innerHTML = '';
+        var noticeP = document.createElement('p');
+        noticeP.className = 'save-notice';
+        noticeP.textContent = 'Profile pre-filled from resume (' + result.data.model_used + '). Review the fields below and click Save.';
+        statusDiv.appendChild(noticeP);
       })
       .catch(function (err) {
         importBtn.disabled = false;
         importBtn.textContent = 'Import';
-        statusDiv.innerHTML = '<p class="save-error">Network error: ' + err.message + '</p>';
+        statusDiv.innerHTML = '';
+        var netErrP = document.createElement('p');
+        netErrP.className = 'save-error';
+        netErrP.textContent = 'Network error: ' + err.message;
+        statusDiv.appendChild(netErrP);
       });
   });
 
   function _fillRepeatingRows(fieldName, values) {
     var list = document.getElementById('list-' + fieldName);
-    if (!list) return;
+    if (!list) {
+      console.warn('Import: list element not found for field:', fieldName);
+      return;
+    }
 
     var rows = list.querySelectorAll('.row-item');
     rows.forEach(function (r) { r.remove(); });
