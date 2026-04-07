@@ -1093,9 +1093,9 @@ def _extract_pdf_text(pdf_bytes: bytes) -> str:
     """
     try:
         reader = PdfReader(BytesIO(pdf_bytes))
+        return "".join(page.extract_text() or "" for page in reader.pages)
     except Exception as exc:
         raise ValueError(f"Could not read PDF: {exc}") from exc
-    return "".join(page.extract_text() or "" for page in reader.pages)
 
 
 _IMPORT_PROMPT_FRESH = """You are extracting structured profile data from a resume/CV.
@@ -1309,8 +1309,7 @@ def profile_import_pdf():
 
     # Apply merge or format for fresh
     if mode == "merge":
-        current = load_profile(_PROFILE_PATH)
-        profile_result = _merge_import_result(current, parsed)
+        profile_result = _merge_import_result(current_profile, parsed)
     else:
         formatted_skills = []
         for s in parsed.get("primary_skills", []):
