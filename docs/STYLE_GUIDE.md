@@ -254,6 +254,17 @@ Cards use `<details>`/`<summary>` for native expand/collapse. Tier is set via `d
 | `.card-body` | `<article>` | Expanded content; padding 0 22px 16px |
 | `.card-divider` | `<div>` | 1px `--border-subtle` horizontal rule inside card body |
 
+### Collapsible Sections (class-toggled)
+
+For sections that need JS control over expand/collapse (e.g. when the expanded body contains interactive elements that conflict with `<details>`), use a `.provider-row` wrapper with class toggling instead of `<details>`/`<summary>`.
+
+| Class | Element | Notes |
+|---|---|---|
+| `.import-section` | `.provider-row` | Wrapper; add `.expanded` class to show body |
+| `.import-toggle` | `.provider-header` | Clickable header; `cursor: pointer`; toggles `.expanded` on parent |
+| `.import-chevron` | `<span>` | Right-floated arrow; rotates 90° on `.expanded`; `var(--text-secondary)` |
+| `.import-body` | `<div>` | Content; `display: none` at rest, `display: block` when parent has `.expanded` |
+
 ### Badges & Pills
 
 All badges share the pill shape: `border-radius: 20px`, `--font-mono`, padding `2–3px 7–10px`. Always use the full bg/text/border triplet from the color matrix.
