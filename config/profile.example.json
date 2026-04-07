@@ -1,13 +1,14 @@
 {
   "_comment": "Copy this file to profile.json and fill in your own skills and preferences. profile.json is gitignored and must never be committed.",
+  "_primary_skills_help": "primary_skills is an array of objects. Each object has: 'description' (string — the skill name), 'years_active' (integer — years of experience), 'active' (boolean — true if currently using this skill, false if dormant/historical). Active skills are weighted more heavily in LLM scoring.",
   "primary_skills": [
-    "Python, 5yr, active",
-    "Go, 2yr, active",
-    "SQL, 6yr, active",
-    "Docker, 3yr, active",
-    "Linux, 4yr, active",
-    "Kubernetes, 1yr, active",
-    "C++, 4yr, dormant"
+    {"description": "Python", "years_active": 5, "active": true},
+    {"description": "Go", "years_active": 2, "active": true},
+    {"description": "SQL", "years_active": 6, "active": true},
+    {"description": "Docker", "years_active": 3, "active": true},
+    {"description": "Linux", "years_active": 4, "active": true},
+    {"description": "Kubernetes", "years_active": 1, "active": true},
+    {"description": "C++", "years_active": 4, "active": false}
   ],
   "anti_preferences": [
     "no pure frontend roles (React / Vue / Angular only — no backend component)",

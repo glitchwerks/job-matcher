@@ -338,6 +338,33 @@ Used on the Profile page for fields where the user manages an ordered list of va
 
 **JS pattern** — row buttons use event delegation (single `document.addEventListener('click', ...)` handler in `profile.html`). Never add `onclick` attributes directly; instead set `data-list-id` and `data-name` on `.btn-row-add` buttons. `.btn-row-remove` needs no data attributes — the handler walks up to `.row-item` / `.row-list` via `closest()`.
 
+#### Profile form — skills table
+
+Used specifically for the Primary Skills field, which has three columns (Skill, Years, Active) instead of a single text input per row. Styles are defined in a `<style>` block inside `profile.html` (scoped to this page). Use only CSS custom properties from `:root`.
+
+| Class | Element | Notes |
+|---|---|---|
+| `.skills-table` | `<table>` | Full-width, `border-collapse: collapse`; contains `<thead>` + `<tbody id="skills-tbody">` |
+| `.skills-th` | `<th>` | `--font-mono` 0.62rem uppercase 0.08em, `--text-muted`; left-aligned; modifiers below |
+| `.skills-th--years` | modifier on `.skills-th` | Fixed 80px width, centered |
+| `.skills-th--active` | modifier on `.skills-th` | Fixed 90px width, centered |
+| `.skills-th--remove` | modifier on `.skills-th` | Fixed 32px width (no header text) |
+| `.skills-td` | `<td>` | `padding: 3px 6px 3px 0`, `vertical-align: middle` |
+| `.skill-row` | `<tr>` | One skill per row; added/removed by JS |
+| `.skills-input` | `<input>` | `--font-ui` 0.78rem; transparent background at rest, `--bg-raised` on hover/focus; transparent border at rest, `--border-subtle` on hover, `--border-strong` on focus; `--radius-md` |
+| `.skills-input--years` | modifier on `.skills-input` | Fixed 72px width, centered |
+| `.skill-toggle` | `<label>` | Inline-flex wrapper for the active/dormant toggle; `cursor: pointer` |
+| `.skill-toggle-checkbox` | `<input type="checkbox">` | Visually hidden (absolute, opacity 0); drives CSS-only toggle state via sibling selectors |
+| `.skill-toggle-track` | `<span>` | 32×18px pill; `--border-mid` bg at rest, `--score-high-text` bg when checked |
+| `.skill-toggle-knob` | `<span>` | 12×12px circle, slides right on checked; `--text-muted` at rest, `--color-white` when checked |
+| `.skill-toggle-label` | `<span>` | `--font-mono` 0.64rem; shows "dormant" at rest, "active" when checked via `::before` pseudo-element; color follows tier (`--text-muted` → `--score-high-text`) |
+| `.btn-skill-remove` | modifier on `.btn-row-remove` | Same style as `.btn-row-remove`; clicked handler uses `removeSkillRow()` (not `removeRow()`) so it walks `.skill-row` / `<tbody>` |
+| `#btn-add-skill` | `<button type="button">` | Same visual style as `.btn-row-add`; handled by `#btn-add-skill` id selector in the delegated click handler |
+
+**Active/dormant hidden-input pattern** — the skills table submits active state via a hidden `<input name="skill_active_idx[]">` alongside each row's checkbox. Because unchecked checkboxes are not submitted by browsers, the hidden input carries the row's 0-based index when checked, or an empty string when unchecked. The server reads `skill_active_idx[]` as a set of active indices. `_reindexSkillRows()` must be called after any row is added or removed to keep indices contiguous.
+
+**Exposed globals** — `_makeSkillRow(idx, desc, years, active)` and `_reindexSkillRows()` are exposed on `window` by the row-JS IIFE so the PDF-import IIFE (loaded first in the page) can repopulate the table from import results via `_fillSkillsTable()`.
+
 ### Save Bar
 
 A sticky bar that slides up from the bottom of the form when the user edits a credential field. Dismisses on form submit. HTMX checkbox toggles do **not** trigger it — only `<input type="text">` and `<input type="password">` changes do.
