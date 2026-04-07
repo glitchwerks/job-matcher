@@ -197,6 +197,7 @@ fi
 step "Preparing ${REMOTE_PATH} on ${REMOTE_HOST}..."
 
 # Ensure the remote directory exists (needs sudo + TTY for password prompt).
+# shellcheck disable=SC2029  # ${REMOTE_PATH} and ${SSH_TARGET} intentionally expand client-side
 DIR_EXISTS=$(ssh "${SSH_TARGET}" "test -e '${REMOTE_PATH}' && echo yes || echo no")
 
 if [[ "${DIR_EXISTS}" == "no" ]]; then
@@ -205,6 +206,7 @@ if [[ "${DIR_EXISTS}" == "no" ]]; then
 fi
 
 # Create required sub-directories on the remote.
+# shellcheck disable=SC2029  # ${REMOTE_PATH} and ${SSH_TARGET} intentionally expand client-side
 ssh "${SSH_TARGET}" "mkdir -p '${REMOTE_PATH}/scripts' '${REMOTE_PATH}/config'"
 
 step "Copying deployment files to ${REMOTE_HOST}:${REMOTE_PATH}..."
@@ -263,6 +265,7 @@ for ENV_EXAMPLE in .env.prod.example .env.dev.example; do
     fi
 
     # Check whether the live file already exists on the remote.
+    # shellcheck disable=SC2029  # ${REMOTE_LIVE} and ${SSH_TARGET} intentionally expand client-side
     if ssh "${SSH_TARGET}" "[[ -f '${REMOTE_LIVE}' ]]" 2>/dev/null; then
         ok "${LIVE_NAME} already exists on remote -- skipping example copy."
     else
@@ -276,6 +279,7 @@ done
 # Bash on the remote will choke on \r in shell scripts (e.g. "set -euo pipefail\r"
 # becomes ": invalid option name"). Convert all text files to LF.
 step "Converting line endings to LF on remote..."
+# shellcheck disable=SC2029  # ${REMOTE_PATH} and ${SSH_TARGET} intentionally expand client-side
 ssh "${SSH_TARGET}" "cd '${REMOTE_PATH}' && sed -i 's/\r\$//' docker-compose.*.yml scripts/*.sh config/*.json .env*.example 2>/dev/null || true"
 ok "Line endings converted."
 
@@ -297,6 +301,7 @@ if [[ "${RUN_SETUP}" =~ ^[Yy]$ ]]; then
     echo ""
 
     # Sanity check: verify the file copy succeeded before attempting to run the script.
+    # shellcheck disable=SC2029  # ${REMOTE_PATH} and ${SSH_TARGET} intentionally expand client-side
     if ! ssh "${SSH_TARGET}" "[[ -f '${REMOTE_PATH}/scripts/docker-setup.sh' ]]" 2>/dev/null; then
         fail "scripts/docker-setup.sh not found at ${REMOTE_PATH}/scripts/docker-setup.sh on the remote."
         fail "The file copy in Step 4 may have failed. Re-run this script."

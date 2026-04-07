@@ -21,5 +21,7 @@ docker compose exec -T db pg_dump -U jobmatcher jobmatcher > "$BACKUP_FILE"
 echo "Backup complete: $BACKUP_FILE ($(du -sh "$BACKUP_FILE" | cut -f1))"
 
 # Rotate: keep only the 10 most recent backups
+# shellcheck disable=SC2012  # ls is intentional here; backup filenames are predictable and controlled
 ls -t "$BACKUP_DIR"/jobs_*.sql 2>/dev/null | tail -n +11 | xargs -r rm --
+# shellcheck disable=SC2012  # ls is intentional here; backup filenames are predictable and controlled
 echo "Old backups pruned. Remaining: $(ls "$BACKUP_DIR"/jobs_*.sql 2>/dev/null | wc -l)"
