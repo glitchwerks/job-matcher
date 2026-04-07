@@ -7,7 +7,9 @@ Covers:
   - JSearchClient constructor: credential resolution, ValueError on missing key
   - normalise(): all canonical fields, location assembly, salary passthrough,
     redirect_url fallback, skip_scrape=True, minimal dict no-raise
-  - fetch_page(): 200 success, empty data, status != OK, non-200, 429 retry ×4,
+  - fetch_page(): dual local+remote calls, radius param, employment_types param,
+    deduplication by job_id, no local call when where is empty,
+    200 success, empty data, status != OK, non-200, 429 retry ×4,
     network exception, bad JSON, query construction, headers, date_posted
     inclusion/omission, num_pages=1, timeout=20
   - total_pages(): returns max_pages; no HTTP call made
@@ -29,6 +31,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from job_sources import SOURCES, JobSource
 from job_sources._plugin_jsearch import (
     _CONTRACT_TIME_MAP,
+    _REVERSE_CONTRACT_TIME_MAP,
     _SALARY_PERIOD_MAP,
     _map_date_posted,
     _normalise_contract_time,
@@ -42,17 +45,28 @@ JSearchClient = SOURCES["jsearch"]
 # Helper factories
 # ---------------------------------------------------------------------------
 
-def _config(max_pages: int = 3, what: str = "python developer", where: str = "Miami, FL",
-            max_days_old: int = 0, **kwargs) -> dict:
+def _config(
+    max_pages: int = 3,
+    what: str = "python developer",
+    where: str = "Miami, FL",
+    max_days_old: int = 0,
+    distance: int = 0,
+    prefilter: dict | None = None,
+    **kwargs,
+) -> dict:
     """Return a minimal config dict with a search sub-dict."""
     search: dict = {
         "what": what,
         "where": where,
         "max_pages": max_pages,
         "max_days_old": max_days_old,
+        "distance": distance,
         **kwargs,
     }
-    return {"search": search}
+    cfg: dict = {"search": search}
+    if prefilter is not None:
+        cfg["prefilter"] = prefilter
+    return cfg
 
 
 def _client(api_key: str = "test-rapidapi-key", **config_kwargs) -> JSearchClient:
@@ -196,6 +210,34 @@ class TestNormaliseContractTime:
     def test_intern_regression(self):
         """'INTERN' maps to 'intern' via _CONTRACT_TIME_MAP."""
         assert _normalise_contract_time("INTERN") == "intern"
+
+
+# ---------------------------------------------------------------------------
+# _REVERSE_CONTRACT_TIME_MAP
+# ---------------------------------------------------------------------------
+
+class TestReverseContractTimeMap:
+    def test_full_time_maps_to_fulltime(self):
+        assert _REVERSE_CONTRACT_TIME_MAP["full_time"] == "FULLTIME"
+
+    def test_part_time_maps_to_parttime(self):
+        assert _REVERSE_CONTRACT_TIME_MAP["part_time"] == "PARTTIME"
+
+    def test_contract_maps_to_contractor(self):
+        assert _REVERSE_CONTRACT_TIME_MAP["contract"] == "CONTRACTOR"
+
+    def test_intern_maps_to_intern(self):
+        assert _REVERSE_CONTRACT_TIME_MAP["intern"] == "INTERN"
+
+    def test_map_has_all_four_entries(self):
+        assert set(_REVERSE_CONTRACT_TIME_MAP.keys()) == {
+            "full_time", "part_time", "contract", "intern"
+        }
+
+    def test_is_inverse_of_contract_time_map(self):
+        """Every value in _CONTRACT_TIME_MAP is a key in _REVERSE_CONTRACT_TIME_MAP."""
+        for jsearch_key, canonical in _CONTRACT_TIME_MAP.items():
+            assert _REVERSE_CONTRACT_TIME_MAP.get(canonical) == jsearch_key
 
 
 # ---------------------------------------------------------------------------
@@ -443,31 +485,61 @@ class TestJSearchNormalise:
 
 # ---------------------------------------------------------------------------
 # JSearchClient.fetch_page()
+#
+# fetch_page() now makes TWO requests per call:
+#   call[0] = local query  ("what in where", optional radius)
+#   call[1] = remote query ("what", remote_jobs_only=true)
+#
+# Helpers to extract params from each sub-call:
 # ---------------------------------------------------------------------------
 
-class TestJSearchClientFetchPage:
-    def test_200_success_returns_normalised_list(self):
-        """A 200 response with data returns a list of normalised dicts."""
-        client = _client()
-        mock_resp = _mock_response(200, _jsearch_envelope([_RAW_JOB]))
+def _local_params(mock_get) -> dict:
+    """Return the params dict from the first (local) API sub-call."""
+    return mock_get.call_args_list[0].kwargs["params"]
 
-        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp):
+
+def _remote_params(mock_get) -> dict:
+    """Return the params dict from the second (remote) API sub-call."""
+    return mock_get.call_args_list[1].kwargs["params"]
+
+
+class TestJSearchClientFetchPage:
+    def test_makes_two_api_calls(self):
+        """fetch_page() makes exactly 2 API calls (local + remote)."""
+        client = _client()
+        mock_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
+            client.fetch_page(1)
+
+        assert mock_get.call_count == 2
+
+    def test_200_success_returns_normalised_list(self):
+        """A 200 response with data from either sub-query returns normalised dicts."""
+        client = _client()
+        local_resp = _mock_response(200, _jsearch_envelope([_RAW_JOB]))
+        remote_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch(
+            "job_sources._plugin_jsearch.requests.get",
+            side_effect=[local_resp, remote_resp],
+        ):
             results = client.fetch_page(1)
 
         assert len(results) == 1
         assert results[0]["source"] == "jsearch"
         assert results[0]["title"] == "Senior Python Engineer"
 
-    def test_200_empty_data_returns_empty_list(self):
-        """A 200 response with an empty data array returns []."""
+    def test_200_empty_data_both_queries_returns_empty_list(self):
+        """Both sub-queries returning empty data arrays returns []."""
         client = _client()
         mock_resp = _mock_response(200, _jsearch_envelope([]))
 
         with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp):
             assert client.fetch_page(1) == []
 
-    def test_200_status_not_ok_returns_empty_list(self):
-        """A 200 response with status != 'OK' returns [] (RapidAPI error envelope)."""
+    def test_200_status_not_ok_both_returns_empty_list(self):
+        """Both sub-queries returning status != 'OK' returns []."""
         client = _client()
         mock_resp = _mock_response(200, {"status": "ERROR", "message": "quota exceeded"})
 
@@ -475,7 +547,7 @@ class TestJSearchClientFetchPage:
             assert client.fetch_page(1) == []
 
     def test_200_missing_data_key_returns_empty_list(self):
-        """A 200 response with status=OK but no 'data' key returns []."""
+        """Both sub-queries returning status=OK but no 'data' key returns []."""
         client = _client()
         mock_resp = _mock_response(200, {"status": "OK", "request_id": "x"})
 
@@ -483,28 +555,34 @@ class TestJSearchClientFetchPage:
             assert client.fetch_page(1) == []
 
     def test_non_200_non_429_returns_empty_list(self):
-        """A 500 response returns []."""
+        """Both sub-queries returning 500 returns []."""
         client = _client()
         mock_resp = _mock_response(500, {})
 
         with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp):
             assert client.fetch_page(1) == []
 
-    def test_429_exhausted_returns_empty_list(self):
-        """After 4 total attempts of 429 responses, returns [] without raising."""
+    def test_429_exhausted_local_query_returns_empty_list(self):
+        """429 exhausted on the local sub-query: that sub-query contributes []."""
+        # Only the local query is exercised (where is set); remote gets empty.
         client = _client()
-        mock_resp = _mock_response(429, {})
+        mock_429 = _mock_response(429, {})
+        mock_empty = _mock_response(200, _jsearch_envelope([]))
 
-        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get, \
-             patch("job_sources._plugin_jsearch.time.sleep"):
+        # local: 4x 429; remote: empty success
+        with patch(
+            "job_sources._plugin_jsearch.requests.get",
+            side_effect=[mock_429, mock_429, mock_429, mock_429, mock_empty],
+        ) as mock_get, patch("job_sources._plugin_jsearch.time.sleep"):
             result = client.fetch_page(1)
 
         assert result == []
-        assert mock_get.call_count == 4  # 1 initial + 3 retries
+        # 4 attempts for local (1 + 3 retries), 1 for remote
+        assert mock_get.call_count == 5
 
     def test_429_exhausted_sleep_called_with_backoff_delays(self):
-        """time.sleep is called with the correct backoff delays on 429."""
-        client = _client()
+        """time.sleep is called with the correct backoff delays on 429 within a sub-query."""
+        client = _client(where="")  # no local query; only remote hits 429
         mock_resp = _mock_response(429, {})
 
         with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp), \
@@ -515,7 +593,7 @@ class TestJSearchClientFetchPage:
         assert sleep_calls == [2, 4, 8]
 
     def test_network_exception_returns_empty_list(self):
-        """A requests.RequestException returns []."""
+        """RequestException on both sub-queries returns []."""
         client = _client()
 
         with patch(
@@ -525,7 +603,7 @@ class TestJSearchClientFetchPage:
             assert client.fetch_page(1) == []
 
     def test_bad_json_returns_empty_list(self):
-        """A non-JSON response body returns []."""
+        """Non-JSON response on both sub-queries returns []."""
         client = _client()
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -534,103 +612,333 @@ class TestJSearchClientFetchPage:
         with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp):
             assert client.fetch_page(1) == []
 
-    def test_query_includes_where_when_set(self):
-        """Query param is 'what in where' when where is non-empty."""
+    def test_local_query_includes_where(self):
+        """Local sub-query uses 'what in where' as the query string."""
         client = _client(what="python developer", where="Miami, FL")
         mock_resp = _mock_response(200, _jsearch_envelope([]))
 
         with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
-        params = mock_get.call_args.kwargs["params"]
-        assert params["query"] == "python developer in Miami, FL"
+        assert _local_params(mock_get)["query"] == "python developer in Miami, FL"
 
-    def test_query_omits_where_when_empty(self):
-        """Query param is just 'what' when where is empty."""
+    def test_remote_query_uses_only_what(self):
+        """Remote sub-query uses only 'what' (no location) as the query string."""
+        client = _client(what="python developer", where="Miami, FL")
+        mock_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
+            client.fetch_page(1)
+
+        assert _remote_params(mock_get)["query"] == "python developer"
+
+    def test_remote_query_has_remote_jobs_only(self):
+        """Remote sub-query includes remote_jobs_only='true'."""
+        client = _client()
+        mock_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
+            client.fetch_page(1)
+
+        assert _remote_params(mock_get).get("remote_jobs_only") == "true"
+
+    def test_local_query_absent_remote_jobs_only(self):
+        """Local sub-query does NOT include remote_jobs_only param."""
+        client = _client()
+        mock_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
+            client.fetch_page(1)
+
+        assert "remote_jobs_only" not in _local_params(mock_get)
+
+    def test_no_local_query_when_where_empty(self):
+        """When where is empty, only one API call is made (remote only)."""
         client = _client(what="python developer", where="")
         mock_resp = _mock_response(200, _jsearch_envelope([]))
 
         with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
-        params = mock_get.call_args.kwargs["params"]
+        assert mock_get.call_count == 1
+        params = mock_get.call_args_list[0].kwargs["params"]
         assert params["query"] == "python developer"
+        assert params.get("remote_jobs_only") == "true"
 
     def test_correct_api_key_header(self):
-        """X-RapidAPI-Key header contains the configured api_key."""
+        """X-RapidAPI-Key header contains the configured api_key on both calls."""
         client = _client(api_key="my-secret-key")
         mock_resp = _mock_response(200, _jsearch_envelope([]))
 
         with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
-        headers = mock_get.call_args.kwargs["headers"]
-        assert headers["X-RapidAPI-Key"] == "my-secret-key"
+        for call in mock_get.call_args_list:
+            assert call.kwargs["headers"]["X-RapidAPI-Key"] == "my-secret-key"
 
     def test_correct_rapid_api_host_header(self):
-        """X-RapidAPI-Host header is always 'jsearch.p.rapidapi.com'."""
+        """X-RapidAPI-Host header is 'jsearch.p.rapidapi.com' on both calls."""
         client = _client()
         mock_resp = _mock_response(200, _jsearch_envelope([]))
 
         with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
-        headers = mock_get.call_args.kwargs["headers"]
-        assert headers["X-RapidAPI-Host"] == "jsearch.p.rapidapi.com"
+        for call in mock_get.call_args_list:
+            assert call.kwargs["headers"]["X-RapidAPI-Host"] == "jsearch.p.rapidapi.com"
 
-    def test_date_posted_included_when_max_days_old_7(self):
-        """date_posted='week' is added when max_days_old=7."""
+    def test_date_posted_included_in_both_queries_when_max_days_old_7(self):
+        """date_posted='week' is added to both sub-queries when max_days_old=7."""
         client = _client(max_days_old=7)
         mock_resp = _mock_response(200, _jsearch_envelope([]))
 
         with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
-        params = mock_get.call_args.kwargs["params"]
-        assert params.get("date_posted") == "week"
+        assert _local_params(mock_get).get("date_posted") == "week"
+        assert _remote_params(mock_get).get("date_posted") == "week"
 
     def test_date_posted_absent_when_max_days_old_0(self):
-        """date_posted param is omitted when max_days_old=0."""
+        """date_posted param is omitted from both sub-queries when max_days_old=0."""
         client = _client(max_days_old=0)
         mock_resp = _mock_response(200, _jsearch_envelope([]))
 
         with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
-        params = mock_get.call_args.kwargs["params"]
-        assert "date_posted" not in params
+        assert "date_posted" not in _local_params(mock_get)
+        assert "date_posted" not in _remote_params(mock_get)
 
-    def test_num_pages_always_1(self):
-        """num_pages=1 is always included in params."""
+    def test_num_pages_always_1_both_queries(self):
+        """num_pages=1 is always included in both sub-queries."""
         client = _client()
         mock_resp = _mock_response(200, _jsearch_envelope([]))
 
         with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
-        params = mock_get.call_args.kwargs["params"]
-        assert params["num_pages"] == 1
+        assert _local_params(mock_get)["num_pages"] == 1
+        assert _remote_params(mock_get)["num_pages"] == 1
 
     def test_timeout_is_20_seconds(self):
-        """requests.get is called with timeout=20."""
+        """requests.get is called with timeout=20 for both sub-queries."""
         client = _client()
         mock_resp = _mock_response(200, _jsearch_envelope([]))
 
         with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(1)
 
-        assert mock_get.call_args.kwargs["timeout"] == 20
+        for call in mock_get.call_args_list:
+            assert call.kwargs["timeout"] == 20
 
-    def test_page_number_in_params(self):
-        """The page number is passed as a query param."""
+    def test_page_number_in_both_queries(self):
+        """The page number is passed in both sub-queries."""
         client = _client()
         mock_resp = _mock_response(200, _jsearch_envelope([]))
 
         with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
             client.fetch_page(3)
 
-        params = mock_get.call_args.kwargs["params"]
-        assert params["page"] == 3
+        assert _local_params(mock_get)["page"] == 3
+        assert _remote_params(mock_get)["page"] == 3
+
+
+# ---------------------------------------------------------------------------
+# fetch_page() — radius param
+# ---------------------------------------------------------------------------
+
+class TestFetchPageRadius:
+    def test_radius_added_to_local_query_when_distance_configured(self):
+        """radius param is added to local query when distance is non-zero."""
+        client = _client(distance=32)
+        mock_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
+            client.fetch_page(1)
+
+        assert _local_params(mock_get).get("radius") == 32
+
+    def test_radius_absent_from_local_query_when_distance_0(self):
+        """radius param is omitted when distance=0."""
+        client = _client(distance=0)
+        mock_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
+            client.fetch_page(1)
+
+        assert "radius" not in _local_params(mock_get)
+
+    def test_radius_absent_when_distance_not_in_config(self):
+        """radius param is omitted when distance key is absent from config entirely."""
+        cfg = {"search": {"what": "python developer", "where": "Miami, FL", "max_pages": 3}}
+        client = JSearchClient(config=cfg, credentials={"api_key": "test-key"})
+        mock_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
+            client.fetch_page(1)
+
+        assert "radius" not in _local_params(mock_get)
+
+    def test_radius_not_in_remote_query(self):
+        """radius param is never sent on the remote sub-query."""
+        client = _client(distance=50)
+        mock_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
+            client.fetch_page(1)
+
+        assert "radius" not in _remote_params(mock_get)
+
+
+# ---------------------------------------------------------------------------
+# fetch_page() — employment_types param
+# ---------------------------------------------------------------------------
+
+class TestFetchPageEmploymentTypes:
+    def test_employment_types_added_when_require_contract_time_full_time(self):
+        """employment_types=FULLTIME sent when prefilter.require_contract_time=full_time."""
+        client = _client(prefilter={"require_contract_time": "full_time"})
+        mock_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
+            client.fetch_page(1)
+
+        assert _local_params(mock_get).get("employment_types") == "FULLTIME"
+        assert _remote_params(mock_get).get("employment_types") == "FULLTIME"
+
+    def test_employment_types_part_time(self):
+        """employment_types=PARTTIME sent when require_contract_time=part_time."""
+        client = _client(prefilter={"require_contract_time": "part_time"})
+        mock_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
+            client.fetch_page(1)
+
+        assert _local_params(mock_get).get("employment_types") == "PARTTIME"
+
+    def test_employment_types_contract(self):
+        """employment_types=CONTRACTOR sent when require_contract_time=contract."""
+        client = _client(prefilter={"require_contract_time": "contract"})
+        mock_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
+            client.fetch_page(1)
+
+        assert _local_params(mock_get).get("employment_types") == "CONTRACTOR"
+
+    def test_employment_types_intern(self):
+        """employment_types=INTERN sent when require_contract_time=intern."""
+        client = _client(prefilter={"require_contract_time": "intern"})
+        mock_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
+            client.fetch_page(1)
+
+        assert _local_params(mock_get).get("employment_types") == "INTERN"
+
+    def test_employment_types_absent_when_no_prefilter(self):
+        """employment_types not sent when prefilter block is absent."""
+        client = _client()  # no prefilter kwarg → no prefilter in config
+        mock_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
+            client.fetch_page(1)
+
+        assert "employment_types" not in _local_params(mock_get)
+        assert "employment_types" not in _remote_params(mock_get)
+
+    def test_employment_types_absent_when_require_contract_time_null(self):
+        """employment_types not sent when require_contract_time is null."""
+        client = _client(prefilter={"require_contract_time": None})
+        mock_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
+            client.fetch_page(1)
+
+        assert "employment_types" not in _local_params(mock_get)
+        assert "employment_types" not in _remote_params(mock_get)
+
+    def test_employment_types_absent_for_unknown_contract_time(self):
+        """employment_types not sent when require_contract_time doesn't map to a JSearch value."""
+        client = _client(prefilter={"require_contract_time": "temporary"})
+        mock_resp = _mock_response(200, _jsearch_envelope([]))
+
+        with patch("job_sources._plugin_jsearch.requests.get", return_value=mock_resp) as mock_get:
+            client.fetch_page(1)
+
+        # "temporary" is not in _REVERSE_CONTRACT_TIME_MAP, so param is omitted
+        assert "employment_types" not in _local_params(mock_get)
+        assert "employment_types" not in _remote_params(mock_get)
+
+
+# ---------------------------------------------------------------------------
+# fetch_page() — deduplication
+# ---------------------------------------------------------------------------
+
+class TestFetchPageDeduplication:
+    def test_dedupes_same_job_id_from_local_and_remote(self):
+        """A job appearing in both local and remote results is returned only once."""
+        client = _client()
+        local_resp = _mock_response(200, _jsearch_envelope([_RAW_JOB]))
+        # Same job_id as _RAW_JOB
+        remote_resp = _mock_response(200, _jsearch_envelope([_RAW_JOB]))
+
+        with patch(
+            "job_sources._plugin_jsearch.requests.get",
+            side_effect=[local_resp, remote_resp],
+        ):
+            results = client.fetch_page(1)
+
+        assert len(results) == 1
+        assert results[0]["source_id"] == "abc123XYZ"
+
+    def test_unique_jobs_from_both_queries_combined(self):
+        """Unique jobs from local and remote are both included in results."""
+        client = _client()
+        remote_job = {**_RAW_JOB, "job_id": "remote999", "job_title": "Remote Python Dev"}
+        local_resp = _mock_response(200, _jsearch_envelope([_RAW_JOB]))
+        remote_resp = _mock_response(200, _jsearch_envelope([remote_job]))
+
+        with patch(
+            "job_sources._plugin_jsearch.requests.get",
+            side_effect=[local_resp, remote_resp],
+        ):
+            results = client.fetch_page(1)
+
+        assert len(results) == 2
+        source_ids = {r["source_id"] for r in results}
+        assert source_ids == {"abc123XYZ", "remote999"}
+
+    def test_local_result_takes_precedence_in_order(self):
+        """Local results appear before remote results in the output list."""
+        client = _client()
+        remote_job = {**_RAW_JOB, "job_id": "remote999", "job_title": "Remote Python Dev"}
+        local_resp = _mock_response(200, _jsearch_envelope([_RAW_JOB]))
+        remote_resp = _mock_response(200, _jsearch_envelope([remote_job]))
+
+        with patch(
+            "job_sources._plugin_jsearch.requests.get",
+            side_effect=[local_resp, remote_resp],
+        ):
+            results = client.fetch_page(1)
+
+        assert results[0]["source_id"] == "abc123XYZ"
+        assert results[1]["source_id"] == "remote999"
+
+    def test_local_failure_remote_results_still_returned(self):
+        """When the local sub-query fails (500), remote results are still returned."""
+        client = _client()
+        local_resp = _mock_response(500, {})
+        remote_resp = _mock_response(200, _jsearch_envelope([_RAW_JOB]))
+
+        with patch(
+            "job_sources._plugin_jsearch.requests.get",
+            side_effect=[local_resp, remote_resp],
+        ):
+            results = client.fetch_page(1)
+
+        assert len(results) == 1
+        assert results[0]["source_id"] == "abc123XYZ"
 
 
 # ---------------------------------------------------------------------------
@@ -664,18 +972,24 @@ class TestJSearchClientTotalPages:
 
 class TestJSearchClientPages:
     def test_yields_two_pages_of_results(self):
-        """pages() yields one list per page for a 2-page scenario."""
+        """pages() yields one list per page for a 2-page scenario.
+
+        Each page now makes 2 API calls (local + remote), so a 2-page run
+        consumes 4 API responses.
+        """
         client = _client(max_pages=2)
 
-        page1_resp = _mock_response(200, _jsearch_envelope([_RAW_JOB]))
-        page2_resp = _mock_response(200, _jsearch_envelope([
-            {**_RAW_JOB, "job_id": "xyz999", "job_title": "DevOps Engineer"},
-        ]))
+        page2_job = {**_RAW_JOB, "job_id": "xyz999", "job_title": "DevOps Engineer"}
+        # page 1: local has _RAW_JOB, remote empty
+        # page 2: local has page2_job, remote empty
+        responses = [
+            _mock_response(200, _jsearch_envelope([_RAW_JOB])),   # page 1 local
+            _mock_response(200, _jsearch_envelope([])),            # page 1 remote
+            _mock_response(200, _jsearch_envelope([page2_job])),   # page 2 local
+            _mock_response(200, _jsearch_envelope([])),            # page 2 remote
+        ]
 
-        with patch(
-            "job_sources._plugin_jsearch.requests.get",
-            side_effect=[page1_resp, page2_resp],
-        ):
+        with patch("job_sources._plugin_jsearch.requests.get", side_effect=responses):
             pages = list(client.pages())
 
         assert len(pages) == 2
@@ -684,16 +998,20 @@ class TestJSearchClientPages:
         assert pages[1][0]["title"] == "DevOps Engineer"
 
     def test_stops_early_when_page_returns_empty(self):
-        """pages() stops iteration when a page returns no results."""
+        """pages() stops iteration when a page returns no results.
+
+        Page 1 returns a result; page 2 both sub-queries return empty.
+        """
         client = _client(max_pages=3)
 
-        page1_resp = _mock_response(200, _jsearch_envelope([_RAW_JOB]))
-        empty_resp = _mock_response(200, _jsearch_envelope([]))
+        responses = [
+            _mock_response(200, _jsearch_envelope([_RAW_JOB])),  # page 1 local
+            _mock_response(200, _jsearch_envelope([])),           # page 1 remote
+            _mock_response(200, _jsearch_envelope([])),           # page 2 local
+            _mock_response(200, _jsearch_envelope([])),           # page 2 remote
+        ]
 
-        with patch(
-            "job_sources._plugin_jsearch.requests.get",
-            side_effect=[page1_resp, empty_resp],
-        ):
+        with patch("job_sources._plugin_jsearch.requests.get", side_effect=responses):
             pages = list(client.pages())
 
         assert len(pages) == 1

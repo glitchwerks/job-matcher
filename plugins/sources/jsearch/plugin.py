@@ -5,8 +5,12 @@ Wraps the JSearch API (https://jsearch.p.rapidapi.com/search), which aggregates
 job listings from Google for Jobs and returns full plaintext descriptions in the
 API response — no scraping step required.
 
-Free tier: 200 requests/month.  The configured ``max_pages`` default of 3 is
-intentionally conservative to stay within that budget.
+Free tier: 200 requests/month.  Each call to ``fetch_page()`` makes **two** API
+requests: one local query (``"{what} in {where}"`` with a ``radius`` refinement)
+and one remote-only query (``remote_jobs_only=true``).  At the configured default
+of ``max_pages=5``, each run makes 10 API calls — roughly 20 runs/month on the
+free tier.  Consider reducing ``max_pages`` to 3 for more conservative usage (~30
+runs/month).
 """
 
 from __future__ import annotations
@@ -29,6 +33,15 @@ _CONTRACT_TIME_MAP: dict[str, str] = {
     "PARTTIME": "part_time",
     "CONTRACTOR": "contract",
     "INTERN": "intern",
+}
+
+# Reverse mapping: canonical contract_time → JSearch employment_types API value.
+# Used to translate prefilter.require_contract_time back to the native filter param.
+_REVERSE_CONTRACT_TIME_MAP: dict[str, str] = {
+    "full_time": "FULLTIME",
+    "part_time": "PARTTIME",
+    "contract": "CONTRACTOR",
+    "intern": "INTERN",
 }
 
 # Mapping of JSearch salary-period strings (uppercase) to canonical salary_period values.
@@ -157,6 +170,7 @@ class JSearchClient(JobSource):
 
         self._api_key: str = api_key
         self._search: dict = config["search"]
+        self._prefilter: dict = config.get("prefilter") or {}
 
         if "results_per_page" in self._search:
             logger.debug(
@@ -171,48 +185,138 @@ class JSearchClient(JobSource):
     def fetch_page(self, page: int) -> list[dict]:
         """Fetch and normalise a single page of JSearch listings.
 
+        Makes **two** API calls per invocation to capture both local and remote
+        results:
+
+        1. **Local query** — ``query="{what} in {where}"`` with a ``radius``
+           parameter (from ``config["search"]["distance"]``, in km).  Skipped
+           when ``where`` is not configured.
+        2. **Remote query** — ``query="{what}"`` with ``remote_jobs_only=true``.
+
+        Results from both calls are combined and deduplicated by ``job_id``
+        before being normalised.  With ``max_pages=5`` the default, that is
+        10 API calls per run — roughly 20 runs/month on the 200-req/month free
+        tier.
+
+        Optional native filters added when configured:
+
+        * ``radius`` — added to the local query when
+          ``config["search"]["distance"]`` is non-zero.
+        * ``employment_types`` — added to both queries when
+          ``config["prefilter"]["require_contract_time"]`` is set and maps to a
+          known JSearch employment type (via ``_REVERSE_CONTRACT_TIME_MAP``).
+        * ``date_posted`` — added to both queries when
+          ``config["search"]["max_days_old"]`` is non-zero.
+
         On HTTP 429 retries up to three times with exponential back-off
-        (2 s, 4 s, 8 s), identical to the Adzuna implementation.  Any other
-        non-200 response, network error, or bad JSON is logged and returns an
-        empty list.
+        (2 s, 4 s, 8 s) per individual request, identical to the Adzuna
+        implementation.  Any other non-200 response, network error, or bad JSON
+        is logged and that sub-query returns an empty list; results from the
+        other sub-query are still returned.
 
         An additional envelope check is performed: if the HTTP status is 200
         but the response body contains ``status != "OK"`` (a RapidAPI error
-        envelope pattern), the method logs a warning and returns ``[]``.
+        envelope pattern), the method logs a warning and treats that sub-query
+        as returning ``[]``.
 
         Args:
             page: 1-based page number.
 
         Returns:
-            List of normalised listing dicts (via ``normalise()``).
-            Returns ``[]`` on any error.
+            List of normalised listing dicts (via ``normalise()``),
+            deduplicated by ``job_id``.  Returns ``[]`` on total failure.
         """
         what: str = self._search.get("what", "")
         where: str = self._search.get("where", "")
-        query: str = f"{what} in {where}" if where else what
-
-        params: dict[str, str | int] = {
-            "query": query,
-            "page": page,
-            "num_pages": 1,
-        }
+        distance: int = int(self._search.get("distance") or 0)
 
         date_posted = _map_date_posted(self._search.get("max_days_old", 0))
-        if date_posted is not None:
-            params["date_posted"] = date_posted
+
+        # Resolve optional employment_types filter from prefilter config.
+        require_contract_time: str | None = self._prefilter.get("require_contract_time")
+        employment_types: str | None = (
+            _REVERSE_CONTRACT_TIME_MAP.get(require_contract_time)
+            if require_contract_time
+            else None
+        )
 
         headers: dict[str, str] = {
             "X-RapidAPI-Key": self._api_key,
             "X-RapidAPI-Host": _JSEARCH_HOST,
         }
 
+        # --- Build base params shared by both queries ---
+        base_params: dict[str, str | int] = {"page": page, "num_pages": 1}
+        if date_posted is not None:
+            base_params["date_posted"] = date_posted
+        if employment_types is not None:
+            base_params["employment_types"] = employment_types
+
+        # --- Local query (geo-matched) ---
+        local_raw: list[dict] = []
+        if where:
+            local_params = {
+                **base_params,
+                "query": f"{what} in {where}",
+            }
+            if distance:
+                local_params["radius"] = distance
+            local_raw = self._fetch_raw(local_params, headers, page, label="local")
+
+        # --- Remote query ---
+        remote_params = {
+            **base_params,
+            "query": what,
+            "remote_jobs_only": "true",
+        }
+        remote_raw = self._fetch_raw(remote_params, headers, page, label="remote")
+
+        # Deduplicate by job_id and normalise.
+        seen_ids: set[str] = set()
+        results: list[dict] = []
+        for job in local_raw + remote_raw:
+            job_id = str(job.get("job_id", ""))
+            if job_id in seen_ids:
+                continue
+            seen_ids.add(job_id)
+            results.append(self.normalise(job))
+        return results
+
+    def _fetch_raw(
+        self,
+        params: dict,
+        headers: dict[str, str],
+        page: int,
+        label: str = "",
+    ) -> list[dict]:
+        """Execute a single API request with retry/back-off, returning raw job dicts.
+
+        This is the low-level helper used by ``fetch_page()`` for each of its two
+        sub-queries (local and remote).  Error handling mirrors the original
+        single-request implementation: 429 triggers exponential back-off up to
+        three retries; any other non-200 status, network error, or bad JSON
+        returns ``[]`` after logging a warning.
+
+        Args:
+            params:  Query parameters dict to send with the request.
+            headers: HTTP headers (API key, host) to send.
+            page:    Page number, used only for log messages.
+            label:   Short string identifying the sub-query type (``"local"`` or
+                     ``"remote"``), used in log messages.
+
+        Returns:
+            Raw list of job dicts from the ``data`` key of the API response, or
+            ``[]`` on any error.
+        """
+        prefix = f"JSearch [{label}]" if label else "JSearch"
         backoff_delays = [2, 4, 8]
         response: requests.Response | None = None
 
         for attempt, delay in enumerate([0] + backoff_delays):
             if delay:
                 logger.warning(
-                    "Rate-limited by JSearch (429); retrying in %d s (attempt %d/3)",
+                    "%s rate-limited (429); retrying in %d s (attempt %d/3)",
+                    prefix,
                     delay,
                     attempt,
                 )
@@ -223,7 +327,7 @@ class JSearchClient(JobSource):
                     _JSEARCH_URL, headers=headers, params=params, timeout=20
                 )
             except requests.RequestException as exc:
-                logger.warning("JSearch request failed: %s", exc)
+                logger.warning("%s request failed: %s", prefix, exc)
                 return []
 
             if response.status_code == 200:
@@ -232,14 +336,16 @@ class JSearchClient(JobSource):
                 if attempt < len(backoff_delays):
                     continue
                 logger.warning(
-                    "JSearch rate limit not resolved after %d retries; page %d skipped",
+                    "%s rate limit not resolved after %d retries; page %d skipped",
+                    prefix,
                     len(backoff_delays),
                     page,
                 )
                 return []
             else:
                 logger.warning(
-                    "JSearch returned HTTP %d for page %d; skipping",
+                    "%s returned HTTP %d for page %d; skipping",
+                    prefix,
                     response.status_code,
                     page,
                 )
@@ -251,19 +357,20 @@ class JSearchClient(JobSource):
         try:
             data = response.json()
         except ValueError as exc:
-            logger.warning("JSearch response is not valid JSON: %s", exc)
+            logger.warning("%s response is not valid JSON: %s", prefix, exc)
             return []
 
         # Guard against HTTP 200 error envelopes from RapidAPI.
         if data.get("status") != "OK":
             logger.warning(
-                "JSearch response status is not 'OK' (got %r); page %d skipped",
+                "%s response status is not 'OK' (got %r); page %d skipped",
+                prefix,
                 data.get("status"),
                 page,
             )
             return []
 
-        return [self.normalise(job) for job in data.get("data", [])]
+        return list(data.get("data", []))
 
     def total_pages(self) -> int:
         """Return the configured maximum number of pages.
