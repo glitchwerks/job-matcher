@@ -608,31 +608,42 @@
       }
     }
 
-    // Listen for input changes on text/password fields.
-    form.addEventListener('input', function (e) {
-      var t = e.target;
-      if (t.tagName !== 'INPUT') { return; }
-      if (t.type !== 'text' && t.type !== 'password') { return; }
-      if (t.value !== originalValues[t.name]) {
-        dirtyNames.add(t.name);
-      } else {
-        // Restored to original — remove from dirty set.
-        dirtyNames.delete(t.name);
-      }
-      updateBarVisibility();
-    });
+    // Attach dirty-tracking listeners to the form.  Extracted into a named
+    // function so we can re-bind after DOM replacement (sources tab refresh).
+    function bindFormListeners() {
+      // Listen for input changes on text/password fields.
+      form.addEventListener('input', function (e) {
+        var t = e.target;
+        if (t.tagName !== 'INPUT') { return; }
+        if (t.type !== 'text' && t.type !== 'password') { return; }
+        if (t.value !== originalValues[t.name]) {
+          dirtyNames.add(t.name);
+        } else {
+          // Restored to original — remove from dirty set.
+          dirtyNames.delete(t.name);
+        }
+        updateBarVisibility();
+      });
 
-    // Listen for change events on checkboxes (checkboxes do not fire 'input').
-    form.addEventListener('change', function (e) {
-      var t = e.target;
-      if (t.tagName !== 'INPUT' || t.type !== 'checkbox') { return; }
-      if (t.checked !== originalValues[t.name]) {
-        dirtyNames.add(t.name);
-      } else {
-        dirtyNames.delete(t.name);
-      }
-      updateBarVisibility();
-    });
+      // Listen for change events on checkboxes (checkboxes do not fire 'input').
+      form.addEventListener('change', function (e) {
+        var t = e.target;
+        if (t.tagName !== 'INPUT' || t.type !== 'checkbox') { return; }
+        if (t.checked !== originalValues[t.name]) {
+          dirtyNames.add(t.name);
+        } else {
+          dirtyNames.delete(t.name);
+        }
+        updateBarVisibility();
+      });
+
+      // Native submit fallback (no-JS path).
+      form.addEventListener('submit', function () {
+        bar.classList.remove('save-bar--visible');
+        bar.setAttribute('aria-hidden', 'true');
+      });
+    }
+    bindFormListeners();
 
     // Build and submit a sparse FormData containing only dirty fields + tab.
     function submitDirty() {
@@ -681,23 +692,64 @@
       })
       .then(function (resp) {
         saveBtn.disabled = false;
-        if (resp.ok) {
-          // Success: update original values and clear dirty set so the bar
-          // reflects the saved state.
-          dirtyNames.forEach(function (name) {
-            var el = form.elements[name];
-            if (!el) { return; }
-            originalValues[name] = el.type === 'checkbox' ? el.checked : el.value;
-          });
-          dirtyNames.clear();
-          bar.classList.remove('save-bar--visible');
-          bar.setAttribute('aria-hidden', 'true');
-          saveBtn.textContent = 'Saved!';
-          setTimeout(function () { saveBtn.textContent = prevLabel; }, 2000);
-        } else {
+        if (!resp.ok) {
           saveBtn.textContent = prevLabel;
           showSaveError(bar, 'Save failed \u2014 check file permissions.');
+          return;
         }
+
+        // For the sources tab, replace the pane HTML with the server's
+        // freshly rendered version so that toggle pills, disabled states,
+        // and HTMX attributes reflect the just-saved credential state.
+        var pane = form.closest('.tab-pane');
+        if (pane && pane.id === 'pane-sources') {
+          resp.text().then(function (html) {
+            var doc = new DOMParser().parseFromString(html, 'text/html');
+            var freshPane = doc.getElementById('pane-sources');
+            if (freshPane) {
+              pane.innerHTML = freshPane.innerHTML;
+              // Re-process HTMX attributes on the new DOM content.
+              if (typeof htmx !== 'undefined') { htmx.process(pane); }
+              // Re-acquire the form reference and re-snapshot original values
+              // so dirty tracking works on the refreshed DOM.
+              form = pane.querySelector('form');
+              if (form) {
+                var originalSubmit = form.querySelector('button[type="submit"].btn-save');
+                if (originalSubmit) { originalSubmit.style.display = 'none'; }
+                fields = Array.from(
+                  form.querySelectorAll('input[type="text"], input[type="password"]')
+                );
+                originalValues = {};
+                fields.forEach(function (input) {
+                  originalValues[input.name] = input.value;
+                });
+                Array.from(form.querySelectorAll('input[type="checkbox"]')).forEach(function (cb) {
+                  originalValues[cb.name] = cb.checked;
+                });
+                // Re-attach dirty-tracking listeners to the new form element.
+                bindFormListeners();
+              }
+            }
+            dirtyNames.clear();
+            bar.classList.remove('save-bar--visible');
+            bar.setAttribute('aria-hidden', 'true');
+            saveBtn.textContent = 'Saved!';
+            setTimeout(function () { saveBtn.textContent = prevLabel; }, 2000);
+          });
+          return;
+        }
+
+        // Non-sources tabs: update original values in place (no DOM swap).
+        dirtyNames.forEach(function (name) {
+          var el = form.elements[name];
+          if (!el) { return; }
+          originalValues[name] = el.type === 'checkbox' ? el.checked : el.value;
+        });
+        dirtyNames.clear();
+        bar.classList.remove('save-bar--visible');
+        bar.setAttribute('aria-hidden', 'true');
+        saveBtn.textContent = 'Saved!';
+        setTimeout(function () { saveBtn.textContent = prevLabel; }, 2000);
       })
       .catch(function () {
         saveBtn.disabled = false;
@@ -707,14 +759,6 @@
     }
 
     bar.querySelector('.btn-save').addEventListener('click', submitDirty);
-
-    // Native submit fallback (no-JS path): let it through unchanged so the
-    // server receives all fields as before.  The save-bar button is the only
-    // JS-enabled save path.
-    form.addEventListener('submit', function () {
-      bar.classList.remove('save-bar--visible');
-      bar.setAttribute('aria-hidden', 'true');
-    });
   });
 
   // Inline error helper — injects a transient error span near the save bar.
