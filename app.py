@@ -13,6 +13,8 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time as _time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from importlib.metadata import version as pkg_version, PackageNotFoundError
 
@@ -1311,6 +1313,164 @@ def _merge_import_result(current: dict, imported: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# PDF resume import — async job tracking
+# ---------------------------------------------------------------------------
+
+# Text length threshold above which the import is dispatched to a background
+# thread rather than blocking the Flask request.  Adjust as needed.
+_PDF_ASYNC_THRESHOLD = 10_000
+
+# Job store: maps job_id (str UUID) → job dict.
+# Each entry: {id, status, result, error, created_at, started_at}
+# status values: "pending" | "running" | "complete" | "failed"
+_pdf_jobs: dict = {}
+_pdf_jobs_lock = threading.Lock()
+
+# Bounded thread pool for async PDF imports — prevents resource exhaustion.
+_pdf_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="pdf-import")
+_MAX_CONCURRENT_PDF_JOBS = 3
+
+# Completed/failed jobs are pruned after this many seconds.
+_PDF_JOB_TTL_SECONDS = 300  # 5 minutes
+# Running jobs older than this are marked failed (hung LLM call protection).
+_PDF_JOB_TIMEOUT_SECONDS = 300  # 5 minutes
+
+# Rate-limit pruning so it doesn't run on every status poll.
+_last_prune_time: float = 0.0
+_PRUNE_INTERVAL_SECONDS = 30
+
+
+def _prune_pdf_jobs() -> None:
+    """Timeout stuck jobs and remove old completed/failed jobs.
+
+    Rate-limited to run at most once per ``_PRUNE_INTERVAL_SECONDS`` to avoid
+    O(n) iteration on every status poll.  Not exported — internal helper only.
+    """
+    global _last_prune_time
+    now_mono = _time.monotonic()
+    if now_mono - _last_prune_time < _PRUNE_INTERVAL_SECONDS:
+        return
+    _last_prune_time = now_mono
+
+    now = datetime.now(timezone.utc).timestamp()
+    cutoff = now - _PDF_JOB_TTL_SECONDS
+    with _pdf_jobs_lock:
+        # Timeout stuck running jobs
+        for job in _pdf_jobs.values():
+            if (
+                job["status"] == "running"
+                and job.get("started_at")
+                and now - job["started_at"] > _PDF_JOB_TIMEOUT_SECONDS
+            ):
+                job["status"] = "failed"
+                job["error"] = "Job timed out after 5 minutes."
+
+        # Remove old completed/failed jobs
+        to_delete = [
+            jid
+            for jid, job in _pdf_jobs.items()
+            if job["status"] in ("complete", "failed")
+            and job["created_at"] < cutoff
+        ]
+        for jid in to_delete:
+            del _pdf_jobs[jid]
+
+
+def _run_pdf_import_job(
+    job_id: str,
+    resume_text: str,
+    mode: str,
+    providers_dict: dict,
+    profile_path: str,
+) -> None:
+    """Worker function executed in a daemon thread for large PDF imports.
+
+    Calls the LLM provider chain synchronously (which can take 5–30 s), then
+    stores the result or error in ``_pdf_jobs`` under ``job_id``.
+
+    Args:
+        job_id:        UUID string identifying the job in ``_pdf_jobs``.
+        resume_text:   Pre-validated, sanitised resume text to send to the LLM.
+        mode:          ``"fresh"`` or ``"merge"``.
+        providers_dict: Loaded providers config dict (captured at request time).
+        profile_path:  Filesystem path to the profile JSON (for merge mode).
+    """
+
+    with _pdf_jobs_lock:
+        _pdf_jobs[job_id]["status"] = "running"
+        _pdf_jobs[job_id]["started_at"] = datetime.now(timezone.utc).timestamp()
+
+    try:
+        chain = build_provider_chain(providers_dict)
+        if not chain:
+            with _pdf_jobs_lock:
+                _pdf_jobs[job_id]["status"] = "failed"
+                _pdf_jobs[job_id]["error"] = (
+                    "No LLM provider is configured. Add one in Settings first."
+                )
+            return
+
+        current_profile = load_profile(profile_path) if mode == "merge" else None
+        prompt = _build_import_prompt(resume_text, mode, current_profile)
+        result = generate_with_fallback(prompt, chain, set())
+        if result is None:
+            with _pdf_jobs_lock:
+                _pdf_jobs[job_id]["status"] = "failed"
+                _pdf_jobs[job_id]["error"] = (
+                    "All LLM providers failed. Check your API keys in Settings."
+                )
+            return
+
+        raw_text, model_used = result
+        parsed = _parse_import_response(raw_text)
+        if parsed is None:
+            with _pdf_jobs_lock:
+                _pdf_jobs[job_id]["status"] = "failed"
+                _pdf_jobs[job_id]["error"] = (
+                    "LLM returned an unparseable response. Try again."
+                )
+            return
+
+        if mode == "merge":
+            profile_result = _merge_import_result(current_profile, parsed)
+        else:
+            structured_skills = []
+            for s in parsed.get("primary_skills", []):
+                name = s.get("skill", "")
+                years = s.get("years", 0)
+                status = s.get("status", "active")
+                structured_skills.append({
+                    "description": name,
+                    "years_active": int(years) if years else 0,
+                    "active": status != "dormant",
+                })
+            profile_result = {
+                "primary_skills": structured_skills,
+                "education": parsed.get("education", []),
+                "seniority": parsed.get("seniority", ""),
+                "preferred_industries": parsed.get("preferred_industries", []),
+                "location_center": parsed.get("location_center"),
+            }
+
+        with _pdf_jobs_lock:
+            _pdf_jobs[job_id]["status"] = "complete"
+            _pdf_jobs[job_id]["result"] = {
+                "success": True,
+                "profile": profile_result,
+                "model_used": model_used,
+            }
+
+    except (ValueError, KeyError, TypeError, RuntimeError, OSError) as exc:
+        with _pdf_jobs_lock:
+            _pdf_jobs[job_id]["status"] = "failed"
+            _pdf_jobs[job_id]["error"] = f"Import error: {exc}"
+    except Exception as exc:  # noqa: BLE001 — daemon thread; must capture all failures
+        with _pdf_jobs_lock:
+            _pdf_jobs[job_id]["status"] = "failed"
+            _pdf_jobs[job_id]["error"] = f"Unexpected error: {exc}"
+
+
+# ---------------------------------------------------------------------------
 # PDF resume import — endpoint
 # ---------------------------------------------------------------------------
 
@@ -1323,27 +1483,32 @@ def profile_import_pdf():
     - ``file``: PDF file upload (required, max 10 MB).
     - ``mode``: ``"fresh"`` (default) or ``"merge"``.
 
+    **Small PDFs** (extracted text ≤ ``_PDF_ASYNC_THRESHOLD`` chars) are
+    processed synchronously and return the result directly.
+
+    **Large PDFs** (extracted text > ``_PDF_ASYNC_THRESHOLD`` chars) are
+    dispatched to a daemon thread; the response is HTTP 202 with a ``job_id``
+    that the client must poll via ``GET /profile/import-pdf/status/<job_id>``.
+
     Returns JSON — does NOT write profile.json.  The response payload is
     intended for client-side form pre-fill so the user can review before saving.
 
     .. note::
-        **Blocking**: this endpoint synchronously calls the configured LLM
-        provider and may take 5–30 seconds depending on PDF size and provider
-        response time.  Do not call it from a context that cannot tolerate a
-        long-running request.
-
         **CSRF protection**: the endpoint is guarded by the app's
         localhost/private-network origin check, which rejects cross-origin
         requests from outside the trusted network.
 
     Returns:
         200 ``{"success": True, "profile": {...}, "model_used": "provider/model"}``
+        202 ``{"async": True, "job_id": "<uuid>"}`` (large PDF, poll for result)
         400 invalid input (no file, non-PDF, unreadable PDF)
         413 file or extracted text exceeds size limits
         422 extracted text too short to be useful
         502 LLM failure (all providers failed or unparseable response)
         503 no LLM provider configured
     """
+    import uuid as _uuid
+
     # Validate file
     uploaded = request.files.get("file")
     if not uploaded or not uploaded.filename:
@@ -1372,7 +1537,34 @@ def profile_import_pdf():
         return jsonify({"success": False, "error": "Extracted PDF text exceeds the 50,000 character limit."}), 413
     resume_text = "".join(ch for ch in resume_text if ch.isprintable() or ch in "\n\r\t")
 
-    # Build provider chain
+    # Dispatch large PDFs asynchronously to avoid blocking the Flask thread.
+    if len(resume_text) > _PDF_ASYNC_THRESHOLD:
+        job_id = str(_uuid.uuid4())
+        with _pdf_jobs_lock:
+            active = sum(
+                1 for j in _pdf_jobs.values()
+                if j["status"] in ("pending", "running")
+            )
+            if active >= _MAX_CONCURRENT_PDF_JOBS:
+                return jsonify({
+                    "success": False,
+                    "error": "Too many concurrent imports. Please wait and try again.",
+                }), 429
+            _pdf_jobs[job_id] = {
+                "id": job_id,
+                "status": "pending",
+                "result": None,
+                "error": None,
+                "created_at": datetime.now(timezone.utc).timestamp(),
+            }
+        providers_dict = _load_providers_safe()
+        _pdf_executor.submit(
+            _run_pdf_import_job,
+            job_id, resume_text, mode, providers_dict, _PROFILE_PATH,
+        )
+        return jsonify({"async": True, "job_id": job_id}), 202
+
+    # Small PDF — synchronous path (unchanged behaviour)
     providers_dict = _load_providers_safe()
     chain = build_provider_chain(providers_dict)
     if not chain:
@@ -1415,6 +1607,37 @@ def profile_import_pdf():
         }
 
     return jsonify({"success": True, "profile": profile_result, "model_used": model_used}), 200
+
+
+@app.route("/profile/import-pdf/status/<job_id>", methods=["GET"])
+def profile_import_pdf_status(job_id: str):
+    """Poll the status of an async PDF import job.
+
+    Args:
+        job_id: UUID returned by ``POST /profile/import-pdf`` when a large PDF
+                was submitted (response contained ``"async": True``).
+
+    Returns:
+        200 ``{"status": "pending"}`` or ``{"status": "running"}``
+        200 ``{"status": "complete", "result": {...}}`` — same shape as sync 200
+        200 ``{"status": "failed", "error": "..."}``
+        404 if ``job_id`` is unknown or has already been pruned
+    """
+    _prune_pdf_jobs()
+
+    with _pdf_jobs_lock:
+        job = _pdf_jobs.get(job_id)
+
+    if job is None:
+        return jsonify({"error": "Job not found."}), 404
+
+    status = job["status"]
+    if status in ("pending", "running"):
+        return jsonify({"status": status}), 200
+    if status == "complete":
+        return jsonify({"status": "complete", "result": job["result"]}), 200
+    # status == "failed"
+    return jsonify({"status": "failed", "error": job["error"]}), 200
 
 
 @app.route("/profile", methods=["GET", "POST"])
