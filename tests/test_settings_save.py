@@ -1181,7 +1181,6 @@ class TestBuildLlmSchemasPopulatedFields:
 
     def test_populated_fields_contains_password_field_when_stored(self):
         """populated_fields must include a password field name when stored value is non-empty."""
-        import json as _json
 
         data = {
             "provider_order": ["anthropic"],
