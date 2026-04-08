@@ -31,8 +31,6 @@ import io
 import json
 import os
 import sys
-import time
-import threading
 import unittest.mock as mock
 from datetime import datetime, timezone
 

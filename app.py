@@ -1365,7 +1365,6 @@ def _run_pdf_import_job(
         providers_dict: Loaded providers config dict (captured at request time).
         profile_path:  Filesystem path to the profile JSON (for merge mode).
     """
-    import uuid as _uuid  # already available but imported locally to avoid shadowing
 
     with _pdf_jobs_lock:
         _pdf_jobs[job_id]["status"] = "running"
