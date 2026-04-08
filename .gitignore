@@ -3,6 +3,7 @@ config/config.json
 config/keys.json
 config/profile.json
 config/providers.json
+config/providers.json.lock
 
 # Database
 jobs.db
