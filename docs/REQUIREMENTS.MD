@@ -26,7 +26,7 @@ matching via LLM scoring, and present only relevant listings in a manageable UI.
   - Exclude already-seen listings (deduplication by Adzuna listing ID)
 - Follow the listing `redirect_url` to scrape the full job description (Adzuna API
   only returns a snippet)
-- Store all fetched and scored listings in a local SQLite database
+- Store all fetched and scored listings in a PostgreSQL database
 
 ### Scoring
 - Score each unseen listing against a user-defined skills profile using Claude Haiku
@@ -51,14 +51,14 @@ matching via LLM scoring, and present only relevant listings in a manageable UI.
   - Score, matched/missing skills, concerns, verdict (from Haiku)
   - Job title, company, location, salary range, contract type
   - Link to full listing (redirect URL)
-- Bookmark and dismiss actions update SQLite without page reload (HTMX)
+- Bookmark and dismiss actions update the database without page reload (HTMX)
 - No authentication required (local only)
 
 ---
 
 ## Non-Functional Requirements
 
-- Runs entirely on local machine — no cloud hosting, no external database
+- Deployable via Docker Compose (dev and prod stacks) or natively on a local machine
 - Ingestion script and web server are decoupled — script can be run manually or via cron
   independent of whether the UI is open
 - Near-zero running cost — Haiku API costs should remain negligible at typical job search
@@ -121,7 +121,7 @@ matching via LLM scoring, and present only relevant listings in a manageable UI.
 | Job data source | Adzuna REST API |
 | Full description retrieval | `requests` + `BeautifulSoup4` |
 | LLM scoring | Anthropic API — `claude-haiku-4-5-20251001` |
-| Database | SQLite via `sqlite3` (stdlib) |
+| Database | PostgreSQL via `psycopg2` |
 | Web server | Flask |
 | Frontend | HTML + HTMX |
 | Scheduling | cron (manual setup by user) |
@@ -134,13 +134,13 @@ matching via LLM scoring, and present only relevant listings in a manageable UI.
 job-matcher/
 ├── ingest.py           # Fetch, pre-filter, scrape, score, store
 ├── app.py              # Flask server and route handlers
-├── db.py               # SQLite schema and query helpers
+├── db.py               # PostgreSQL schema and query helpers
 ├── profile.json        # User skills and preferences
 ├── config.json         # API keys, search parameters, thresholds
 ├── templates/
 │   └── index.html      # Main UI template
 ├── static/             # CSS and any static assets
-└── jobs.db             # SQLite database (generated on first run)
+└── docker-compose.dev.yml  # Docker Compose dev stack (PostgreSQL + app)
 ```
 
 ---
