@@ -1020,11 +1020,18 @@ def settings():
             for source_key, cls in get_sources().items():
                 schema_fields = cls.settings_schema()["fields"]
                 cred_keys = [f"{source_key}__{f['name']}" for f in schema_fields]
+                clear_keys = [f"__clear__{source_key}__{f['name']}" for f in schema_fields]
                 enabled_key = f"{source_key}__enabled"
                 # Skip this source entirely when none of its form keys are present.
+                # Include __clear__ keys in this check: when the JS Clear button
+                # is clicked, submitDirty() may send only the __clear__ flag
+                # (plus the empty credential field after the client fix), but
+                # this defense-in-depth ensures the server never skips a source
+                # that has an explicit clear flag even if the credential field
+                # is absent from the POST body.
                 source_in_form = any(
                     request.form.get(k) is not None
-                    for k in cred_keys + [enabled_key]
+                    for k in cred_keys + [enabled_key] + clear_keys
                 )
                 if not source_in_form:
                     continue

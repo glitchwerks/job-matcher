@@ -764,8 +764,13 @@
         form.appendChild(hidden);
       }
 
-      // Mark the hidden __clear__ field as dirty so submitDirty() sends it.
+      // Mark both the hidden __clear__ field and the credential field itself as
+      // dirty so submitDirty() sends both.  The credential field (empty string)
+      // is required to pass the server-side source_in_form guard, which checks
+      // for regular cred keys.  The __clear__ flag is what actually triggers
+      // the wipe on the server.
       dirtyNames.add(clearName);
+      dirtyNames.add(input.name);
 
       // Hide the activated button.
       e.target.style.display = 'none';

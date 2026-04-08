@@ -1392,6 +1392,37 @@ class TestSettingsClearFlagSources:
             "No-JS guard must preserve source key when password submitted empty without __clear__ flag"
         )
 
+    def test_clear_flag_only_no_credential_field_still_clears(
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
+    ):
+        """Regression test for issue #151.
+
+        When the JS Clear button is clicked, the sparse submit previously sent
+        only the __clear__ flag without the credential field itself.  The
+        server-side source_in_form guard checked only regular cred keys, so
+        the entire source was skipped and the stored value was never cleared.
+
+        Both fixes together must ensure that submitting only a __clear__ flag
+        (with no regular credential field present in the POST body) is enough
+        to clear the stored value.
+        """
+        _write_providers(tmp_providers_path)
+
+        # Simulate the pre-fix JS behavior: only the __clear__ flag is sent,
+        # the credential field itself (adzuna__app_key) is absent.
+        client.post("/settings", data={
+            "tab": "sources",
+            "__clear__adzuna__app_key": "1",
+            # adzuna__app_key intentionally omitted — this is the bug scenario
+        })
+
+        with open(tmp_providers_path, encoding="utf-8") as fh:
+            saved = json.load(fh)
+        assert saved["job_sources"]["adzuna"]["app_key"] == "", (
+            "app_key must be cleared when only __clear__ flag is submitted "
+            "(no credential field in POST body) — regression for issue #151"
+        )
+
 
 class TestSettingsPopulatedFieldsInTemplate:
     """populated_fields must reach the template and trigger Clear button rendering."""
