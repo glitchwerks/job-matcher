@@ -51,8 +51,6 @@
     <div class="feed-meta">
       <strong>{{ listings | length }}</strong>
       {%- if listings | length == 1 %} role{% else %} roles{% endif %}
-      &nbsp;·&nbsp;
-      scored {{ (min_score if min_score is not none else threshold) | round(1) }}+ &nbsp;·&nbsp; sorted by {% if sort == 'date_posted' %}date posted{% else %}score{% endif %}
       {%- if new_count > 0 %}
         &nbsp;·&nbsp; <span class="feed-new-count">{{ new_count }} new</span>
       {%- endif %}
