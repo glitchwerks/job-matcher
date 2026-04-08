@@ -608,40 +608,53 @@
       }
     }
 
+    // Named listener references stored at forEach-callback scope so that
+    // bindFormListeners() can removeEventListener before re-adding, preventing
+    // duplicate listener accumulation after each sources-tab DOM swap.
+    function onFormInput(e) {
+      var t = e.target;
+      if (t.tagName !== 'INPUT') { return; }
+      if (t.type !== 'text' && t.type !== 'password') { return; }
+      if (t.value !== originalValues[t.name]) {
+        dirtyNames.add(t.name);
+      } else {
+        // Restored to original — remove from dirty set.
+        dirtyNames.delete(t.name);
+      }
+      updateBarVisibility();
+    }
+
+    function onFormChange(e) {
+      var t = e.target;
+      if (t.tagName !== 'INPUT' || t.type !== 'checkbox') { return; }
+      if (t.checked !== originalValues[t.name]) {
+        dirtyNames.add(t.name);
+      } else {
+        dirtyNames.delete(t.name);
+      }
+      updateBarVisibility();
+    }
+
+    function onFormSubmit() {
+      bar.classList.remove('save-bar--visible');
+      bar.setAttribute('aria-hidden', 'true');
+    }
+
     // Attach dirty-tracking listeners to the form.  Extracted into a named
     // function so we can re-bind after DOM replacement (sources tab refresh).
+    // Removes existing listeners before re-adding so that each re-bind is clean
+    // and no duplicate handlers accumulate on the new form element.
     function bindFormListeners() {
+      form.removeEventListener('input',  onFormInput);
+      form.removeEventListener('change', onFormChange);
+      form.removeEventListener('submit', onFormSubmit);
+
       // Listen for input changes on text/password fields.
-      form.addEventListener('input', function (e) {
-        var t = e.target;
-        if (t.tagName !== 'INPUT') { return; }
-        if (t.type !== 'text' && t.type !== 'password') { return; }
-        if (t.value !== originalValues[t.name]) {
-          dirtyNames.add(t.name);
-        } else {
-          // Restored to original — remove from dirty set.
-          dirtyNames.delete(t.name);
-        }
-        updateBarVisibility();
-      });
-
+      form.addEventListener('input',  onFormInput);
       // Listen for change events on checkboxes (checkboxes do not fire 'input').
-      form.addEventListener('change', function (e) {
-        var t = e.target;
-        if (t.tagName !== 'INPUT' || t.type !== 'checkbox') { return; }
-        if (t.checked !== originalValues[t.name]) {
-          dirtyNames.add(t.name);
-        } else {
-          dirtyNames.delete(t.name);
-        }
-        updateBarVisibility();
-      });
-
+      form.addEventListener('change', onFormChange);
       // Native submit fallback (no-JS path).
-      form.addEventListener('submit', function () {
-        bar.classList.remove('save-bar--visible');
-        bar.setAttribute('aria-hidden', 'true');
-      });
+      form.addEventListener('submit', onFormSubmit);
     }
     bindFormListeners();
 
@@ -657,6 +670,11 @@
         return;
       }
 
+      // Capture form from the DOM at call time rather than relying on the outer
+      // closure variable, which may be reassigned by a concurrent DOM swap.
+      // This makes the dependency explicit and safe across refactors.
+      var currentForm = form;
+
       var saveBtn = bar.querySelector('.btn-save');
       saveBtn.disabled = true;
       var prevLabel = saveBtn.textContent;
@@ -664,12 +682,12 @@
 
       var body = new URLSearchParams();
       // Always include the tab discriminator.
-      var tabInput = form.querySelector('input[name="tab"]');
+      var tabInput = currentForm.querySelector('input[name="tab"]');
       if (tabInput) { body.append('tab', tabInput.value); }
 
       // Include only dirty fields.
       dirtyNames.forEach(function (name) {
-        var el = form.elements[name];
+        var el = currentForm.elements[name];
         if (!el) { return; }
         if (el.type === 'checkbox') {
           // 'on' = checked; '' = explicitly unchecked (dirty).
@@ -682,7 +700,7 @@
         }
       });
 
-      fetch(form.action || '/settings', {
+      fetch(currentForm.action || '/settings', {
         method:  'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body:    body.toString(),
@@ -701,35 +719,43 @@
         // For the sources tab, replace the pane HTML with the server's
         // freshly rendered version so that toggle pills, disabled states,
         // and HTMX attributes reflect the just-saved credential state.
-        var pane = form.closest('.tab-pane');
+        var pane = currentForm.closest('.tab-pane');
         if (pane && pane.id === 'pane-sources') {
           resp.text().then(function (html) {
+            // The server responds with a full-page redirect after saving.
+            // We parse the entire document to extract just the #pane-sources
+            // pane with its freshly rendered state (toggle pills, badges, etc.).
             var doc = new DOMParser().parseFromString(html, 'text/html');
             var freshPane = doc.getElementById('pane-sources');
-            if (freshPane) {
-              pane.innerHTML = freshPane.innerHTML;
-              // Re-process HTMX attributes on the new DOM content.
-              if (typeof htmx !== 'undefined') { htmx.process(pane); }
-              // Re-acquire the form reference and re-snapshot original values
-              // so dirty tracking works on the refreshed DOM.
-              form = pane.querySelector('form');
-              if (form) {
-                var originalSubmit = form.querySelector('button[type="submit"].btn-save');
-                if (originalSubmit) { originalSubmit.style.display = 'none'; }
-                fields = Array.from(
-                  form.querySelectorAll('input[type="text"], input[type="password"]')
-                );
-                originalValues = {};
-                fields.forEach(function (input) {
-                  originalValues[input.name] = input.value;
-                });
-                Array.from(form.querySelectorAll('input[type="checkbox"]')).forEach(function (cb) {
-                  originalValues[cb.name] = cb.checked;
-                });
-                // Re-attach dirty-tracking listeners to the new form element.
-                bindFormListeners();
-              }
+            if (!freshPane) {
+              showSaveError(bar, 'Failed to refresh \u2014 unexpected response format.');
+              saveBtn.textContent = prevLabel;
+              return;
             }
+            pane.innerHTML = freshPane.innerHTML;
+            // Re-process HTMX attributes on the new DOM content.
+            if (typeof htmx !== 'undefined') { htmx.process(pane); }
+            // Re-acquire the form reference and re-snapshot original values
+            // so dirty tracking works on the refreshed DOM.
+            form = pane.querySelector('form');
+            if (!form) {
+              showSaveError(bar, 'Failed to re-initialize form after refresh.');
+              return;
+            }
+            var originalSubmit = form.querySelector('button[type="submit"].btn-save');
+            if (originalSubmit) { originalSubmit.style.display = 'none'; }
+            fields = Array.from(
+              form.querySelectorAll('input[type="text"], input[type="password"]')
+            );
+            originalValues = {};
+            fields.forEach(function (input) {
+              originalValues[input.name] = input.value;
+            });
+            Array.from(form.querySelectorAll('input[type="checkbox"]')).forEach(function (cb) {
+              originalValues[cb.name] = cb.checked;
+            });
+            // Re-attach dirty-tracking listeners to the new form element.
+            bindFormListeners();
             dirtyNames.clear();
             bar.classList.remove('save-bar--visible');
             bar.setAttribute('aria-hidden', 'true');
@@ -741,7 +767,7 @@
 
         // Non-sources tabs: update original values in place (no DOM swap).
         dirtyNames.forEach(function (name) {
-          var el = form.elements[name];
+          var el = currentForm.elements[name];
           if (!el) { return; }
           originalValues[name] = el.type === 'checkbox' ? el.checked : el.value;
         });
