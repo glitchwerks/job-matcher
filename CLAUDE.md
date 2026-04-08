@@ -68,7 +68,7 @@ Results include a `model_used` field stored as `"provider/model"` per listing. S
 - **`config/profile.json`** — Candidate skills and preferences injected verbatim into the scoring prompt. Fields: `primary_skills` (array of objects with `description` (string), `years_active` (integer), `active` (boolean) — active skills are weighted more heavily; `format_skills_for_prompt()` in `ingest.py` converts these to LLM-readable strings before sending), `anti_preferences`, `seniority`, `education` (array of free-text strings describing the candidate's degrees/credentials — injected into the LLM scoring prompt so the model does not flag degree requirements as concerns when the candidate already satisfies them), `preferred_industries`, `scoring_notes`. Location is configured via a single nested `location` block: `location.center` (geocodable string, e.g. `"Miami, FL"`), `location.radius_km` (number — hard filter radius before LLM scoring), `location.geocode_fallback` (`"pass"` or `"discard"` — controls what happens when a listing location cannot be geocoded; default `"pass"`), `location.notes` (free-text injected into the LLM prompt; auto-generated from `center` + `radius_km` when absent). **Migration note:** the flat fields `location_preference`, `location_center`, `location_radius_km`, and `location_geocode_fallback` are no longer read; update any existing `profile.json` to use the nested `location` block.
 - **`config/providers.json`** — Unified credential store for all sources, including Adzuna (`job_sources.adzuna.app_id` / `app_key`), Jooble, and USAJobs, as well as LLM providers (replaces `config/keys.json`). Managed via the `/settings` UI. Gitignored — copy from `config/providers.example.json` to get started.
 - All files are gitignored. Copy from `*.example.json` to get started.
-- `DB_PATH` defaults to `./jobs.db`. Adzuna credentials can be overridden via env vars `ADZUNA_APP_ID` / `ADZUNA_APP_KEY`; at runtime these are injected into the providers dict so they flow to `AdzunaClient` via the same `credentials=` path as providers.json.
+- Database connection is configured via the `DATABASE_URL` environment variable (PostgreSQL). Adzuna credentials can be overridden via env vars `ADZUNA_APP_ID` / `ADZUNA_APP_KEY`; at runtime these are injected into the providers dict so they flow to `AdzunaClient` via the same `credentials=` path as providers.json.
 
 ### Database schema notes
 
@@ -85,10 +85,6 @@ Results include a `model_used` field stored as `"provider/model"` per listing. S
 - Config/logs: dev uses `./config-dev` and `./logs-dev`; prod uses `./config` and `./logs`
 - `scripts/docker-setup.sh` — one-time VM provisioning
 - `scripts/docker-status.sh` / `scripts/docker-teardown.sh` — ops helpers
-
-**Windows native (legacy):**
-- `scripts/setup.ps1` — Registers waitress as an NSSM Windows service and creates a Task Scheduler job for daily ingest.
-- `scripts/status.ps1` / `scripts/teardown.ps1` — Ops helpers.
 
 ## UI Development
 
