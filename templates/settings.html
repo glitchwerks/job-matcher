@@ -723,7 +723,11 @@
   }
 }());
 
-// Dirty-state tracking for credential forms
+// Dirty-state tracking with client-side sparse submit for credential forms.
+// Only fields the user actually changed are sent in the POST — this prevents
+// empty untouched inputs from arriving as "" and overwriting stored credentials
+// (issue #89).  The server's existing `if raw is None: continue` logic handles
+// the resulting sparse form data correctly.
 (function () {
   [
     { formSelector: '#pane-llm form',     barId: 'save-bar-llm' },
@@ -733,21 +737,26 @@
     var bar  = document.getElementById(cfg.barId);
     if (!form || !bar) return;
 
+    // Keep the native submit button as a no-JS fallback but hide it when JS
+    // is running — the save-bar button drives submission instead.
     var originalSubmit = form.querySelector('button[type="submit"].btn-save');
     if (originalSubmit) { originalSubmit.style.display = 'none'; }
 
-    // Capture original field values on page load
-    var fields = Array.from(form.querySelectorAll('input[type="text"], input[type="password"]'));
+    // Track which field names the user has actually changed.
+    var dirtyNames = new Set();
+
+    // Capture original values for text/password inputs at page load so we
+    // can detect when a field is restored to its original value.
+    var fields = Array.from(
+      form.querySelectorAll('input[type="text"], input[type="password"]')
+    );
     var originalValues = {};
     fields.forEach(function (input) {
       originalValues[input.name] = input.value;
     });
 
     function updateBarVisibility() {
-      var isDirty = fields.some(function (input) {
-        return input.value !== originalValues[input.name];
-      });
-      if (isDirty) {
+      if (dirtyNames.size > 0) {
         bar.classList.add('save-bar--visible');
         bar.removeAttribute('aria-hidden');
       } else {
@@ -756,23 +765,102 @@
       }
     }
 
+    // Listen for input changes on text/password fields.
     form.addEventListener('input', function (e) {
       var t = e.target;
-      if (t.tagName === 'INPUT' && (t.type === 'text' || t.type === 'password')) {
-        updateBarVisibility();
+      if (t.tagName !== 'INPUT') { return; }
+      if (t.type !== 'text' && t.type !== 'password') { return; }
+      if (t.value !== originalValues[t.name]) {
+        dirtyNames.add(t.name);
+      } else {
+        // Restored to original — remove from dirty set.
+        dirtyNames.delete(t.name);
       }
+      updateBarVisibility();
     });
 
-    bar.querySelector('.btn-save').addEventListener('click', function () {
-      form.requestSubmit();
-    });
+    // Build and submit a sparse FormData containing only dirty fields + tab.
+    function submitDirty() {
+      if (dirtyNames.size === 0) {
+        // Nothing changed — surface a brief "no changes" hint on the label.
+        var label = bar.querySelector('.save-bar-label');
+        var prev = label.textContent;
+        label.textContent = 'No changes to save';
+        setTimeout(function () { label.textContent = prev; }, 2000);
+        return;
+      }
 
-    // Hide bar on successful form submission
+      var saveBtn = bar.querySelector('.btn-save');
+      saveBtn.disabled = true;
+      var prevLabel = saveBtn.textContent;
+      saveBtn.textContent = 'Saving\u2026';
+
+      var body = new URLSearchParams();
+      // Always include the tab discriminator.
+      var tabInput = form.querySelector('input[name="tab"]');
+      if (tabInput) { body.append('tab', tabInput.value); }
+
+      // Include only dirty text/password fields.
+      dirtyNames.forEach(function (name) {
+        var el = form.querySelector('[name="' + name + '"]');
+        if (el) { body.append(name, el.value); }
+      });
+
+      fetch(form.action || '/settings', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body:    body.toString(),
+        // Follow redirects (fetch follows by default); we only care about
+        // whether the final response was ok.
+        redirect: 'follow',
+      })
+      .then(function (resp) {
+        saveBtn.disabled = false;
+        if (resp.ok) {
+          // Success: update original values and clear dirty set so the bar
+          // reflects the saved state.
+          dirtyNames.forEach(function (name) {
+            var el = form.querySelector('[name="' + name + '"]');
+            if (el) { originalValues[name] = el.value; }
+          });
+          dirtyNames.clear();
+          bar.classList.remove('save-bar--visible');
+          bar.setAttribute('aria-hidden', 'true');
+          saveBtn.textContent = 'Saved!';
+          setTimeout(function () { saveBtn.textContent = prevLabel; }, 2000);
+        } else {
+          saveBtn.textContent = prevLabel;
+          showSaveError(bar, 'Save failed \u2014 check file permissions.');
+        }
+      })
+      .catch(function () {
+        saveBtn.disabled = false;
+        saveBtn.textContent = prevLabel;
+        showSaveError(bar, 'Save failed \u2014 network error.');
+      });
+    }
+
+    bar.querySelector('.btn-save').addEventListener('click', submitDirty);
+
+    // Native submit fallback (no-JS path): let it through unchanged so the
+    // server receives all fields as before.  The save-bar button is the only
+    // JS-enabled save path.
     form.addEventListener('submit', function () {
       bar.classList.remove('save-bar--visible');
       bar.setAttribute('aria-hidden', 'true');
     });
   });
+
+  // Inline error helper — injects a transient error span near the save bar.
+  function showSaveError(bar, message) {
+    var existing = bar.parentNode.querySelector('.save-bar-error');
+    if (existing) { existing.remove(); }
+    var el = document.createElement('p');
+    el.className = 'save-error save-bar-error';
+    el.textContent = message;
+    bar.parentNode.insertBefore(el, bar.nextSibling);
+    setTimeout(function () { if (el.parentNode) { el.remove(); } }, 5000);
+  }
 }());
 </script>
 {# ── SortableJS drag-to-reorder ──────────────────────────────── #}

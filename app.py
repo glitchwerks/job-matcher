@@ -981,19 +981,34 @@ def settings():
 
         elif active_tab == "sources":
             updates["job_sources"] = {}
-            # Job sources: save enabled flag for all sources in the active tab;
-            # save credential fields only when non-empty to avoid wiping stored
-            # credentials for sources the user didn't touch (issue #71).
+            # Job sources: JS dirty-tracking sends only the fields the user
+            # actually changed, so we must skip sources that have no form data
+            # at all.  A source is "touched" when any of its namespaced fields
+            # (credentials or the enabled checkbox) appears in the POST body.
+            # This prevents the server from overwriting stored credentials or
+            # toggling the enabled flag for sources the user never interacted
+            # with (issue #89 — client-side dirty tracking companion fix).
             for source_key, cls in get_sources().items():
+                schema_fields = cls.settings_schema()["fields"]
+                cred_keys = [f"{source_key}__{f['name']}" for f in schema_fields]
+                enabled_key = f"{source_key}__enabled"
+                # Skip this source entirely when none of its form keys are present.
+                source_in_form = any(
+                    request.form.get(k) is not None
+                    for k in cred_keys + [enabled_key]
+                )
+                if not source_in_form:
+                    continue
+
                 source_updates: dict = {}
 
-                # Checkbox: unchecked = not submitted = False.  enabled must
-                # always be included because a missing checkbox means explicitly
-                # disabled — not "unchanged".
-                enabled = request.form.get(f"{source_key}__enabled") == "on"
+                # Checkbox: unchecked = not submitted = False.  Only written
+                # here because we've already confirmed this source is in the
+                # form (the user touched at least one of its fields).
+                enabled = request.form.get(enabled_key) == "on"
                 source_updates["enabled"] = enabled
 
-                for field in cls.settings_schema()["fields"]:
+                for field in schema_fields:
                     field_name = field["name"]
                     form_key = f"{source_key}__{field_name}"
                     raw = request.form.get(form_key)
