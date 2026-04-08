@@ -51,9 +51,15 @@
     .drag-handle {
       color: var(--text-secondary);
       font-size: 1.1rem;
+      line-height: 1; /* prevent extra vertical space around single character */
       cursor: grab;
       flex-shrink: 0;
+      /* Generous padding enlarges the hit target without changing visual size */
+      padding: 0.4rem 0.5rem;
+      margin: -0.4rem -0.5rem;
+      touch-action: none;
     }
+    .drag-handle:active { cursor: grabbing; }
     .order-position {
       font-size: 0.75rem;
       font-weight: 700;
@@ -749,10 +755,12 @@
      back into Sortable.create() after a DOM swap. */
   function initSortable(el) {
     return Sortable.create(el, {
-      animation:  150,
-      handle:     '.drag-handle',
-      ghostClass: 'sortable-ghost',
-      dragClass:  'sortable-drag',
+      animation:     150,
+      handle:        '.drag-handle',
+      ghostClass:    'sortable-ghost',
+      dragClass:     'sortable-drag',
+      forceFallback: true,   /* bypass HTML5 native DnD — more reliable cross-browser */
+      fallbackTolerance: 3,  /* px of movement before drag starts (avoids mis-fires on click) */
 
       onStart: function () {
         /* SortableJS ignores return values — disable via the API instead. */

@@ -595,6 +595,25 @@ The filter bar is extracted into `templates/_filter_bar.html` so both the Listin
 
 The Clear link appears when any of `search`, `min_score`, `remote_only`, `job_type`, or `sort` is truthy. Its `href` is set to `action` so it navigates to the bare page URL, resetting all params.
 
+### Drag Handle (provider order)
+
+Used on the Settings → LLM Providers tab to allow drag-and-drop reordering of the provider fallback chain. Each `.order-item` row contains one `.drag-handle` element.
+
+```html
+<span class="drag-handle" aria-hidden="true">≡</span>
+```
+
+The icon is ≡ (U+2261, IDENTICAL TO), used as a visual drag affordance (three stacked lines). `aria-hidden="true"` hides it from screen readers — the draggable row itself carries the accessible label.
+
+| Selector | Notes |
+|---|---|
+| `.drag-handle` | `--text-secondary` color; `font-size: 1.1rem`; `line-height: 1` (prevents extra vertical space around the single character); `cursor: grab`; `flex-shrink: 0` |
+| `.drag-handle:active` | `cursor: grabbing` during an active drag gesture |
+
+**Hit-target expansion** — the handle uses padding + negative margin (`padding: 0.4rem 0.5rem; margin: -0.4rem -0.5rem`) to enlarge the clickable/touch area without changing the visual footprint of the icon.
+
+**Mobile compatibility** — `touch-action: none` on `.drag-handle` prevents the browser from intercepting the pointer events needed by the drag library (SortableJS), allowing touch-based reordering to work correctly on mobile devices.
+
 ### Ingest Trigger (feed page)
 
 Rendered via `templates/_ingest_trigger.html`, included in `index.html` inside a `.ingest-trigger-container` div. Has two states:
