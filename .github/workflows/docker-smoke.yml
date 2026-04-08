@@ -1,0 +1,186 @@
+name: Docker Compose Smoke Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    env:
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass123
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Set up Docker Buildx so we can use GHA layer caching.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build the image from the local Dockerfile so this job tests the
+      # current branch's image, not a previously published GHCR tag.
+      # load: true makes the built image available to the local Docker daemon.
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ghcr.io/cbeaulieu-gt/job-matcher-pr:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The compose env files only need POSTGRES_* credentials.
+      # DATABASE_URL, FLASK_DEBUG, etc. are set in the compose environment: block.
+      # Use printf to avoid heredoc indentation issues inside YAML run blocks.
+      - name: Create test env files
+        run: |
+          printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=jobmatcher_dev\n' \
+            "${{ env.POSTGRES_USER }}" "${{ env.POSTGRES_PASSWORD }}" > .env.dev
+          printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=jobmatcher_prod\n' \
+            "${{ env.POSTGRES_USER }}" "${{ env.POSTGRES_PASSWORD }}" > .env.prod
+
+      # Create config directories and populate them from example files so the
+      # Flask app has valid (if empty) config on first boot.
+      - name: Create config directories and seed example configs
+        run: |
+          mkdir -p config config-dev logs logs-dev
+          cp config/config.example.json config/config.json
+          cp config/config.example.json config-dev/config.json
+          cp config/providers.example.json config/providers.json
+          cp config/providers.example.json config-dev/providers.json
+          cp config/profile.example.json config/profile.json
+          cp config/profile.example.json config-dev/profile.json
+
+      # ---------------------------------------------------------------------------
+      # DEV STACK
+      # ---------------------------------------------------------------------------
+      - name: Start dev stack
+        run: docker compose -p job-matcher-pr-dev -f docker-compose.dev.yml up -d
+
+      - name: Wait for dev stack to be healthy (port 5000)
+        run: |
+          echo "Waiting for dev stack on port 5000..."
+          for i in $(seq 1 12); do
+            if curl -sf http://localhost:5000/ > /dev/null 2>&1; then
+              echo "Dev stack is up (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i/12 failed, retrying in 5s..."
+            sleep 5
+          done
+          echo "Dev stack did not become healthy within 60s — dumping logs"
+          docker compose -p job-matcher-pr-dev -f docker-compose.dev.yml logs
+          exit 1
+
+      - name: Assert dev stack responds with HTTP 200
+        run: |
+          STATUS=$(curl -o /dev/null -sw "%{http_code}" http://localhost:5000/)
+          if [ "$STATUS" != "200" ]; then
+            echo "Expected HTTP 200 from dev stack, got $STATUS"
+            docker compose -p job-matcher-pr-dev -f docker-compose.dev.yml logs
+            exit 1
+          fi
+          echo "Dev stack returned HTTP $STATUS — OK"
+
+      - name: Assert dev stack has expected container count
+        run: |
+          CONTAINER_COUNT=$(docker compose -p job-matcher-pr-dev -f docker-compose.dev.yml ps -q | wc -l)
+          echo "Dev stack container count: $CONTAINER_COUNT"
+          if [ "$CONTAINER_COUNT" -lt 2 ]; then
+            echo "Expected at least 2 containers, found $CONTAINER_COUNT"
+            docker compose -p job-matcher-pr-dev -f docker-compose.dev.yml ps
+            exit 1
+          fi
+          echo "Container count check passed"
+
+      # ---------------------------------------------------------------------------
+      # PROD STACK
+      # ---------------------------------------------------------------------------
+      - name: Start prod stack
+        run: docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml up -d
+
+      - name: Wait for prod stack to be healthy (port 5001)
+        run: |
+          echo "Waiting for prod stack on port 5001..."
+          for i in $(seq 1 12); do
+            if curl -sf http://localhost:5001/ > /dev/null 2>&1; then
+              echo "Prod stack is up (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i/12 failed, retrying in 5s..."
+            sleep 5
+          done
+          echo "Prod stack did not become healthy within 60s — dumping logs"
+          docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml logs
+          exit 1
+
+      - name: Assert prod stack responds with HTTP 200
+        run: |
+          STATUS=$(curl -o /dev/null -sw "%{http_code}" http://localhost:5001/)
+          if [ "$STATUS" != "200" ]; then
+            echo "Expected HTTP 200 from prod stack, got $STATUS"
+            docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml logs
+            exit 1
+          fi
+          echo "Prod stack returned HTTP $STATUS — OK"
+
+      - name: Assert prod stack has expected container count
+        run: |
+          CONTAINER_COUNT=$(docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml ps -q | wc -l)
+          echo "Prod stack container count: $CONTAINER_COUNT"
+          if [ "$CONTAINER_COUNT" -lt 2 ]; then
+            echo "Expected at least 2 containers, found $CONTAINER_COUNT"
+            docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml ps
+            exit 1
+          fi
+          echo "Container count check passed"
+
+      # ---------------------------------------------------------------------------
+      # ISOLATION — both stacks running simultaneously
+      # ---------------------------------------------------------------------------
+      - name: Assert both stacks are isolated and running simultaneously
+        run: |
+          echo "--- Isolation check ---"
+
+          # Both ports must respond
+          DEV_STATUS=$(curl -o /dev/null -sw "%{http_code}" http://localhost:5000/)
+          PROD_STATUS=$(curl -o /dev/null -sw "%{http_code}" http://localhost:5001/)
+          echo "Dev  (5000): HTTP $DEV_STATUS"
+          echo "Prod (5001): HTTP $PROD_STATUS"
+          if [ "$DEV_STATUS" != "200" ] || [ "$PROD_STATUS" != "200" ]; then
+            echo "One or both stacks stopped responding during isolation check"
+            exit 1
+          fi
+
+          # Each stack must use its own named volume (pgdata_dev vs pgdata_prod)
+          VOLUMES=$(docker volume ls --format '{{.Name}}')
+          echo "Volumes: $VOLUMES"
+          if ! echo "$VOLUMES" | grep -q "pgdata_dev"; then
+            echo "pgdata_dev volume not found"
+            exit 1
+          fi
+          if ! echo "$VOLUMES" | grep -q "pgdata_prod"; then
+            echo "pgdata_prod volume not found"
+            exit 1
+          fi
+          echo "Volume isolation check passed"
+
+      # ---------------------------------------------------------------------------
+      # TEARDOWN — always runs, even on failure
+      # ---------------------------------------------------------------------------
+      - name: Teardown stacks
+        if: always()
+        run: |
+          docker compose -p job-matcher-pr-dev  -f docker-compose.dev.yml  down -v || true
+          docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml down -v || true
