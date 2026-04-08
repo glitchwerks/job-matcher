@@ -406,40 +406,38 @@ Add these in **Settings → Secrets and variables → Actions** for the CI failu
 
 ## Docker deployment (Linux VM)
 
-Use this approach to run Job Matcher as a Docker Compose stack on a Linux VM. The stack consists of a `web` container (Flask + waitress) and a `db` container (PostgreSQL). All job data — bookmarks, applied listings, dismiss decisions — is stored in the `pgdata` Docker volume on the host.
+Use this approach to run Job Matcher as a Docker Compose stack on a Linux VM. The stack consists of a `web` container (Flask + waitress), a `db` container (PostgreSQL), and a `scheduler` container (Ofelia) that runs ingestion daily.
+
+For full documentation — stack architecture, environment variables, CI/CD pipeline, scheduled ingestion, backups, troubleshooting, teardown, and migration from Windows — see **[docs/DOCKER.md](docs/DOCKER.md)**.
 
 ### Quick start
 
 ```bash
+# Clone into the recommended path (scripts reference /opt/job-matcher-pr)
+sudo git clone https://github.com/cbeaulieu-gt/job-matcher-pr.git /opt/job-matcher-pr
+cd /opt/job-matcher-pr
+
+# One-time setup: creates directories, copies config examples, starts both stacks
 sudo ./scripts/docker-setup.sh
 ```
 
-This script checks for Docker, creates required directories, copies example config files, and starts the stack. Follow the on-screen prompts. After it completes, open `http://<vm-ip>:5000/settings` to configure API keys.
+After the script completes:
 
-### Backups
+- **Dev** (port 5000): `http://<vm-ip>:5000/settings` — configure dev API keys
+- **Prod** (port 5001): `http://<vm-ip>:5001/settings` — configure prod API keys
 
-The `pgdata` Docker volume is the only copy of your data. **Running `docker compose down -v` destroys it permanently.** Take regular backups.
-
-**Manual backup**
+### Ops commands
 
 ```bash
+# Check container health, logs, and database stats
+./scripts/docker-status.sh
+
+# Run ingest manually (prod)
+docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml exec web python ingest.py --hours 25
+
+# Back up the prod database
 ./scripts/backup.sh
+
+# Stop and remove stacks (interactive — prompts before deleting volumes)
+./scripts/docker-teardown.sh
 ```
-
-Backups are written to `./backups/` (gitignored) as timestamped SQL dumps (`jobs_YYYYMMDD_HHMMSS.sql`). The script keeps the 10 most recent and removes older ones automatically.
-
-**Automated daily backup (recommended)**
-
-Add to the host crontab (`crontab -e`):
-
-```cron
-30 1 * * * /opt/job-matcher-pr/scripts/backup.sh >> /opt/job-matcher-pr/logs/backup.log 2>&1
-```
-
-**Restore from a backup**
-
-```bash
-docker compose -p job-matcher-pr-prod exec -T db psql -U jobmatcher jobmatcher < backups/jobs_YYYYMMDD_HHMMSS.sql
-```
-
-Replace `jobs_YYYYMMDD_HHMMSS.sql` with the filename of the backup you want to restore.
