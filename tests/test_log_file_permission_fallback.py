@@ -13,6 +13,17 @@ import pytest
 from ingest import _configure_file_logging
 
 
+@pytest.fixture(autouse=True)
+def reset_root_logger():
+    """Ensure root logger is clean before and after each test."""
+    root = logging.getLogger()
+    handlers_before = list(root.handlers)
+    yield
+    for h in list(root.handlers):
+        if h not in handlers_before:
+            root.removeHandler(h)
+
+
 def test_no_raise_on_permission_error(tmp_path, monkeypatch):
     """Function must not raise when FileHandler raises PermissionError."""
     monkeypatch.setenv("LOG_DIR", str(tmp_path))
@@ -57,4 +68,11 @@ def test_no_raise_on_oserror(tmp_path, monkeypatch):
     """Function must not raise when FileHandler raises OSError."""
     monkeypatch.setenv("LOG_DIR", str(tmp_path))
     with patch("logging.FileHandler", side_effect=OSError("Read-only file system")):
+        _configure_file_logging()
+
+
+def test_no_raise_on_makedirs_permission_error(monkeypatch):
+    """Function must not raise when os.makedirs raises PermissionError."""
+    monkeypatch.setenv("LOG_DIR", "/root/logs")
+    with patch("os.makedirs", side_effect=PermissionError("Permission denied")):
         _configure_file_logging()

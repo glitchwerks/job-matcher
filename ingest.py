@@ -70,7 +70,16 @@ def _configure_file_logging() -> None:
         "LOG_DIR",
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
     )
-    os.makedirs(log_dir, exist_ok=True)
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+    except (PermissionError, OSError) as exc:
+        logging.warning(
+            "File logging unavailable — cannot create log directory %s (%s). "
+            "Continuing with stdout-only logging.",
+            log_dir,
+            exc,
+        )
+        return
 
     ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(log_dir, f"ingest_{ts}.log")
