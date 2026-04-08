@@ -22,8 +22,20 @@ Copy the example config files — these are gitignored and must never be committ
 
 ```powershell
 Copy-Item config\config.example.json config\config.json
-Copy-Item config\keys.example.json config\keys.json
+Copy-Item config\providers.example.json config\providers.json
 Copy-Item config\profile.example.json config\profile.json
+```
+
+**Database:** The app requires PostgreSQL. Set `DATABASE_URL` before running the web server or tests:
+
+```powershell
+# Option A: spin up the dev database with Docker Compose (recommended)
+docker compose -f docker-compose.dev.yml up -d
+$env:DATABASE_URL = "postgresql://jobmatcher:<password>@localhost:5432/jobmatcher"
+# (<password> is in .env.dev — copy .env.dev.example to .env.dev first)
+
+# Option B: use an existing local PostgreSQL instance
+$env:DATABASE_URL = "postgresql://<user>:<password>@localhost:5432/<dbname>"
 ```
 
 Run the web UI:
@@ -53,7 +65,7 @@ static/            CSS and any static assets
 config/            Example config files (*.example.json are committed; others are not)
 tests/             Pytest test suite
 docs/              Design docs, style guide, plans
-scripts/           Windows deployment helpers (NSSM, Task Scheduler)
+scripts/           Linux/Docker deployment helpers (docker-setup.sh, docker-status.sh, docker-teardown.sh)
 ```
 
 ---
