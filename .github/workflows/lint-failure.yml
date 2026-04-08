@@ -18,7 +18,7 @@ jobs:
     permissions:
       actions: read
       contents: none
-      pull-requests: none
+      pull-requests: read
     # Guard here so the job exits fast when CI passed — avoids unnecessary API calls
     if: github.event.workflow_run.conclusion == 'failure'
     outputs:
