@@ -1007,3 +1007,82 @@ class TestSettingsPostDirtyTracking:
         assert saved["job_sources"]["adzuna"]["app_id"] == "stable-id"
         assert saved["job_sources"]["adzuna"]["enabled"] is True
         assert saved["job_sources"]["remotive"]["enabled"] is True
+
+
+# ===========================================================================
+# POST /settings — checkbox-only dirty-tracking (issue #90)
+# ===========================================================================
+
+
+class TestSettingsPostCheckboxDirtyTracking:
+    """JS dirty-tracking sends only changed fields.  When only the enabled
+    checkbox is toggled (no credential fields touched), the server must persist
+    the new enabled state without disturbing stored credentials.
+    """
+
+    def test_checkbox_only_toggle_persists_enabled_and_preserves_credentials(
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
+    ):
+        """Sparse POST with only adzuna__enabled=on must set enabled=True and
+        leave existing credentials intact.
+        """
+        data = {
+            "provider_order": [],
+            "llm": {},
+            "job_sources": {
+                "adzuna": {
+                    "app_id": "keep-id",
+                    "app_key": "keep-key",
+                    "enabled": False,
+                },
+            },
+        }
+        with open(tmp_providers_path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+
+        # Only the checkbox was toggled — credentials are not dirty, not sent.
+        client.post("/settings", data={
+            "adzuna__enabled": "on",
+            "tab": "sources",
+        })
+
+        with open(tmp_providers_path, encoding="utf-8") as fh:
+            saved = json.load(fh)
+
+        assert saved["job_sources"]["adzuna"]["enabled"] is True
+        assert saved["job_sources"]["adzuna"]["app_id"] == "keep-id"
+        assert saved["job_sources"]["adzuna"]["app_key"] == "keep-key"
+
+    def test_checkbox_and_credential_both_persist(
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
+    ):
+        """Sparse POST with checkbox + one credential field must update both
+        without touching the untouched credential.
+        """
+        data = {
+            "provider_order": [],
+            "llm": {},
+            "job_sources": {
+                "adzuna": {
+                    "app_id": "old-id",
+                    "app_key": "old-key",
+                    "enabled": False,
+                },
+            },
+        }
+        with open(tmp_providers_path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+
+        # Checkbox toggled and app_id changed — app_key was not touched, not sent.
+        client.post("/settings", data={
+            "adzuna__enabled": "on",
+            "adzuna__app_id": "new-id",
+            "tab": "sources",
+        })
+
+        with open(tmp_providers_path, encoding="utf-8") as fh:
+            saved = json.load(fh)
+
+        assert saved["job_sources"]["adzuna"]["enabled"] is True
+        assert saved["job_sources"]["adzuna"]["app_id"] == "new-id"
+        assert saved["job_sources"]["adzuna"]["app_key"] == "old-key"
