@@ -6,9 +6,11 @@ on:
     workflows: ["CI"]
     types: [completed]
 
-# preflight only needs actions: read; write permissions are scoped to the lint-fix job below
+# write permissions needed by the lint-fix reusable workflow; preflight only uses actions: read
 permissions:
   actions: read
+  contents: write
+  pull-requests: write
 
 jobs:
   preflight:
