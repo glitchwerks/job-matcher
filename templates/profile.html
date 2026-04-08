@@ -695,8 +695,14 @@
     statusDiv.innerHTML = '';
 
     fetch('/profile/import-pdf', { method: 'POST', body: formData })
-      .then(function (resp) { return resp.json().then(function (d) { return { ok: resp.ok, data: d }; }); })
+      .then(function (resp) { return resp.json().then(function (d) { return { ok: resp.ok, status: resp.status, data: d }; }); })
       .then(function (result) {
+        // Large PDF — server dispatched a background job; poll for completion.
+        if (result.status === 202 && result.data['async']) {
+          _pollImportJob(result.data.job_id);
+          return;
+        }
+
         importBtn.disabled = false;
         importBtn.textContent = 'Import';
 
@@ -709,23 +715,7 @@
           return;
         }
 
-        var prof = result.data.profile;
-
-        _fillSkillsTable(prof.primary_skills || []);
-        _fillRepeatingRows('education', prof.education || []);
-        _fillRepeatingRows('preferred_industries', prof.preferred_industries || []);
-
-        var seniorityInput = document.querySelector('input[name="seniority"], select[name="seniority"]');
-        if (seniorityInput && prof.seniority) seniorityInput.value = prof.seniority;
-
-        var locationInput = document.querySelector('input[name="location_center"]');
-        if (locationInput && prof.location_center) locationInput.value = prof.location_center;
-
-        statusDiv.innerHTML = '';
-        var noticeP = document.createElement('p');
-        noticeP.className = 'save-notice';
-        noticeP.textContent = 'Profile pre-filled from resume (' + result.data.model_used + '). Review the fields below and click Save.';
-        statusDiv.appendChild(noticeP);
+        _applyImportResult(result.data);
       })
       .catch(function (err) {
         importBtn.disabled = false;
@@ -737,6 +727,94 @@
         statusDiv.appendChild(netErrP);
       });
   });
+
+  /**
+   * Apply a successful import result payload to the profile form.
+   * Used by both the synchronous path and the async polling path.
+   *
+   * @param {Object} data  - the JSON body from the import endpoint
+   *                         (must have .profile and .model_used)
+   */
+  function _applyImportResult(data) {
+    var prof = data.profile;
+
+    _fillSkillsTable(prof.primary_skills || []);
+    _fillRepeatingRows('education', prof.education || []);
+    _fillRepeatingRows('preferred_industries', prof.preferred_industries || []);
+
+    var seniorityInput = document.querySelector('input[name="seniority"], select[name="seniority"]');
+    if (seniorityInput && prof.seniority) seniorityInput.value = prof.seniority;
+
+    var locationInput = document.querySelector('input[name="location_center"]');
+    if (locationInput && prof.location_center) locationInput.value = prof.location_center;
+
+    statusDiv.innerHTML = '';
+    var noticeP = document.createElement('p');
+    noticeP.className = 'save-notice';
+    noticeP.textContent = 'Profile pre-filled from resume (' + data.model_used + '). Review the fields below and click Save.';
+    statusDiv.appendChild(noticeP);
+  }
+
+  /**
+   * Poll GET /profile/import-pdf/status/<jobId> every 2 seconds until the job
+   * finishes, then apply the result or show an error.
+   *
+   * @param {string} jobId  - UUID returned by the 202 response
+   */
+  function _pollImportJob(jobId) {
+    statusDiv.innerHTML = '';
+    var msgP = document.createElement('p');
+    msgP.className = 'save-notice';
+    msgP.textContent = 'Processing large PDF\u2026 this may take a minute.';
+    statusDiv.appendChild(msgP);
+
+    var pollInterval = setInterval(function () {
+      fetch('/profile/import-pdf/status/' + jobId)
+        .then(function (resp) { return resp.json().then(function (d) { return { ok: resp.ok, data: d }; }); })
+        .then(function (result) {
+          if (!result.ok) {
+            clearInterval(pollInterval);
+            importBtn.disabled = false;
+            importBtn.textContent = 'Import';
+            statusDiv.innerHTML = '';
+            var errP = document.createElement('p');
+            errP.className = 'save-error';
+            errP.textContent = result.data.error || 'Import job not found.';
+            statusDiv.appendChild(errP);
+            return;
+          }
+
+          var jobStatus = result.data.status;
+
+          if (jobStatus === 'complete') {
+            clearInterval(pollInterval);
+            importBtn.disabled = false;
+            importBtn.textContent = 'Import';
+            _applyImportResult(result.data.result);
+          } else if (jobStatus === 'failed') {
+            clearInterval(pollInterval);
+            importBtn.disabled = false;
+            importBtn.textContent = 'Import';
+            statusDiv.innerHTML = '';
+            var errP = document.createElement('p');
+            errP.className = 'save-error';
+            errP.textContent = result.data.error || 'Import failed.';
+            statusDiv.appendChild(errP);
+          }
+          // 'pending' or 'running': keep polling
+        })
+        .catch(function (err) {
+          clearInterval(pollInterval);
+          importBtn.disabled = false;
+          importBtn.textContent = 'Import';
+          statusDiv.innerHTML = '';
+          var netErrP = document.createElement('p');
+          netErrP.className = 'save-error';
+          netErrP.textContent = 'Network error while polling: ' + err.message;
+          statusDiv.appendChild(netErrP);
+        });
+    }, 2000);
+  }
 
   function _fillRepeatingRows(fieldName, values) {
     var list = document.getElementById('list-' + fieldName);
