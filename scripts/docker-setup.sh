@@ -42,10 +42,13 @@ mkdir -p "$PROJECT_DIR/config-dev"
 mkdir -p "$PROJECT_DIR/logs"
 mkdir -p "$PROJECT_DIR/logs-dev"
 # uid 1000 = appuser defined in the Dockerfile — required so the web container
-# can write to config/ (the /settings UI saves providers.json at runtime).
+# can write to config/ (the /settings UI saves providers.json at runtime) and
+# so ingest can write log files to logs/.
 chown -R 1000:1000 "$PROJECT_DIR/config"
 chown -R 1000:1000 "$PROJECT_DIR/config-dev"
-echo "    config/ and config-dev/ owned by uid 1000"
+chown -R 1000:1000 "$PROJECT_DIR/logs"
+chown -R 1000:1000 "$PROJECT_DIR/logs-dev"
+echo "    config/, config-dev/, logs/, and logs-dev/ owned by uid 1000"
 
 # ---------------------------------------------------------------------------
 # .env.dev
