@@ -12,8 +12,11 @@ Public API
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
 import sys
+import tempfile
 
 from job_sources import SOURCES  # module-level so tests can monkeypatch it
 from credentials import load_providers, save_providers
@@ -21,12 +24,49 @@ from credentials import load_providers, save_providers
 logger = logging.getLogger(__name__)
 
 
+def _resolve_lock_path(lock_path: str) -> str:
+    """Return a writable lock path, falling back to the system temp directory.
+
+    The preferred location is *lock_path* itself (alongside providers.json).
+    If that directory is not writable — e.g. in a Docker container where
+    ``/app/config/`` is a read-only image layer — we derive a deterministic
+    fallback path in ``tempfile.gettempdir()`` so the lock still provides
+    cross-process coordination for any processes that share the same temp dir.
+    """
+    lock_dir = os.path.dirname(lock_path) or "."
+    if os.access(lock_dir, os.W_OK):
+        return lock_path
+
+    # Fallback: name the temp lock file after a hash of the original path so
+    # different providers.json files get different locks.
+    name_hash = hashlib.sha1(lock_path.encode()).hexdigest()[:12]
+    fallback = os.path.join(tempfile.gettempdir(), f"providers_{name_hash}.lock")
+    logger.debug(
+        "Config directory %r is not writable; using temp lock file %r",
+        lock_dir,
+        fallback,
+    )
+    return fallback
+
+
 def _acquire_lock(lock_path: str):
     """Return an open file handle locked for exclusive access (cross-platform).
 
+    If the preferred lock path is in a non-writable directory, a fallback path
+    under ``tempfile.gettempdir()`` is used automatically.
+
     Returns None if the lock cannot be acquired (another process holds it).
     """
-    fh = open(lock_path, "w")
+    resolved = _resolve_lock_path(lock_path)
+    try:
+        fh = open(resolved, "w")
+    except OSError as exc:
+        logger.warning(
+            "Could not open lock file %r (%s); skipping file lock.",
+            resolved,
+            exc,
+        )
+        return None
     try:
         if sys.platform == "win32":
             import msvcrt

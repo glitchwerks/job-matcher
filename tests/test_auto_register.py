@@ -248,3 +248,71 @@ def test_no_sources_noop(tmp_path, monkeypatch):
 
     data = _read_providers(providers_path)
     assert data == original
+
+
+def test_lock_falls_back_to_temp_when_config_dir_not_writable(tmp_path, monkeypatch):
+    """When the config directory is not writable, _resolve_lock_path returns a
+    path under tempfile.gettempdir() rather than raising PermissionError.
+
+    This is the regression test for the Docker smoke-test CI failure where
+    /app/config/ was read-only and open(lock_path, "w") crashed the web
+    container on startup.
+    """
+    import tempfile
+    import job_sources.auto_register as _ar
+
+    lock_path = str(tmp_path / "config" / "providers.json.lock")
+
+    # Simulate a non-writable config directory by monkeypatching os.access so
+    # that W_OK checks on the config directory return False.
+    real_access = os.access
+
+    def _fake_access(path, mode, **kw):
+        if mode == os.W_OK and os.path.normpath(path) == os.path.normpath(str(tmp_path / "config")):
+            return False
+        return real_access(path, mode, **kw)
+
+    monkeypatch.setattr(os, "access", _fake_access)
+
+    resolved = _ar._resolve_lock_path(lock_path)
+
+    # Must NOT be the original (non-writable) path.
+    assert resolved != lock_path
+    # Must be somewhere inside the system temp dir.
+    assert resolved.startswith(tempfile.gettempdir())
+    # Must be deterministic for the same input.
+    assert resolved == _ar._resolve_lock_path(lock_path)
+
+
+def test_ensure_plugins_registered_survives_unwritable_config_dir(tmp_path, monkeypatch):
+    """ensure_plugins_registered does not raise when the config dir is not
+    writable — it falls back to a temp lock file and still registers sources.
+
+    Regression test: previously the function crashed with
+    ``PermissionError: [Errno 13] Permission denied: '/app/config/providers.json.lock'``
+    on Docker containers where /app/config/ was a read-only image layer.
+    """
+    import job_sources.auto_register as _ar
+
+    providers_path = str(tmp_path / "providers.json")
+    _write_providers(providers_path, {"job_sources": {}})
+
+    monkeypatch.setattr(_mod, "SOURCES", {"keyless": _FakeKeyless})
+
+    # Make os.access report the providers.json directory as non-writable so
+    # _resolve_lock_path must fall back to the temp dir.
+    real_access = os.access
+    config_dir = os.path.normpath(str(tmp_path))
+
+    def _fake_access(path, mode, **kw):
+        if mode == os.W_OK and os.path.normpath(path) == config_dir:
+            return False
+        return real_access(path, mode, **kw)
+
+    monkeypatch.setattr(os, "access", _fake_access)
+
+    # Must not raise — this is the core regression assertion.
+    ensure_plugins_registered(providers_path)
+
+    data = _read_providers(providers_path)
+    assert data["job_sources"]["keyless"] == {"enabled": True}
