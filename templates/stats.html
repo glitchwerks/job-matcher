@@ -56,7 +56,13 @@
       <div class="stat-label">total tokens used</div>
     </div>
     <div class="stat-box">
-      <div class="stat-value">${{ "%.4f" | format(stats.estimated_cost_usd) }}</div>
+      <div class="stat-value">
+        {% if stats.estimated_cost_usd is not none %}
+          ${{ "%.4f" | format(stats.estimated_cost_usd) }}
+        {% else %}
+          &mdash;
+        {% endif %}
+      </div>
       <div class="stat-label">estimated cost</div>
     </div>
   </div>
@@ -80,7 +86,13 @@
             <td class="num">{{ row.scored }}</td>
             <td class="num">{{ "{:,}".format(row.tokens_input) }}</td>
             <td class="num">{{ "{:,}".format(row.tokens_output) }}</td>
-            <td class="num cost">${{ "%.4f" | format(row.cost_usd) }}</td>
+            <td class="num cost">
+              {% if row.cost_usd is not none %}
+                ${{ "%.4f" | format(row.cost_usd) }}
+              {% else %}
+                &mdash;
+              {% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>
