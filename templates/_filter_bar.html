@@ -14,7 +14,8 @@
          value="{{ search or '' }}" class="filter-input">
 
   <select name="min_score" class="filter-select" onchange="this.form.submit()">
-    <option value="">Score: any</option>
+    <option value="" {% if min_score is none %}selected{% endif %}>Score: default ({{ threshold | int }}+)</option>
+    <option value="0" {% if min_score == 0.0 %}selected{% endif %}>Score: any</option>
     <option value="5" {% if min_score == 5.0 %}selected{% endif %}>5+</option>
     <option value="6" {% if min_score == 6.0 %}selected{% endif %}>6+</option>
     <option value="7" {% if min_score == 7.0 %}selected{% endif %}>7+</option>

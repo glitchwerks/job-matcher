@@ -32,8 +32,9 @@ POST /settings (new tabbed route):
 * Writes LLM credentials to providers.json (not keys.json)
 * Blank LLM field preserves existing value in providers.json
 * Writes job source credentials to providers.json
-* Writes enabled=True when checkbox is submitted
-* Writes enabled=False when checkbox is absent (unchecked)
+* Writes enabled=True when checkbox is submitted as 'on'
+* Writes enabled=False when checkbox is submitted as '' (dirty unchecked)
+* Preserves existing enabled state when checkbox is absent from POST body
 * Writes enabled for keyless sources (no credential fields)
 * Redirects to GET /settings?tab=<active_tab> after save
 * Active tab is preserved through save redirect
@@ -486,13 +487,19 @@ class TestSettingsPostEnabledCheckbox:
             saved = json.load(fh)
         assert saved["job_sources"]["adzuna"]["enabled"] is True
 
-    def test_enabled_false_written_when_checkbox_absent(
+    def test_enabled_false_written_when_checkbox_sent_empty(
         self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
     ):
-        """Omitting source_key__enabled (unchecked) must write enabled=False."""
+        """Submitting source_key__enabled='' (dirty unchecked) must write enabled=False.
+
+        JS dirty-tracking sends '' for an unchecked checkbox that was dirtied
+        (the user toggled it off).  The server sees the field as present and
+        interprets the empty/non-'on' value as False.
+        """
         _write_providers(tmp_providers_path)
         client.post("/settings", data={
-            # adzuna__enabled intentionally not submitted (unchecked checkbox)
+            # adzuna__enabled sent as empty string — explicitly unchecked and dirty.
+            "adzuna__enabled": "",
             "adzuna__app_id": "id",
             "adzuna__app_key": "key",
             "tab": "sources",
@@ -819,8 +826,12 @@ class TestSettingsPostWithinTabPreservation:
     def test_saving_one_source_preserves_other_source_credentials(
         self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
     ):
-        """Updating one source's enabled flag must not wipe another source's credentials."""
-        # Add a second source with credentials so we can verify it's preserved.
+        """Sparse POST (dirty-tracking): only touched sources are modified.
+
+        When JS dirty-tracking is active, the client only sends fields the user
+        actually changed.  Submitting only Adzuna fields must leave Jooble
+        entirely untouched — including its enabled flag (issue #89).
+        """
         data = {
             "provider_order": ["anthropic"],
             "llm": {
@@ -834,18 +845,21 @@ class TestSettingsPostWithinTabPreservation:
         with open(tmp_providers_path, "w", encoding="utf-8") as fh:
             json.dump(data, fh)
 
-        # Only submit Adzuna fields; Jooble is not touched.
+        # Sparse POST — only Adzuna's dirty credential fields are submitted.
+        # Jooble is not present in the POST at all (dirty-tracking excluded it).
         client.post("/settings", data={
-            "adzuna__enabled": "on",
             "adzuna__app_id": "updated-id",
             "adzuna__app_key": "updated-key",
             "tab": "sources",
         })
         with open(tmp_providers_path, encoding="utf-8") as fh:
             saved = json.load(fh)
-        # Jooble must be untouched — its key is not wiped.
+        # Adzuna credentials are updated.
+        assert saved["job_sources"]["adzuna"]["app_id"] == "updated-id"
+        assert saved["job_sources"]["adzuna"]["app_key"] == "updated-key"
+        # Jooble must be completely untouched — key AND enabled flag preserved.
         assert saved["job_sources"]["jooble"]["api_key"] == "jooble-key"
-        assert saved["job_sources"]["jooble"]["enabled"] is False  # unchecked → disabled
+        assert saved["job_sources"]["jooble"]["enabled"] is True
 
     def test_saving_multiple_llm_providers_at_once(
         self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
@@ -867,3 +881,287 @@ class TestSettingsPostWithinTabPreservation:
         assert saved["llm"]["openai"]["model"] == "gpt-4o"
         # Gemini was not submitted — its model must remain unchanged.
         assert saved["llm"]["gemini"]["model"] == "gemini-1.5-flash"
+
+
+# ===========================================================================
+# POST /settings — dirty-tracking sparse submit (issue #89)
+# ===========================================================================
+
+
+class TestSettingsPostDirtyTracking:
+    """Client-side dirty tracking sends only changed fields.  The server must
+    handle sparse POSTs correctly — only updating what was submitted and leaving
+    everything else untouched.
+    """
+
+    def test_sparse_post_preserves_untouched_source_credentials(
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
+    ):
+        """Submitting only dirty fields must leave all other stored values intact.
+
+        Regression test for issue #89: previously all sources got enabled=False
+        when the form did not include their checkbox, because the server iterated
+        all sources regardless of whether they appeared in the POST body.
+        """
+        data = {
+            "provider_order": [],
+            "llm": {},
+            "job_sources": {
+                "adzuna": {"app_id": "id-a", "app_key": "key-a", "enabled": True},
+                "jooble": {"api_key": "jooble-secret", "enabled": True},
+                "remotive": {"enabled": True},
+            },
+        }
+        with open(tmp_providers_path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+
+        # Only Adzuna's app_id was changed by the user — sparse POST.
+        client.post("/settings", data={
+            "adzuna__app_id": "id-updated",
+            "tab": "sources",
+        })
+        with open(tmp_providers_path, encoding="utf-8") as fh:
+            saved = json.load(fh)
+        # The dirty field is updated.
+        assert saved["job_sources"]["adzuna"]["app_id"] == "id-updated"
+        # Untouched credential on the same source is preserved.
+        assert saved["job_sources"]["adzuna"]["app_key"] == "key-a"
+        # Adzuna's enabled state: checkbox absent means no change — the stored
+        # True value must be preserved even though app_id was updated.
+        assert saved["job_sources"]["adzuna"]["enabled"] is True
+        # Jooble and Remotive were not in the POST at all — fully preserved.
+        assert saved["job_sources"]["jooble"]["api_key"] == "jooble-secret"
+        assert saved["job_sources"]["jooble"]["enabled"] is True
+        assert saved["job_sources"]["remotive"]["enabled"] is True
+
+    def test_explicitly_cleared_field_clears_stored_value(
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
+    ):
+        """When a dirty field is submitted with an empty string it must clear the stored value.
+
+        The user deliberately emptied the field (it was non-empty before and they
+        cleared it).  JS dirty-tracking marks it dirty and sends it as "".  The
+        server must write "" to storage, effectively clearing the credential.
+        """
+        data = {
+            "provider_order": ["anthropic"],
+            "llm": {
+                "anthropic": {"api_key": "sk-to-clear", "model": "claude-haiku-4-5-20251001"},
+            },
+            "job_sources": {},
+        }
+        with open(tmp_providers_path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+
+        # The user cleared the api_key field — dirty + empty string.
+        client.post("/settings", data={
+            "anthropic__api_key": "",
+            "tab": "llm",
+        })
+        with open(tmp_providers_path, encoding="utf-8") as fh:
+            saved = json.load(fh)
+        assert saved["llm"]["anthropic"]["api_key"] == "", (
+            "Explicitly cleared (dirty, value='') field must write empty string to storage"
+        )
+        # Model was not submitted — must remain unchanged.
+        assert saved["llm"]["anthropic"]["model"] == "claude-haiku-4-5-20251001"
+
+    def test_empty_post_with_only_tab_changes_nothing(
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
+    ):
+        """Submitting only the tab field (no dirty fields) must leave everything unchanged.
+
+        This covers the case where JS detects no dirty fields and either does not
+        submit or submits only the tab sentinel.  The server must produce no writes
+        because the updates dict is effectively empty.
+        """
+        _write_providers(tmp_providers_path)
+        with open(tmp_providers_path, encoding="utf-8") as fh:
+            before = json.load(fh)
+
+        # POST with only the tab field — mirrors what happens when no fields are dirty.
+        client.post("/settings", data={"tab": "llm"})
+
+        with open(tmp_providers_path, encoding="utf-8") as fh:
+            after = json.load(fh)
+
+        # Nothing should have changed.
+        assert after["llm"]["anthropic"]["api_key"] == before["llm"]["anthropic"]["api_key"]
+        assert after["llm"]["openai"]["model"] == before["llm"]["openai"]["model"]
+        assert after["job_sources"]["adzuna"]["app_id"] == before["job_sources"]["adzuna"]["app_id"]
+
+    def test_sources_sparse_post_with_only_tab_changes_nothing(
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
+    ):
+        """A sources-tab POST with no source fields must leave all sources untouched."""
+        data = {
+            "provider_order": [],
+            "llm": {},
+            "job_sources": {
+                "adzuna": {"app_id": "stable-id", "app_key": "stable-key", "enabled": True},
+                "remotive": {"enabled": True},
+            },
+        }
+        with open(tmp_providers_path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+
+        # POST with only the tab field.
+        client.post("/settings", data={"tab": "sources"})
+
+        with open(tmp_providers_path, encoding="utf-8") as fh:
+            saved = json.load(fh)
+
+        assert saved["job_sources"]["adzuna"]["app_id"] == "stable-id"
+        assert saved["job_sources"]["adzuna"]["enabled"] is True
+        assert saved["job_sources"]["remotive"]["enabled"] is True
+
+
+# ===========================================================================
+# POST /settings — checkbox-only dirty-tracking (issue #90)
+# ===========================================================================
+
+
+class TestSettingsPostCheckboxDirtyTracking:
+    """JS dirty-tracking sends only changed fields.  When only the enabled
+    checkbox is toggled (no credential fields touched), the server must persist
+    the new enabled state without disturbing stored credentials.
+    """
+
+    def test_checkbox_only_toggle_persists_enabled_and_preserves_credentials(
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
+    ):
+        """Sparse POST with only adzuna__enabled=on must set enabled=True and
+        leave existing credentials intact.
+        """
+        data = {
+            "provider_order": [],
+            "llm": {},
+            "job_sources": {
+                "adzuna": {
+                    "app_id": "keep-id",
+                    "app_key": "keep-key",
+                    "enabled": False,
+                },
+            },
+        }
+        with open(tmp_providers_path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+
+        # Only the checkbox was toggled — credentials are not dirty, not sent.
+        client.post("/settings", data={
+            "adzuna__enabled": "on",
+            "tab": "sources",
+        })
+
+        with open(tmp_providers_path, encoding="utf-8") as fh:
+            saved = json.load(fh)
+
+        assert saved["job_sources"]["adzuna"]["enabled"] is True
+        assert saved["job_sources"]["adzuna"]["app_id"] == "keep-id"
+        assert saved["job_sources"]["adzuna"]["app_key"] == "keep-key"
+
+    def test_checkbox_and_credential_both_persist(
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
+    ):
+        """Sparse POST with checkbox + one credential field must update both
+        without touching the untouched credential.
+        """
+        data = {
+            "provider_order": [],
+            "llm": {},
+            "job_sources": {
+                "adzuna": {
+                    "app_id": "old-id",
+                    "app_key": "old-key",
+                    "enabled": False,
+                },
+            },
+        }
+        with open(tmp_providers_path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+
+        # Checkbox toggled and app_id changed — app_key was not touched, not sent.
+        client.post("/settings", data={
+            "adzuna__enabled": "on",
+            "adzuna__app_id": "new-id",
+            "tab": "sources",
+        })
+
+        with open(tmp_providers_path, encoding="utf-8") as fh:
+            saved = json.load(fh)
+
+        assert saved["job_sources"]["adzuna"]["enabled"] is True
+        assert saved["job_sources"]["adzuna"]["app_id"] == "new-id"
+        assert saved["job_sources"]["adzuna"]["app_key"] == "old-key"
+
+    def test_credential_only_change_preserves_enabled_state(
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
+    ):
+        """A credential-only POST must leave enabled unchanged.
+
+        When the user only dirtied a credential field (not the checkbox), the
+        JS sends no checkbox field at all.  The server must preserve the stored
+        enabled state rather than interpreting the absence as False.
+        """
+        data = {
+            "provider_order": [],
+            "llm": {},
+            "job_sources": {
+                "adzuna": {
+                    "app_id": "old-id",
+                    "app_key": "old-key",
+                    "enabled": True,
+                },
+            },
+        }
+        with open(tmp_providers_path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+
+        # Only app_id was changed — no checkbox field sent at all.
+        client.post("/settings", data={
+            "adzuna__app_id": "new-id",
+            "tab": "sources",
+        })
+
+        with open(tmp_providers_path, encoding="utf-8") as fh:
+            saved = json.load(fh)
+
+        assert saved["job_sources"]["adzuna"]["enabled"] is True
+        assert saved["job_sources"]["adzuna"]["app_id"] == "new-id"
+        assert saved["job_sources"]["adzuna"]["app_key"] == "old-key"
+
+    def test_toggle_off_with_empty_string_disables_and_preserves_credentials(
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
+    ):
+        """A POST with checkbox='' (dirty unchecked) must set enabled=False.
+
+        JS dirty-tracking sends '' for an unchecked checkbox that was dirtied.
+        The server must see the field as present (triggering an update) and
+        interpret the non-'on' value as False — without touching credentials.
+        """
+        data = {
+            "provider_order": [],
+            "llm": {},
+            "job_sources": {
+                "adzuna": {
+                    "app_id": "existing-id",
+                    "app_key": "existing-key",
+                    "enabled": True,
+                },
+            },
+        }
+        with open(tmp_providers_path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+
+        # Checkbox sent as empty string — user unchecked it (it was dirty).
+        client.post("/settings", data={
+            "adzuna__enabled": "",
+            "tab": "sources",
+        })
+
+        with open(tmp_providers_path, encoding="utf-8") as fh:
+            saved = json.load(fh)
+
+        assert saved["job_sources"]["adzuna"]["enabled"] is False
+        assert saved["job_sources"]["adzuna"]["app_id"] == "existing-id"
+        assert saved["job_sources"]["adzuna"]["app_key"] == "existing-key"
