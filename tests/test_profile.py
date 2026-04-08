@@ -926,3 +926,101 @@ class TestStructuredSkillsValidation:
         # We check that the Rust row has checked somewhere near its description.
         # A simple approach: count checked vs unchecked.
         assert "checked" in body  # at least one checked input
+
+
+# ===========================================================================
+# POST /profile — education graduation year sanitization (issue #143)
+# ===========================================================================
+
+
+class TestEducationYearSanitization:
+    """Regression tests for server-side graduation year validation.
+
+    Non-numeric year values (e.g. "abcd", "20@@") must be silently discarded
+    to the empty string rather than persisted, so only all-digit values (e.g.
+    "2010") or empty strings reach profile.json.
+    """
+
+    def _post(self, client, **kwargs):
+        data = {
+            "scoring_threshold": "7.0",
+            "search_country": "us",
+            "search_what": "engineer",
+            "search_where": "miami",
+            "location_geocode_fallback": "pass",
+        }
+        data.update(kwargs)
+        return client.post("/profile", data=data)
+
+    def test_non_numeric_year_is_sanitized_to_empty(
+        self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
+    ):
+        """A non-numeric graduation year must be stored as empty string, not persisted as-is."""
+        _write_config(tmp_config_path)
+        self._post(
+            client,
+            **{
+                "edu_type[]": ["B.S."],
+                "edu_field[]": ["Computer Science"],
+                "edu_school[]": ["MIT"],
+                "edu_year[]": ["abcd"],
+            },
+        )
+        with open(tmp_profile_path, encoding="utf-8") as f:
+            prof = json.load(f)
+        assert len(prof["education"]) == 1
+        assert prof["education"][0]["graduation_year"] == ""
+
+    def test_special_chars_year_is_sanitized_to_empty(
+        self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
+    ):
+        """A year containing special characters (e.g. '20@@') must be sanitized to empty."""
+        _write_config(tmp_config_path)
+        self._post(
+            client,
+            **{
+                "edu_type[]": ["M.S."],
+                "edu_field[]": ["Software Engineering"],
+                "edu_school[]": ["Stanford"],
+                "edu_year[]": ["20@@"],
+            },
+        )
+        with open(tmp_profile_path, encoding="utf-8") as f:
+            prof = json.load(f)
+        assert prof["education"][0]["graduation_year"] == ""
+
+    def test_valid_numeric_year_is_preserved(
+        self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
+    ):
+        """A valid all-digit year must pass through unchanged."""
+        _write_config(tmp_config_path)
+        self._post(
+            client,
+            **{
+                "edu_type[]": ["Ph.D."],
+                "edu_field[]": ["Mathematics"],
+                "edu_school[]": ["Harvard"],
+                "edu_year[]": ["2015"],
+            },
+        )
+        with open(tmp_profile_path, encoding="utf-8") as f:
+            prof = json.load(f)
+        assert prof["education"][0]["graduation_year"] == "2015"
+
+    def test_empty_year_is_preserved(
+        self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
+    ):
+        """An empty year field must remain empty — the isdigit guard must not alter it."""
+        _write_config(tmp_config_path)
+        self._post(
+            client,
+            **{
+                "edu_type[]": ["B.A."],
+                "edu_field[]": ["History"],
+                "edu_school[]": ["Yale"],
+                "edu_year[]": [""],
+            },
+        )
+        with open(tmp_profile_path, encoding="utf-8") as f:
+            prof = json.load(f)
+        assert prof["education"][0]["graduation_year"] == ""

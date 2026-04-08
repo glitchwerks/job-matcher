@@ -1127,6 +1127,9 @@ def _parse_education_rows(form) -> list[dict]:
         deg_field = deg_field.strip()
         school = school.strip()
         year = year.strip()
+        # Discard non-numeric year values to prevent nonsense input from being persisted.
+        if year and not year.isdigit():
+            year = ""
         # Skip rows where every field is empty.
         if not any([deg_type, deg_field, school, year]):
             continue
