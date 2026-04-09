@@ -455,6 +455,8 @@ Used for the Education field. Four columns (Type, Field of Study, School, Year) 
 
 **Type column** — rendered as a `<select>` with options: `—` (empty), Associate, B.A., B.S., M.A., M.S., MBA, Ph.D., J.D., M.D., Other.
 
+**`select.edu-input` — custom chevron** — the native OS dropdown arrow is replaced with a themed SVG chevron via `appearance: none` + a `background-image` data URI. The SVG uses a hardcoded hex value (`#545c6b`) because CSS custom properties cannot be referenced inside `url()` data URIs. This is an accepted exception to the "no hardcoded hex" rule documented in Section 2; the value approximates `--border-strong` (`#525c72`) at the opacity it renders on the dark background.
+
 **Exposed globals** — `_makeEduRow(degType, degField, school, year)` is exposed on `window` by the row-JS IIFE so the PDF-import IIFE can repopulate the table from import results via `_fillEduTable()`.
 
 ### Save Bar

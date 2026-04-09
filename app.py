@@ -211,7 +211,7 @@ def load_profile(path: str = _PROFILE_PATH) -> dict:
 
     # Normalise legacy free-text education strings to structured dicts.
     raw_edu = data.get("education", [])
-    if raw_edu and not isinstance(raw_edu[0], dict):
+    if raw_edu and any(not isinstance(e, dict) for e in raw_edu):
         data["education"] = [
             {"degree_type": "", "degree_field": str(e), "school": "", "graduation_year": ""}
             if not isinstance(e, dict) else e
