@@ -1269,44 +1269,19 @@ If a field cannot be confidently extracted, use an empty array, empty string, or
 
 JSON only:"""
 
-_IMPORT_PROMPT_MERGE = """You are extracting structured profile data from a resume/CV to merge with an existing candidate profile.
-
-EXISTING PROFILE:
-{current_profile}
-
-RESUME TEXT:
-{resume_text}
-
-Extract the following fields and respond with ONLY a JSON object. No explanation, no markdown, no code fences.
-
-The JSON must have exactly these keys:
-- "primary_skills": array of objects, each with "skill" (string), "years" (integer estimate), "status" ("active" or "dormant"). Include ALL skills from both the resume and existing profile. Do not remove existing skills.
-- "education": array of objects, each with "degree_type" (e.g. "B.S.", "M.S."), "degree_field" (e.g. "Computer Science"), "school" (institution name), "graduation_year" (four-digit year string). Include entries from both resume and existing profile. Do not duplicate identical entries.
-- "seniority": string inferred from job titles. If the existing profile already has a seniority value, keep it unchanged. Only fill this if the existing value is empty.
-- "preferred_industries": array of strings inferred from work history. Include industries from both resume and existing profile without duplicates.
-- "location_center": string from contact info if present (e.g. "Miami, FL"), or null if not found. If the existing profile has a location, keep it.
-
-If a field cannot be confidently extracted, preserve the existing value. Do not guess or hallucinate values.
-
-JSON only:"""
-
-
-def _build_import_prompt(resume_text: str, mode: str, current_profile: dict | None) -> str:
+def _build_import_prompt(resume_text: str) -> str:
     """Build the LLM prompt for PDF resume import.
 
+    Both fresh and merge modes use the same extraction-only prompt.  Merging
+    is handled deterministically by ``_merge_import_result()`` after the LLM
+    responds, so the LLM never needs to see the existing profile.
+
     Args:
-        resume_text:     Extracted plain text from the uploaded PDF.
-        mode:            ``"fresh"`` or ``"merge"``.
-        current_profile: Existing profile dict (used only in merge mode).
+        resume_text: Extracted plain text from the uploaded PDF.
 
     Returns:
         Formatted prompt string ready to send to the LLM.
     """
-    if mode == "merge" and current_profile:
-        return _IMPORT_PROMPT_MERGE.format(
-            current_profile=json.dumps(current_profile, indent=2),
-            resume_text=resume_text,
-        )
     return _IMPORT_PROMPT_FRESH.format(resume_text=resume_text)
 
 
@@ -1326,6 +1301,7 @@ def _parse_import_response(raw: str) -> dict | None:
         cleaned = strip_fences(raw)
         data = json.loads(cleaned)
     except (json.JSONDecodeError, ValueError):
+        print(f"[import] _parse_import_response: failed to parse LLM response (first 500 chars): {raw[:500]!r}")
         return None
     data.setdefault("primary_skills", [])
     data.setdefault("education", [])
@@ -1539,7 +1515,7 @@ def _run_pdf_import_job(
             return
 
         current_profile = load_profile(profile_path) if mode == "merge" else None
-        prompt = _build_import_prompt(resume_text, mode, current_profile)
+        prompt = _build_import_prompt(resume_text)
         result = generate_with_fallback(prompt, chain, set())
         if result is None:
             with _pdf_jobs_lock:
@@ -1700,7 +1676,7 @@ def profile_import_pdf():
 
     # Build prompt and call LLM
     current_profile = load_profile(_PROFILE_PATH) if mode == "merge" else None
-    prompt = _build_import_prompt(resume_text, mode, current_profile)
+    prompt = _build_import_prompt(resume_text)
     result = generate_with_fallback(prompt, chain, set())
     if result is None:
         return jsonify({"success": False, "error": "All LLM providers failed. Check your API keys in Settings."}), 502

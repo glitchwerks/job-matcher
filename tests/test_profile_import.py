@@ -10,9 +10,9 @@ _extract_pdf_text():
 * Returns empty string for a PDF with no extractable text
 
 _build_import_prompt():
-* Fresh mode: uses _IMPORT_PROMPT_FRESH, contains resume text
-* Merge mode with profile: uses _IMPORT_PROMPT_MERGE, contains both resume text and current profile
-* Merge mode without profile: falls back to fresh prompt
+* Always uses _IMPORT_PROMPT_FRESH regardless of mode — LLM only extracts
+* Contains resume text in both fresh and merge scenarios
+* Does not inject existing profile JSON into the prompt
 
 _parse_import_response():
 * Parses valid JSON string correctly
@@ -39,7 +39,7 @@ POST /profile/import-pdf:
 * Returns 502 when all LLM providers fail
 * Returns 502 when LLM returns unparseable response
 * Returns 200 with profile JSON on fresh import success
-* Returns 200 with profile JSON on merge import success
+* Returns 200 with profile JSON on merge import success — extraction prompt used, _merge_import_result() merges
 * Does NOT write to profile.json (returns JSON for client-side pre-fill only)
 * Defaults to fresh mode when mode param is absent
 * Uses merge mode when mode=merge is posted
@@ -162,25 +162,25 @@ class TestPdfExtraction:
 class TestImportPromptConstruction:
     """Tests for _build_import_prompt()."""
 
-    def test_fresh_mode_contains_resume_text(self):
-        """Fresh prompt embeds the resume text and does not include an existing profile."""
-        prompt = app_module._build_import_prompt("my resume content", "fresh", None)
+    def test_contains_resume_text(self):
+        """Prompt embeds the resume text."""
+        prompt = app_module._build_import_prompt("my resume content")
         assert "my resume content" in prompt
+
+    def test_never_includes_existing_profile(self):
+        """The extraction-only prompt never injects existing profile data, regardless of mode.
+
+        The LLM's job is to extract from the resume only; _merge_import_result()
+        handles merging deterministically in code after parsing.
+        """
+        prompt = app_module._build_import_prompt("resume here")
         assert "EXISTING PROFILE" not in prompt
 
-    def test_merge_mode_contains_both_resume_and_profile(self):
-        """Merge prompt includes both the current profile JSON and the resume text."""
-        current = {"primary_skills": ["Python"], "seniority": "Senior"}
-        prompt = app_module._build_import_prompt("resume here", "merge", current)
-        assert "resume here" in prompt
-        assert "EXISTING PROFILE" in prompt
-        assert "Python" in prompt
-
-    def test_merge_mode_without_profile_falls_back_to_fresh(self):
-        """When mode is merge but current_profile is None, fresh prompt is used."""
-        prompt = app_module._build_import_prompt("resume text", "merge", None)
-        assert "EXISTING PROFILE" not in prompt
-        assert "resume text" in prompt
+    def test_uses_fresh_prompt_template(self):
+        """_build_import_prompt always uses _IMPORT_PROMPT_FRESH."""
+        prompt = app_module._build_import_prompt("some resume text")
+        # The fresh prompt asks for JSON only — verify the sentinel phrase is present
+        assert "JSON only:" in prompt
 
 
 # ===========================================================================
@@ -554,6 +554,64 @@ class TestImportEndpoint:
         # New skill added
         assert any(s.get("description") == "Go" for s in profile["primary_skills"] if isinstance(s, dict))
         # Existing skill preserved
+        assert any(s.get("description") == "Java" for s in profile["primary_skills"] if isinstance(s, dict))
+
+    def test_merge_mode_uses_extraction_prompt_not_merge_prompt(
+        self, client, tmp_profile_path, tmp_providers_path, tmp_keys_path
+    ):
+        """Merge mode must send the extraction-only prompt to the LLM (not a merge prompt).
+
+        Regression test for issue #161: the old _IMPORT_PROMPT_MERGE injected the
+        full current profile into the LLM prompt, which produced unparseable responses.
+        The fix is to always extract via _IMPORT_PROMPT_FRESH and merge in code via
+        _merge_import_result().  This test verifies:
+        1. _build_import_prompt() is called without profile data (extraction-only).
+        2. _merge_import_result() is called to combine the result with the existing profile.
+        """
+        existing = {
+            "primary_skills": [{"description": "Java", "years_active": 8, "active": True}],
+            "education": [],
+            "seniority": "Staff",
+            "preferred_industries": [],
+            "location": {"center": "New York, NY"},
+        }
+        with open(tmp_profile_path, "w") as f:
+            json.dump(existing, f)
+
+        data = {"file": (io.BytesIO(b"fake"), "resume.pdf"), "mode": "merge"}
+        long_text = "x" * 200
+        mock_provider = MagicMock()
+        parsed_response = {
+            "primary_skills": [{"skill": "Go", "years": 2, "status": "active"}],
+            "education": [],
+            "seniority": "Junior",
+            "preferred_industries": [],
+            "location_center": "Austin, TX",
+        }
+
+        captured_prompts: list[str] = []
+
+        original_build = app_module._build_import_prompt
+
+        def spy_build(resume_text: str) -> str:
+            prompt = original_build(resume_text)
+            captured_prompts.append(prompt)
+            return prompt
+
+        with patch("app._extract_pdf_text", return_value=long_text), \
+             patch("app.build_provider_chain", return_value=[mock_provider]), \
+             patch("app.generate_with_fallback", return_value=(json.dumps(parsed_response), "openai/gpt-4o")), \
+             patch("app._parse_import_response", return_value=parsed_response), \
+             patch("app._build_import_prompt", side_effect=spy_build):
+            resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
+
+        assert resp.status_code == 200
+        # The prompt sent to the LLM must not contain existing profile data
+        assert len(captured_prompts) == 1, "Expected exactly one prompt to be built"
+        assert "EXISTING PROFILE" not in captured_prompts[0]
+        # The merge result should still incorporate the existing profile via _merge_import_result()
+        profile = resp.get_json()["profile"]
+        assert profile["seniority"] == "Staff"  # existing value preserved by code merge
         assert any(s.get("description") == "Java" for s in profile["primary_skills"] if isinstance(s, dict))
 
     def test_does_not_write_profile_json(self, client, tmp_profile_path, tmp_providers_path, tmp_keys_path):
