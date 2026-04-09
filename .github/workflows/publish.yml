@@ -40,15 +40,25 @@ jobs:
       - name: Push code to public repo
         run: |
           git remote add public https://x-access-token:${{ secrets.PUBLIC_REPO_PAT }}@github.com/cbeaulieu-gt/job-matcher.git
+          # Force push is intentional — this is a one-way mirror workflow.
+          # The public repo should never receive direct commits; it only
+          # ever receives pushes from this workflow.
           git push public main --force
           git push public --tags --force
 
       - name: Sync wiki
         run: |
-          git clone https://x-access-token:${{ secrets.PUBLIC_REPO_PAT }}@github.com/cbeaulieu-gt/job-matcher-pr.wiki.git wiki
-          cd wiki
-          git remote add public https://x-access-token:${{ secrets.PUBLIC_REPO_PAT }}@github.com/cbeaulieu-gt/job-matcher.wiki.git
-          git push public master --force
+          if git ls-remote https://x-access-token:${{ secrets.PUBLIC_REPO_PAT }}@github.com/cbeaulieu-gt/job-matcher-pr.wiki.git HEAD &>/dev/null; then
+            git clone https://x-access-token:${{ secrets.PUBLIC_REPO_PAT }}@github.com/cbeaulieu-gt/job-matcher-pr.wiki.git wiki
+            cd wiki
+            git remote add public https://x-access-token:${{ secrets.PUBLIC_REPO_PAT }}@github.com/cbeaulieu-gt/job-matcher.wiki.git
+            # GitHub wiki repos always use `master` as the default branch —
+            # this is not configurable and is separate from the code repo's
+            # default branch setting.
+            git push public master --force
+          else
+            echo "⚠️ Private wiki not found — skipping wiki sync"
+          fi
 
       - name: Sync release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -58,7 +68,17 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           TITLE=$(gh release view "$TAG" --repo cbeaulieu-gt/job-matcher-pr --json name -q .name)
           BODY=$(gh release view "$TAG" --repo cbeaulieu-gt/job-matcher-pr --json body -q .body)
-          gh release create "$TAG" \
-            --repo cbeaulieu-gt/job-matcher \
-            --title "$TITLE" \
-            --notes "$BODY" || echo "Release may already exist — skipping"
+          if gh release view "$TAG" --repo cbeaulieu-gt/job-matcher --json name &>/dev/null; then
+            echo "Release $TAG already exists on public repo — skipping"
+          else
+            gh release create "$TAG" \
+              --repo cbeaulieu-gt/job-matcher \
+              --title "$TITLE" \
+              --notes "$BODY"
+          fi
+
+      - name: Verify sync
+        run: |
+          echo "✅ Code pushed to public repo"
+          echo "📝 Public main: $(git ls-remote public main | cut -f1)"
+          echo "🏷️  Tags pushed: $(git ls-remote public 'refs/tags/v*' | wc -l) tag(s)"
