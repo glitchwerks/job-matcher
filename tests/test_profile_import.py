@@ -677,3 +677,123 @@ class TestImportEndpoint:
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
 
         assert resp.status_code == 200
+
+
+# ===========================================================================
+# TestNormaliseEducation
+# ===========================================================================
+
+
+class TestNormaliseEducation:
+    """Unit tests for _normalise_education().
+
+    Covered cases
+    -------------
+    * Flat string with short degree abbreviation and year
+    * Flat string with dotted degree abbreviation (B.S.)
+    * Flat string with long-form degree type (Master of Science in ...)
+    * Flat string with no year — graduation_year defaults to ""
+    * Flat string that is entirely unparseable — degree_field gets whole string
+    * Dict with missing keys — absent keys filled with ""
+    * Well-formed dict — passed through unchanged
+    * Mixed list of strings and dicts — all normalised to structured objects
+    """
+
+    def test_flat_string_with_degree_school_year(self):
+        """'BS Computer Engineering, Georgia Institute of Technology, 2016' parses fully."""
+        result = app_module._normalise_education(
+            ["BS Computer Engineering, Georgia Institute of Technology, 2016"]
+        )
+        assert len(result) == 1
+        entry = result[0]
+        assert entry["degree_type"].upper() in {"BS", "B.S."}
+        assert "Computer Engineering" in entry["degree_field"]
+        assert "Georgia Institute of Technology" in entry["school"]
+        assert entry["graduation_year"] == "2016"
+
+    def test_flat_string_with_dotted_degree(self):
+        """'B.S. Computer Science, MIT, 2016' handles dots in degree abbreviation."""
+        result = app_module._normalise_education(["B.S. Computer Science, MIT, 2016"])
+        assert len(result) == 1
+        entry = result[0]
+        assert "B.S." in entry["degree_type"]
+        assert "Computer Science" in entry["degree_field"]
+        assert entry["school"] == "MIT"
+        assert entry["graduation_year"] == "2016"
+
+    def test_flat_string_masters(self):
+        """'Master of Science in Data Science, Stanford University, 2020' handles long-form type."""
+        result = app_module._normalise_education(
+            ["Master of Science in Data Science, Stanford University, 2020"]
+        )
+        assert len(result) == 1
+        entry = result[0]
+        assert "Master of Science" in entry["degree_type"]
+        assert "Data Science" in entry["degree_field"]
+        assert "Stanford University" in entry["school"]
+        assert entry["graduation_year"] == "2020"
+
+    def test_flat_string_no_year(self):
+        """Flat string without a year leaves graduation_year as empty string."""
+        result = app_module._normalise_education(["BS Computer Science, Some University"])
+        assert len(result) == 1
+        assert result[0]["graduation_year"] == ""
+        assert result[0]["school"] == "Some University"
+
+    def test_flat_string_unparseable(self):
+        """Completely unparseable string falls back: degree_field gets the whole text."""
+        result = app_module._normalise_education(["some random text"])
+        assert len(result) == 1
+        entry = result[0]
+        assert entry["degree_field"] == "some random text"
+        assert entry["degree_type"] == ""
+        assert entry["school"] == ""
+        assert entry["graduation_year"] == ""
+
+    def test_dict_missing_keys(self):
+        """Dict with only some keys present — missing keys filled with empty strings."""
+        result = app_module._normalise_education([{"degree_field": "CS", "school": "MIT"}])
+        assert len(result) == 1
+        entry = result[0]
+        assert entry["degree_field"] == "CS"
+        assert entry["school"] == "MIT"
+        assert entry["degree_type"] == ""
+        assert entry["graduation_year"] == ""
+
+    def test_dict_well_formed(self):
+        """Fully-specified dict is passed through unchanged."""
+        edu = {
+            "degree_type": "B.S.",
+            "degree_field": "Computer Science",
+            "school": "MIT",
+            "graduation_year": "2015",
+        }
+        result = app_module._normalise_education([edu])
+        assert len(result) == 1
+        assert result[0] == edu
+
+    def test_mixed_list(self):
+        """List containing both strings and dicts — all normalised to structured objects."""
+        entries = [
+            "BS Computer Engineering, Georgia Tech, 2016",
+            {"degree_type": "M.S.", "degree_field": "ML", "school": "Stanford", "graduation_year": "2018"},
+        ]
+        result = app_module._normalise_education(entries)
+        assert len(result) == 2
+        # Both entries must have all four keys
+        for entry in result:
+            assert "degree_type" in entry
+            assert "degree_field" in entry
+            assert "school" in entry
+            assert "graduation_year" in entry
+        # String entry should be parsed
+        assert result[0]["graduation_year"] == "2016"
+        # Dict entry should pass through intact
+        assert result[1]["school"] == "Stanford"
+
+    def test_flat_string_year_at_beginning(self):
+        """Year appearing at the start of the string is still extracted correctly."""
+        result = app_module._normalise_education(["2016 BS Computer Science, MIT"])
+        assert result[0]["graduation_year"] == "2016"
+        assert result[0]["degree_type"] == "BS"
+        assert result[0]["school"] == "MIT"

@@ -1311,6 +1311,91 @@ def _parse_import_response(raw: str) -> dict | None:
     return data
 
 
+_DEGREE_PREFIX_RE = re.compile(
+    r"^(B\.S\.|BS|B\.A\.|BA|M\.S\.|MS|M\.A\.|MA|Ph\.D\.|PhD|MBA"
+    r"|Master of Science|Master of Arts|Master of Business Administration"
+    r"|Bachelor of Science|Bachelor of Arts|Bachelor of Engineering"
+    r"|Doctor of Philosophy|Doctor of|Associate of|Associate)(?=\s|$)",
+    re.IGNORECASE,
+)
+_YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
+
+
+def _normalise_education(entries: list) -> list[dict]:
+    """Normalise a list of education entries to structured dicts.
+
+    Handles three cases per entry:
+
+    * **Flat string** — attempts regex-based parsing into the four structured
+      fields (``degree_type``, ``degree_field``, ``school``,
+      ``graduation_year``).  Falls back to stuffing the whole string into
+      ``degree_field`` if parsing fails.
+    * **Dict with missing keys** — fills absent keys with ``""``.
+    * **Well-formed dict** — passed through unchanged.
+
+    Args:
+        entries: Raw education list from the LLM response.
+
+    Returns:
+        List of dicts each containing exactly the four structured keys.
+    """
+    _EMPTY = {"degree_type": "", "degree_field": "", "school": "", "graduation_year": ""}
+
+    def _parse_flat(s: str) -> dict:
+        result = dict(_EMPTY)
+        # Extract 4-digit year first.
+        year_m = _YEAR_RE.search(s)
+        if year_m:
+            result["graduation_year"] = year_m.group(0)
+            s = (s[: year_m.start()] + s[year_m.end() :]).strip(" ,").lstrip()
+
+        # Attempt to match a known degree prefix at the start.
+        prefix_m = _DEGREE_PREFIX_RE.match(s)
+        if prefix_m:
+            result["degree_type"] = prefix_m.group(0).strip()
+            remainder = s[prefix_m.end() :].strip()
+            # Handle "in <field>" connector (e.g. "Master of Science in Data Science")
+            if remainder.lower().startswith("in "):
+                remainder = remainder[3:].strip()
+            # Remaining text split by ", " gives field then school (or just field).
+            parts = [p.strip() for p in remainder.split(",", 1)]
+            result["degree_field"] = parts[0] if parts else ""
+            result["school"] = parts[1] if len(parts) > 1 else ""
+        else:
+            # No recognised degree prefix — split by "," and use heuristics.
+            parts = [p.strip() for p in s.split(",")]
+            if len(parts) >= 3:
+                # e.g. "Computer Science, MIT, ..." — unlikely but defensible
+                result["degree_type"] = ""
+                result["degree_field"] = parts[0]
+                result["school"] = parts[1]
+            elif len(parts) == 2:
+                result["degree_field"] = parts[0]
+                result["school"] = parts[1]
+            elif parts:
+                result["degree_field"] = parts[0]
+            else:
+                result["degree_field"] = s  # fallback: preserve whole string
+
+        return result
+
+    normalised = []
+    for entry in entries:
+        if isinstance(entry, str):
+            normalised.append(_parse_flat(entry.strip()))
+        elif isinstance(entry, dict):
+            normalised.append({
+                "degree_type": entry.get("degree_type", ""),
+                "degree_field": entry.get("degree_field", ""),
+                "school": entry.get("school", ""),
+                "graduation_year": str(entry.get("graduation_year", "")),
+            })
+        else:
+            # Unexpected type — convert to string and fall back.
+            normalised.append(_parse_flat(str(entry)))
+    return normalised
+
+
 def _merge_import_result(current: dict, imported: dict) -> dict:
     """Merge LLM-extracted import data into the existing profile.
 
@@ -1371,10 +1456,7 @@ def _merge_import_result(current: dict, imported: dict) -> dict:
     # Existing entries may be structured dicts or legacy flat strings — normalise to dicts.
     def _normalise_edu(e: object) -> dict:
         """Convert a legacy flat string or a structured dict to an education object."""
-        if isinstance(e, dict):
-            return e
-        # Legacy free-text: keep as a pseudo-object with only degree_field filled.
-        return {"degree_type": "", "degree_field": str(e), "school": "", "graduation_year": ""}
+        return _normalise_education([e])[0]
 
     def _edu_key(e: dict) -> tuple:
         """Return a case-folded 4-tuple for dedup comparison."""
@@ -1550,7 +1632,7 @@ def _run_pdf_import_job(
                 })
             profile_result = {
                 "primary_skills": structured_skills,
-                "education": parsed.get("education", []),
+                "education": _normalise_education(parsed.get("education", [])),
                 "seniority": parsed.get("seniority", ""),
                 "preferred_industries": parsed.get("preferred_industries", []),
                 "location_center": parsed.get("location_center"),
@@ -1704,7 +1786,7 @@ def profile_import_pdf():
             })
         profile_result = {
             "primary_skills": structured_skills,
-            "education": parsed.get("education", []),
+            "education": _normalise_education(parsed.get("education", [])),
             "seniority": parsed.get("seniority", ""),
             "preferred_industries": parsed.get("preferred_industries", []),
             "location_center": parsed.get("location_center"),
