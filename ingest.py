@@ -1139,14 +1139,19 @@ def run(
                     continue
 
                 # --- Scrape ---
-                # Sources that set skip_scrape=True (e.g. Jooble, whose /jdp/
-                # pages return HTTP 403 to cold requests) have already provided
-                # the best available description via the API.  Skip the HTTP
-                # round-trip and use the API description directly.
+                # Sources that set skip_scrape=True provide the description via
+                # API.  If the source also sets description_is_full=True AND the
+                # description is long enough (>= _SCRAPE_MIN_LENGTH), classify
+                # as "full"; otherwise fall back to "snippet".
                 if listing.get("skip_scrape"):
                     scraped_skipped += 1
-                    listing["description_source"] = "snippet"
-                    logger.info("SCRAPE SKIP      [%s] %s", src_name, title)
+                    if (listing.get("description_is_full")
+                            and len(listing.get("description", "")) >= _SCRAPE_MIN_LENGTH):
+                        listing["description_source"] = "full"
+                        logger.info("SCRAPE SKIP (full) [%s] %s", src_name, title)
+                    else:
+                        listing["description_source"] = "snippet"
+                        logger.info("SCRAPE SKIP (snippet) [%s] %s", src_name, title)
                 else:
                     description, ok = scrape_description(
                         listing["redirect_url"],
