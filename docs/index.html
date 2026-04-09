@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Job Matcher — Stop reading job descriptions. Start reading scores.</title>
-  <meta name="description" content="Job Matcher is an open-source pipeline that fetches listings from nine job boards, scores each one against your skills using an LLM, and surfaces ranked results in a local web UI. Your data never leaves your machine.">
+  <meta name="description" content="Job Matcher is an open-source pipeline that fetches listings from ten job boards, scores each one against your skills using an LLM, and surfaces ranked results in a local web UI. Your data never leaves your machine.">
 
   <!-- Open Graph -->
   <meta property="og:title" content="Job Matcher">
-  <meta property="og:description" content="Job Matcher is an open-source pipeline that fetches listings from nine job boards, scores each one against your skills using an LLM, and surfaces ranked results in a local web UI. Your data never leaves your machine.">
+  <meta property="og:description" content="Job Matcher is an open-source pipeline that fetches listings from ten job boards, scores each one against your skills using an LLM, and surfaces ranked results in a local web UI. Your data never leaves your machine.">
   <meta property="og:image" content="assets/feed-overview.png">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://christopherbeaulieu.net/job-matcher/">
@@ -1017,10 +1017,10 @@
           <div class="feature-card">
             <div class="feature-icon" aria-hidden="true">&#9641;</div>
             <div class="feature-content">
-              <p class="feature-title">Nine job sources</p>
+              <p class="feature-title">Ten job sources</p>
               <p class="feature-body">
-                Aggregates from Adzuna, Jooble, Jobicy, Himalayas, USAJobs,
-                Remotive, RemoteOK, Arbeitnow, and The Muse.
+                Aggregates from Adzuna, Jooble, JSearch, Jobicy, Himalayas,
+                USAJobs, Remotive, RemoteOK, Arbeitnow, and The Muse.
               </p>
             </div>
           </div>
@@ -1074,8 +1074,8 @@
             <div class="feature-content">
               <p class="feature-title">Schedule and forget</p>
               <p class="feature-body">
-                Set up a cron job or Windows Task Scheduler task and review
-                fresh results every morning.
+                Docker stack runs ingest daily via Ofelia. No Docker? Use cron
+                or Task Scheduler. Either way — fresh results every morning.
               </p>
             </div>
           </div>
@@ -1189,13 +1189,13 @@
         <div class="quickstart-block" role="region" aria-label="Quick start commands">
           <code>git clone https://github.com/cbeaulieu-gt/job-matcher.git</code>
           <code>cd job-matcher</code>
-          <code>uv venv &amp;&amp; source .venv/bin/activate  <span style="color: var(--text-muted)"># Windows: .venv\Scripts\activate</span></code>
-          <code>uv pip install -r requirements.txt</code>
+          <code>cp .env.prod.example .env.prod</code>
+          <code>docker compose -f docker-compose.prod.yml up -d</code>
         </div>
 
         <p class="quickstart-note">
-          Copy the example configs, add your API key in the Settings UI, and
-          run <code>python ingest.py</code>. Full setup guide in the README.
+          Edit <code>.env.prod</code> with your API key, open <code>localhost:5001</code>,
+          and configure your profile in the Settings page. Full setup guide in the README.
         </p>
 
       </div>
