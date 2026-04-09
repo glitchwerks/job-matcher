@@ -295,6 +295,26 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_listings_redirect_url ON listings (redirect_url)"
         )
 
+        # --- #114: Reclassify JSearch listings with full API descriptions ---
+        # JSearch provides complete job descriptions via the API, but the
+        # pipeline previously marked all skip_scrape listings as "snippet".
+        try:
+            cur = conn.execute(
+                """UPDATE listings
+                   SET description_source = 'full'
+                   WHERE source = 'jsearch'
+                     AND LENGTH(description) >= 100
+                     AND description_source = 'snippet'"""
+            )
+            if cur.rowcount:
+                logger.info(
+                    "Migration #114: reclassified %d JSearch listings from "
+                    "'snippet' to 'full'",
+                    cur.rowcount,
+                )
+        except Exception:
+            logger.debug("Migration #114 (JSearch reclassify): skipped or already applied")
+
         # Geocache table — stores resolved lat/lon for location strings so that
         # repeated ingest runs do not re-call Nominatim for the same location.
         conn.execute("""
