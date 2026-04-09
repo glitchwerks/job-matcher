@@ -196,14 +196,29 @@ def load_profile(path: str = _PROFILE_PATH) -> dict:
 
     Returns an empty dict (not hardcoded defaults) so the profile form shows
     blank fields rather than confusing placeholder values when the file is absent.
+
+    Legacy migration: education entries that are plain strings (old format
+    ``"education": ["B.S. in Computer Science"]``) are converted to structured
+    dicts on load so the template never receives a string where it expects a dict.
     """
     if not os.path.exists(path):
         return {}
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
     except (json.JSONDecodeError, OSError):
         return {}
+
+    # Normalise legacy free-text education strings to structured dicts.
+    raw_edu = data.get("education", [])
+    if raw_edu:
+        data["education"] = [
+            {"degree_type": "", "degree_field": str(e), "school": "", "graduation_year": ""}
+            if not isinstance(e, dict) else e
+            for e in raw_edu
+        ]
+
+    return data
 
 
 CONFIG = load_config()

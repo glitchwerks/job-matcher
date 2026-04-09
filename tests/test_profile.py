@@ -306,6 +306,104 @@ class TestProfileGet:
         resp = client.get("/profile")
         assert resp.status_code == 200
 
+    def test_renders_legacy_string_education(
+        self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
+    ):
+        """GET must not 500 when profile.json has old-format plain-string education entries.
+
+        Regression test for issue #149: PR #140 restructured education from free-text
+        strings to dicts.  Profiles written before the migration still contain strings;
+        load_profile() must normalise them so the template never receives a str where
+        it expects a dict with .get().
+        """
+        _write_config(tmp_config_path)
+        _write_profile(tmp_profile_path, {
+            "primary_skills": [],
+            "anti_preferences": [],
+            "seniority": "",
+            "preferred_industries": [],
+            "location": {"geocode_fallback": "pass"},
+            "scoring_notes": [],
+            "education": ["B.S. in Computer Science from MIT"],  # old free-text format
+        })
+        resp = client.get("/profile")
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        # The legacy string must be surfaced in the degree_field column.
+        assert "B.S. in Computer Science from MIT" in body
+        # Must use structured field names, not a raw textarea.
+        assert 'name="edu_field[]"' in body
+
+    def test_renders_mixed_format_education(
+        self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
+    ):
+        """GET must not 500 when education contains a dict first and a string second.
+
+        Regression test: the old gate ``if raw_edu and not isinstance(raw_edu[0], dict)``
+        evaluated to False when the first element was already a dict, silently skipping
+        normalisation for subsequent string entries and crashing the template.
+        """
+        _write_config(tmp_config_path)
+        _write_profile(tmp_profile_path, {
+            "primary_skills": [],
+            "anti_preferences": [],
+            "seniority": "",
+            "preferred_industries": [],
+            "location": {"geocode_fallback": "pass"},
+            "scoring_notes": [],
+            "education": [
+                {"degree_type": "B.S.", "degree_field": "Computer Science", "school": "MIT", "graduation_year": "2010"},
+                "M.S. in Data Science from Stanford",  # legacy string after a structured dict
+            ],
+        })
+        resp = client.get("/profile")
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        assert "Computer Science" in body
+        assert "M.S. in Data Science from Stanford" in body
+
+    def test_renders_multiple_legacy_strings_education(
+        self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
+    ):
+        """GET must not 500 when education contains multiple plain strings."""
+        _write_config(tmp_config_path)
+        _write_profile(tmp_profile_path, {
+            "primary_skills": [],
+            "anti_preferences": [],
+            "seniority": "",
+            "preferred_industries": [],
+            "location": {"geocode_fallback": "pass"},
+            "scoring_notes": [],
+            "education": [
+                "B.S. in Computer Science from MIT",
+                "M.S. in Data Science from Stanford",
+                "Ph.D. in Machine Learning from CMU",
+            ],
+        })
+        resp = client.get("/profile")
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        assert "B.S. in Computer Science from MIT" in body
+        assert "M.S. in Data Science from Stanford" in body
+        assert "Ph.D. in Machine Learning from CMU" in body
+
+    def test_renders_empty_education_array(
+        self, client, tmp_config_path, tmp_profile_path, tmp_providers_path, tmp_keys_path
+    ):
+        """GET must not 500 when education is an empty array."""
+        _write_config(tmp_config_path)
+        _write_profile(tmp_profile_path, {
+            "primary_skills": [],
+            "anti_preferences": [],
+            "seniority": "",
+            "preferred_industries": [],
+            "location": {"geocode_fallback": "pass"},
+            "scoring_notes": [],
+            "education": [],
+        })
+        resp = client.get("/profile")
+        assert resp.status_code == 200
+
 
 # ===========================================================================
 # POST /profile — happy path
