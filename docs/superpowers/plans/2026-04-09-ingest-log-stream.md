@@ -1911,13 +1911,13 @@ git commit -m "docs(#95): add ingest drawer component classes to style guide"
 
 ### Step 7.1: Verify and fix existing test suite
 
-- [ ] Run the full test suite:
+- [x] Run the full test suite:
 
 ```
 pytest -v
 ```
 
-- [ ] If `tests/test_ingest_trigger.py` tests fail because they patch `tempfile.TemporaryFile` but the code now uses `subprocess.PIPE`, update the affected fixtures:
+- [x] If `tests/test_ingest_trigger.py` tests fail because they patch `tempfile.TemporaryFile` but the code now uses `subprocess.PIPE`, update the affected fixtures:
 
 The `_make_mock_process` helper needs to return a mock with a `stdout` attribute that behaves like a file-like iterable (for the `StdoutReader` thread). Update the mock process factory to include `stdout`:
 
@@ -1935,7 +1935,7 @@ def _make_mock_process(*, exited: bool = False, stdout_lines: list[str] | None =
 
 Also, since the trigger no longer creates a `tempfile.TemporaryFile`, tests that patch it should be updated to no longer assert it was called.
 
-- [ ] Run the full suite again after fixes:
+- [x] Run the full suite again after fixes:
 
 ```
 pytest -v
@@ -1945,7 +1945,7 @@ Expected: ALL PASS
 
 ### Step 7.2: Add edge case tests
 
-- [ ] Add to `tests/test_ingest_events.py`:
+- [x] Add to `tests/test_ingest_events.py`:
 
 ```python
 class TestIngestEventParserEdgeCases:
@@ -1987,7 +1987,7 @@ class TestIngestEventParserEdgeCases:
         assert event["detail"]["reason"] == "created_at older than 25 hours"
 ```
 
-- [ ] Add to `tests/test_ingest_stream.py`:
+- [x] Add to `tests/test_ingest_stream.py`:
 
 ```python
 class TestIngestStreamEdgeCases:
@@ -2020,7 +2020,7 @@ class TestIngestStreamEdgeCases:
         assert "id:" in text  # replays from start
 ```
 
-- [ ] Run full suite:
+- [x] Run full suite:
 
 ```
 pytest -v
@@ -2028,7 +2028,7 @@ pytest -v
 
 Expected: ALL PASS
 
-- [ ] Commit:
+- [x] Commit:
 
 ```
 git add tests/test_ingest_events.py tests/test_ingest_stream.py tests/test_ingest_trigger.py
@@ -2047,7 +2047,7 @@ closes #96"
 
 ### Step 8.1: Full test suite
 
-- [ ] Run the complete test suite one final time:
+- [x] Run the complete test suite one final time:
 
 ```
 pytest -v --tb=short
