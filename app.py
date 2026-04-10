@@ -703,6 +703,9 @@ _ingest_log_file: "object | None" = None
 _last_run: dict | None = None
 
 # Maximum number of concurrent SSE connections to /ingest/stream.
+# Limited to 2 to prevent resource exhaustion — each connection holds an open
+# HTTP connection plus an event queue subscription. Typical use case is 1
+# browser tab; 2 allows for tab duplication or a background monitoring process.
 MAX_SSE_CONNECTIONS: int = 2
 
 # Matches the summary line that ingest.py prints at the end of each run:
@@ -820,13 +823,7 @@ def _ingest_running() -> bool:
                 except (OSError, ValueError):
                     pass
                 _ingest_log_file = None
-            summary = ""
-            with event_queue._lock:
-                for ev in reversed(event_queue._events):
-                    if ev["type"] == "complete" and ev.get("detail", {}).get("summary"):
-                        summary = ev["detail"]["summary"]
-                        break
-            _last_run = _parse_ingest_summary(summary)
+            _last_run = _parse_ingest_summary(event_queue.get_latest_summary())
             _ingest_process = None
             return False
         return True
@@ -846,16 +843,17 @@ def _render_ingest_running() -> str:
 def ingest_trigger():
     """Spawn ingest.py as a background subprocess.
 
-    Returns 202 with the 'Running...' HTML partial when the process is started.
+    Returns 202 with the 'Running...' HTML partial when the process starts.
     Returns 409 with a JSON error body if a run is already in progress — the
     caller can check Content-Type to distinguish the two response shapes.
 
     Uses sys.executable so the subprocess runs in the same virtualenv as the
     app server, picking up all installed dependencies automatically.
 
-    stdout is redirected through subprocess.PIPE to the _stdout_reader daemon
-    thread, which parses each line into a structured event and pushes it to
-    the global event_queue for SSE consumers.
+    stdout and stderr are merged and piped via subprocess.PIPE to a
+    StdoutReader daemon thread. The reader parses each line into a structured
+    event and pushes it to the global event queue for real-time SSE
+    consumption by /ingest/stream subscribers.
     """
     global _ingest_process, _ingest_log_file
 

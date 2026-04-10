@@ -384,6 +384,50 @@ class TestEventQueue:
         # Queue is allowed to temporarily exceed max_size in this edge case
         assert len(q._events) == 3  # cap exceeded rather than losing a terminal
 
+    # -- GET_LATEST_SUMMARY --
+    def test_get_latest_summary_empty_queue(self):
+        assert self.queue.get_latest_summary() == ""
+
+    def test_get_latest_summary_no_complete_events(self):
+        self.queue.push(self._make_event(type_="scored"))
+        self.queue.push(self._make_event(type_="filtered"))
+        assert self.queue.get_latest_summary() == ""
+
+    def test_get_latest_summary_with_complete_event(self):
+        summary = "Run complete: 1 source(s) | 10 fetched | 2 pre-filtered | 8 scored (0 failed)"
+        self.queue.push(self._make_event(type_="scored"))
+        self.queue.push({
+            "type": "complete",
+            "source": None,
+            "title": None,
+            "url": None,
+            "detail": {"summary": summary},
+            "timestamp": "2026-04-10T00:00:00+00:00",
+        })
+        assert self.queue.get_latest_summary() == summary
+
+    def test_get_latest_summary_returns_most_recent(self):
+        first_summary = "Run complete: 1 source(s) | 5 fetched | 1 pre-filtered | 4 scored (0 failed)"
+        second_summary = "Run complete: 2 source(s) | 20 fetched | 5 pre-filtered | 15 scored (1 failed)"
+        self.queue.push({
+            "type": "complete",
+            "source": None,
+            "title": None,
+            "url": None,
+            "detail": {"summary": first_summary},
+            "timestamp": "2026-04-10T00:00:00+00:00",
+        })
+        self.queue.push(self._make_event(type_="scored"))
+        self.queue.push({
+            "type": "complete",
+            "source": None,
+            "title": None,
+            "url": None,
+            "detail": {"summary": second_summary},
+            "timestamp": "2026-04-10T00:01:00+00:00",
+        })
+        assert self.queue.get_latest_summary() == second_summary
+
     def test_concurrent_push_with_eviction(self):
         """Stress-test the eviction path under concurrent writes.
 

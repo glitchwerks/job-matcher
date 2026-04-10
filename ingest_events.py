@@ -307,6 +307,14 @@ class EventQueue:
         with self._lock:
             return len(self._events) == 0
 
+    def get_latest_summary(self) -> str:
+        """Return the summary from the most recent complete event, or '' if none."""
+        with self._lock:
+            for ev in reversed(self._events):
+                if ev.get("type") == "complete" and ev.get("detail", {}).get("summary"):
+                    return ev["detail"]["summary"]
+        return ""
+
     def subscribe(self, last_id: int = 0) -> Generator[dict, None, None]:
         """Yield events from last_id onward, blocking when caught up.
 
