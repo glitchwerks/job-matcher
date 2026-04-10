@@ -418,3 +418,42 @@ class TestEventQueue:
         # All retained IDs must be unique
         ids = [e["id"] for e in q._events]
         assert len(ids) == len(set(ids)), "Duplicate sequence IDs found after concurrent push"
+
+
+class TestIngestEventParserEdgeCases:
+    """Edge cases and boundary conditions for the parser."""
+
+    def setup_method(self):
+        self.parser = IngestEventParser()
+
+    def test_verbose_mode_multiline_ignored(self):
+        """Verbose breakdown lines after SCORED should be ignored."""
+        self.parser.parse("INFO ingest: SCORED 8/10  [Adzuna] Job")
+        assert self.parser.parse("INFO ingest:   verdict: great fit") is None
+        assert self.parser.parse("INFO ingest:   matched: Python, AWS") is None
+
+    def test_score_zero(self):
+        line = "INFO ingest: SCORED 0/10  [Adzuna] Bad Match"
+        event = self.parser.parse(line)
+        assert event["detail"]["score"] == 0
+
+    def test_score_ten(self):
+        line = "INFO ingest: SCORED 10/10  [Adzuna] Perfect Match"
+        event = self.parser.parse(line)
+        assert event["detail"]["score"] == 10
+
+    def test_source_name_with_spaces(self):
+        """Source names may contain spaces (e.g. 'The Muse')."""
+        line = "INFO ingest: SCORED 5/10  [The Muse] Some Job"
+        event = self.parser.parse(line)
+        assert event["source"] == "The Muse"
+
+    def test_title_with_special_characters(self):
+        line = "INFO ingest: SCORED 7/10  [Adzuna] Sr. Engineer — Platform (Remote)"
+        event = self.parser.parse(line)
+        assert event["title"] == "Sr. Engineer — Platform (Remote)"
+
+    def test_filtered_long_reason(self):
+        line = "INFO ingest: FILTERED  [Adzuna] Some Job — created_at older than 25 hours"
+        event = self.parser.parse(line)
+        assert event["detail"]["reason"] == "created_at older than 25 hours"

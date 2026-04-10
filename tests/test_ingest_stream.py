@@ -210,3 +210,33 @@ class TestStdoutReader:
             f"Expected a logged error about the parse failure. Log records: "
             f"{[r.message for r in caplog.records]}"
         )
+
+
+class TestIngestStreamEdgeCases:
+    """Edge cases for the SSE endpoint."""
+
+    def test_last_event_id_without_run_id(self, client, fresh_queue):
+        """Plain numeric Last-Event-ID (no run_id prefix) should be handled gracefully."""
+        fresh_queue.push({
+            "type": "scored", "source": "A", "title": "J1",
+            "url": None, "detail": {"score": 5}, "timestamp": "2026-04-09T00:00:00Z",
+        })
+        fresh_queue.push({
+            "type": "complete", "source": None, "title": None,
+            "url": None, "detail": {}, "timestamp": "2026-04-09T00:00:01Z",
+        })
+        resp = client.get("/ingest/stream", headers={"Last-Event-ID": "1"})
+        text = resp.get_data(as_text=True)
+        # Should replay from id=2 onward (complete event)
+        assert "id:" in text
+
+    def test_malformed_last_event_id(self, client, fresh_queue):
+        """Garbage Last-Event-ID should cause a replay from the beginning."""
+        fresh_queue.push({
+            "type": "complete", "source": None, "title": None,
+            "url": None, "detail": {}, "timestamp": "2026-04-09T00:00:00Z",
+        })
+        resp = client.get("/ingest/stream", headers={"Last-Event-ID": "garbage"})
+        assert resp.status_code == 200
+        text = resp.get_data(as_text=True)
+        assert "id:" in text  # replays from start
