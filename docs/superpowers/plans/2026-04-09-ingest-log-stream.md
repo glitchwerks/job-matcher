@@ -38,7 +38,7 @@
 
 ### Step 1.1: Write failing tests for log line parsing
 
-- [ ] Create `tests/test_ingest_events.py` with `TestIngestEventParser`:
+- [x] Create `tests/test_ingest_events.py` with `TestIngestEventParser`:
 
 ```python
 """Unit tests for IngestEventParser and EventQueue."""
@@ -195,7 +195,7 @@ class TestIngestEventParser:
         assert "timestamp" in event
 ```
 
-- [ ] Run tests to verify they fail:
+- [x] Run tests to verify they fail:
 
 ```
 pytest tests/test_ingest_events.py::TestIngestEventParser -v
@@ -205,7 +205,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'ingest_events'`
 
 ### Step 1.2: Implement IngestEventParser
 
-- [ ] Create `ingest_events.py`:
+- [x] Create `ingest_events.py`:
 
 ```python
 """Ingest event parsing and queue infrastructure for the live log stream.
@@ -399,7 +399,7 @@ class IngestEventParser:
         return None
 ```
 
-- [ ] Run parser tests:
+- [x] Run parser tests:
 
 ```
 pytest tests/test_ingest_events.py::TestIngestEventParser -v
@@ -407,7 +407,7 @@ pytest tests/test_ingest_events.py::TestIngestEventParser -v
 
 Expected: ALL PASS
 
-- [ ] Commit:
+- [x] Commit:
 
 ```
 git add ingest_events.py tests/test_ingest_events.py
@@ -431,7 +431,7 @@ closes #93 (partial — parser only, queue in next commit)"
 
 ### Step 2.1: Write failing tests for EventQueue
 
-- [ ] Append to `tests/test_ingest_events.py`:
+- [x] Append to `tests/test_ingest_events.py`:
 
 ```python
 import time
@@ -595,7 +595,7 @@ class TestEventQueue:
         assert not self.queue.is_empty()
 ```
 
-- [ ] Run tests to verify new ones fail:
+- [x] Run tests to verify new ones fail:
 
 ```
 pytest tests/test_ingest_events.py::TestEventQueue -v
@@ -605,7 +605,7 @@ Expected: FAIL — `ImportError: cannot import name 'EventQueue'`
 
 ### Step 2.2: Implement EventQueue
 
-- [ ] Add to `ingest_events.py` (after `IngestEventParser` class):
+- [x] Add to `ingest_events.py` (after `IngestEventParser` class):
 
 ```python
 # ---------------------------------------------------------------------------
@@ -746,7 +746,7 @@ class EventQueue:
 event_queue = EventQueue()
 ```
 
-- [ ] Run queue tests:
+- [x] Run queue tests:
 
 ```
 pytest tests/test_ingest_events.py::TestEventQueue -v
@@ -754,7 +754,7 @@ pytest tests/test_ingest_events.py::TestEventQueue -v
 
 Expected: ALL PASS
 
-- [ ] Run full test file:
+- [x] Run full test file:
 
 ```
 pytest tests/test_ingest_events.py -v
@@ -762,7 +762,7 @@ pytest tests/test_ingest_events.py -v
 
 Expected: ALL PASS
 
-- [ ] Commit:
+- [x] Commit:
 
 ```
 git add ingest_events.py tests/test_ingest_events.py
