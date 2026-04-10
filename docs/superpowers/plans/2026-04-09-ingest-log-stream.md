@@ -1172,7 +1172,7 @@ closes #94"
 
 ### Step 4.1: Create the drawer HTML partial
 
-- [ ] Create `templates/_ingest_drawer.html`:
+- [x] Create `templates/_ingest_drawer.html`:
 
 ```html
 {# ── Ingest log stream drawer ──
@@ -1230,7 +1230,7 @@ closes #94"
 
 ### Step 4.2: Include drawer in index.html
 
-- [ ] In `templates/index.html`, add the include just before the closing `</body>` tag (or at the end of the page wrapper). Find the end of the template and add:
+- [x] In `templates/index.html`, add the include just before the closing `</body>` tag (or at the end of the page wrapper). Find the end of the template and add:
 
 ```html
 {% include '_ingest_drawer.html' %}
@@ -1239,7 +1239,7 @@ closes #94"
 
 ### Step 4.3: Add drawer CSS to style.css
 
-- [ ] Append to `static/style.css`:
+- [x] Append to `static/style.css`:
 
 ```css
 /* ── Ingest Drawer ─────────────────────────────────────────── */
@@ -1498,7 +1498,7 @@ closes #94"
 }
 ```
 
-- [ ] Commit:
+- [x] Commit:
 
 ```
 git add templates/_ingest_drawer.html templates/index.html static/style.css
@@ -1521,7 +1521,7 @@ closes #95 (partial — CSS/HTML only, JS in next commit)"
 
 ### Step 5.1: Implement drawer JS
 
-- [ ] Create `static/ingest-drawer.js`:
+- [x] Create `static/ingest-drawer.js`:
 
 ```javascript
 /**
@@ -1837,7 +1837,7 @@ closes #95 (partial — CSS/HTML only, JS in next commit)"
 })();
 ```
 
-- [ ] Commit:
+- [x] Commit:
 
 ```
 git add static/ingest-drawer.js
@@ -1861,7 +1861,7 @@ closes #95"
 
 ### Step 6.1: Document drawer component classes
 
-- [ ] Add a new section to `docs/STYLE_GUIDE.md` under the Component Reference:
+- [x] Add a new section to `docs/STYLE_GUIDE.md` under the Component Reference:
 
 ```markdown
 ### Ingest Drawer
@@ -1893,7 +1893,7 @@ Slide-out panel for real-time ingest log stream. Fixed to the right edge of the 
 | `.ingest-source-row` | Single source row: name + counts |
 ```
 
-- [ ] Commit:
+- [x] Commit:
 
 ```
 git add docs/STYLE_GUIDE.md
