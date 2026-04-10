@@ -1,7 +1,13 @@
 """Integration tests for the /ingest/stream SSE endpoint."""
 
 import json
+import socket
+import threading
+import time
+import urllib.request
+
 import pytest
+import werkzeug.serving
 
 import app as app_module
 from app import app as flask_app
@@ -244,3 +250,140 @@ class TestIngestStreamEdgeCases:
         assert resp.status_code == 200
         text = resp.get_data(as_text=True)
         assert "id:" in text  # replays from start
+
+
+def _find_free_port() -> int:
+    """Return an available TCP port on localhost."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class TestStreamingLatency:
+    """Regression test: events must arrive at the HTTP client one-by-one in
+    real time, not buffered and delivered in a single burst at the end.
+
+    Uses a real Werkzeug dev server (not the Flask test client, which consumes
+    the generator eagerly and cannot measure per-event delivery timing).
+
+    Pass criteria: each of N events must arrive at the client within 200 ms of
+    being pushed into the EventQueue, even though pushes are spaced 100 ms apart.
+    If the stack were buffering, all events would arrive at roughly t=N*100 ms.
+    """
+
+    N_EVENTS = 5
+    PUSH_INTERVAL_S = 0.1   # 100 ms between pushes
+    MAX_LAG_S = 0.200        # 200 ms max acceptable push-to-arrival lag
+
+    @pytest.fixture()
+    def live_server(self, monkeypatch):
+        """Start a real Werkzeug HTTP server in a daemon thread.
+
+        Patches the global event_queue used by app.py with a fresh EventQueue
+        that has a 5 s idle_grace (long enough for the pusher thread to start).
+        Yields (server_url, queue).
+        """
+        q = EventQueue(idle_grace=5.0)
+        monkeypatch.setattr(app_module, "event_queue", q)
+        monkeypatch.setattr("ingest_events.event_queue", q)
+
+        port = _find_free_port()
+        server = werkzeug.serving.make_server("127.0.0.1", port, flask_app, threaded=True)
+        srv_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        srv_thread.start()
+        time.sleep(0.1)  # let the server socket come up
+        yield f"http://127.0.0.1:{port}", q
+        server.shutdown()
+
+    def test_events_arrive_per_push_not_all_at_end(self, live_server):
+        """Each pushed event must reach the HTTP client within 200 ms.
+
+        The pusher thread emits N_EVENTS with PUSH_INTERVAL_S spacing.
+        The consumer measures wall-clock arrival time for each SSE chunk.
+        If any event's (arrival_time - push_time) > MAX_LAG_S, the test fails —
+        that would indicate the stack is buffering events instead of streaming.
+        """
+        server_url, q = live_server
+
+        push_times: list[float] = []
+
+        def pusher():
+            # Small startup gap so the HTTP connection is open before first push
+            time.sleep(0.15)
+            for i in range(self.N_EVENTS):
+                push_times.append(time.monotonic())
+                q.push({
+                    "type": "scored",
+                    "source": "TestSource",
+                    "title": f"Job {i}",
+                    "url": None,
+                    "detail": {"score": i},
+                    "timestamp": "2026-04-10T00:00:00Z",
+                })
+                time.sleep(self.PUSH_INTERVAL_S)
+            # Terminal event to close the stream
+            push_times.append(time.monotonic())
+            q.push({
+                "type": "complete",
+                "source": None,
+                "title": None,
+                "url": None,
+                "detail": {},
+                "timestamp": "2026-04-10T00:00:00Z",
+            })
+
+        push_thread = threading.Thread(target=pusher, daemon=True)
+        push_thread.start()
+
+        # Open SSE connection and record when each \n\n-terminated chunk arrives
+        arrival_times: list[float] = []
+        event_types: list[str] = []
+        req = urllib.request.Request(f"{server_url}/ingest/stream")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            buf = b""
+            while True:
+                chunk = resp.read(1)
+                if not chunk:
+                    break
+                buf += chunk
+                if buf.endswith(b"\n\n"):
+                    arrival_t = time.monotonic()
+                    for line in buf.decode().split("\n"):
+                        if line.startswith("data: "):
+                            try:
+                                ev = json.loads(line[6:])
+                                arrival_times.append(arrival_t)
+                                event_types.append(ev.get("type", "?"))
+                            except (json.JSONDecodeError, KeyError):
+                                pass
+                    buf = b""
+                    if event_types and event_types[-1] == "complete":
+                        break
+
+        push_thread.join(timeout=5)
+
+        assert len(arrival_times) == self.N_EVENTS + 1, (
+            f"Expected {self.N_EVENTS + 1} events (scored×{self.N_EVENTS} + complete), "
+            f"got {len(arrival_times)}: {event_types}"
+        )
+
+        # Check per-event push-to-arrival lag
+        lags = [
+            arrival_times[i] - push_times[i]
+            for i in range(len(arrival_times))
+        ]
+        over_budget = [
+            (i, lag, event_types[i])
+            for i, lag in enumerate(lags)
+            if lag > self.MAX_LAG_S
+        ]
+
+        assert not over_budget, (
+            f"Events arrived too late — possible buffering.\n"
+            f"Events over {self.MAX_LAG_S * 1000:.0f} ms budget: "
+            + ", ".join(
+                f"event[{i}] ({etype}) lag={lag*1000:.1f}ms"
+                for i, lag, etype in over_budget
+            )
+            + f"\nAll lags (ms): {[round(lag_ms*1000, 1) for lag_ms in lags]}"
+        )
