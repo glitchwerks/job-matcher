@@ -298,3 +298,253 @@ class TestSafePagesSystemExit:
         assert len(all_pages) == 2, (
             "good_source pages were not reached after exit_source called sys.exit()"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests: _safe_pages() re-raises GeneratorExit (PEP 479)
+# ---------------------------------------------------------------------------
+
+class TestSafePagesGeneratorExitReraise:
+    """GeneratorExit must propagate out of _safe_pages unchanged.
+
+    GeneratorExit is NOT a plugin error — it is raised when the consumer
+    breaks out of the loop early (e.g. ``break`` or an exception in the
+    outer for-body).  Before this fix, ``except BaseException:`` swallowed
+    it and logged a spurious "raised an unhandled exception" message.
+    """
+
+    def test_generator_exit_propagates(self):
+        """Breaking out of the _safe_pages loop must not raise GeneratorExit
+        to the caller — Python's generator protocol handles it internally.
+        After a break, iteration simply stops with no exception escaping.
+        """
+        client = _GoodSource()
+        gen = ingest._safe_pages(client)
+        # Consume one page then close the generator (simulates a break).
+        first = next(gen)
+        assert first == [{"source": "good_source", "source_id": "1"}]
+        # Explicitly closing a generator triggers GeneratorExit internally.
+        # It must not propagate to the caller as an unhandled exception.
+        gen.close()  # Would raise if GeneratorExit were re-raised to the caller.
+
+    def test_generator_exit_does_not_log_unhandled_exception(self, caplog):
+        """Breaking out of the outer loop must NOT produce an ERROR log
+        claiming the plugin raised an unhandled exception.
+        """
+        client = _GoodSource()
+        with caplog.at_level(logging.ERROR, logger="ingest"):
+            gen = ingest._safe_pages(client)
+            next(gen)  # get first page
+            gen.close()  # close early
+
+        error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+        spurious = [
+            r for r in error_records
+            if "unhandled exception" in r.message or "raised an unhandled" in r.message
+        ]
+        assert not spurious, (
+            "GeneratorExit from early loop exit must NOT produce an 'unhandled exception' "
+            f"error log.  Got: {[r.message for r in spurious]}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests: per-listing failure isolation in the run() inner loop
+# ---------------------------------------------------------------------------
+
+class TestListingFailureIsolation:
+    """A per-listing pipeline failure must be caught, logged, and skipped —
+    not abort the entire ingest run.
+
+    These tests drive the inner loop body directly via run() with heavy
+    monkeypatching so we do not need a real database or LLM provider.
+    """
+
+    def _make_run_args(self, tmp_path):
+        """Write minimal config/profile/providers JSON files into tmp_path."""
+        import json
+
+        config = {
+            "search": {
+                "country": "gb",
+                "what": "software engineer",
+                "where": "london",
+                "max_days_old": 1,
+                "max_pages": 1,
+                "results_per_page": 10,
+            },
+            "scoring": {
+                "threshold": 6,
+            },
+        }
+        profile = {
+            "primary_skills": [],
+            "anti_preferences": [],
+            "seniority": "",
+            "preferred_industries": [],
+            "scoring_notes": "",
+        }
+        providers = {
+            "llm": {},
+            "provider_order": [],
+            "job_sources": {},
+        }
+
+        config_path = str(tmp_path / "config.json")
+        profile_path = str(tmp_path / "profile.json")
+        providers_path = str(tmp_path / "providers.json")
+
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+        with open(profile_path, "w") as f:
+            json.dump(profile, f)
+        with open(providers_path, "w") as f:
+            json.dump(providers, f)
+
+        return config_path, profile_path, providers_path
+
+    def test_one_bad_listing_does_not_abort_run(self, tmp_path, monkeypatch, caplog):
+        """A ValueError from prefilter() on one listing must not stop the run.
+
+        The bad listing should produce a LISTING FAILED log; the next listing
+        in the same page must still be processed (reaching score_listing_with_fallback).
+        """
+        import ingest as ing
+
+        config_path, profile_path, providers_path = self._make_run_args(tmp_path)
+
+        # Two listings: first raises, second is fine.
+        listing_bad  = {"source": "test_src", "source_id": "1", "title": "Bad Listing",
+                        "redirect_url": "http://example.com/1", "description": "desc"}
+        listing_good = {"source": "test_src", "source_id": "2", "title": "Good Listing",
+                        "redirect_url": "http://example.com/2", "description": "desc"}
+
+        call_count = {"n": 0}
+
+        def _bad_prefilter(listing, config):
+            call_count["n"] += 1
+            if listing["source_id"] == "1":
+                raise ValueError("Injected per-listing failure")
+            return None  # don't filter the good listing
+
+        processed_titles = []
+
+        def _fake_score(listing, profile, chain, dead_providers):
+            processed_titles.append(listing["title"])
+            return None  # score failure is fine; we just want to know it was reached
+
+        # Stub everything that touches I/O.
+        monkeypatch.setattr(ing, "prefilter", _bad_prefilter)
+        monkeypatch.setattr(ing, "score_listing_with_fallback", _fake_score)
+        monkeypatch.setattr(ing.db, "init_db", lambda: None)
+        monkeypatch.setattr(ing.db, "get_connection", lambda: _FakeConnection())
+        monkeypatch.setattr(ing.db, "listing_exists", lambda conn, src, sid: False)
+        monkeypatch.setattr(ing.db, "listing_exists_by_url", lambda conn, url: False)
+        monkeypatch.setattr(ing.db, "insert_listing", lambda listing: None)
+        monkeypatch.setattr(ing, "scrape_description",
+                            lambda url, fallback="": (fallback, False))
+        monkeypatch.setattr(ing, "make_enabled_sources",
+                            lambda providers, config: [_SinglePageSource([listing_bad, listing_good])])
+        monkeypatch.setattr(ing, "build_provider_chain", lambda providers: [])
+        monkeypatch.setattr(ing, "load_providers",
+                            lambda **kw: {"llm": {}, "provider_order": [], "job_sources": {}})
+        monkeypatch.setattr(
+            "job_sources.auto_register.ensure_plugins_registered",
+            lambda path: None,
+        )
+
+        with caplog.at_level(logging.ERROR, logger="ingest"):
+            ing.run(
+                config_path=config_path,
+                profile_path=profile_path,
+                providers_path=providers_path,
+            )
+
+        # The bad listing must produce a LISTING FAILED error log.
+        failed_records = [
+            r for r in caplog.records
+            if r.levelno == logging.ERROR and "LISTING FAILED" in r.message
+        ]
+        assert failed_records, (
+            f"Expected a 'LISTING FAILED' ERROR log; got:\n{caplog.text}"
+        )
+        assert "Bad Listing" in failed_records[0].message
+
+        # The good listing must have been scored (pipeline continued past the error).
+        assert "Good Listing" in processed_titles, (
+            "Good listing was not processed after bad listing raised an exception"
+        )
+
+    def test_listing_failed_counter_in_summary(self, tmp_path, monkeypatch, caplog):
+        """The run-complete summary must include a non-zero listing error count."""
+        import ingest as ing
+
+        config_path, profile_path, providers_path = self._make_run_args(tmp_path)
+
+        listing_bad = {"source": "test_src", "source_id": "1", "title": "Bad Listing",
+                       "redirect_url": "http://example.com/1", "description": "desc"}
+
+        def _bad_prefilter(listing, config):
+            raise RuntimeError("Injected crash")
+
+        monkeypatch.setattr(ing, "prefilter", _bad_prefilter)
+        monkeypatch.setattr(ing, "score_listing_with_fallback", lambda **kw: None)
+        monkeypatch.setattr(ing.db, "init_db", lambda: None)
+        monkeypatch.setattr(ing.db, "get_connection", lambda: _FakeConnection())
+        monkeypatch.setattr(ing.db, "listing_exists", lambda conn, src, sid: False)
+        monkeypatch.setattr(ing.db, "listing_exists_by_url", lambda conn, url: False)
+        monkeypatch.setattr(ing.db, "insert_listing", lambda listing: None)
+        monkeypatch.setattr(ing, "scrape_description",
+                            lambda url, fallback="": (fallback, False))
+        monkeypatch.setattr(ing, "make_enabled_sources",
+                            lambda providers, config: [_SinglePageSource([listing_bad])])
+        monkeypatch.setattr(ing, "build_provider_chain", lambda providers: [])
+        monkeypatch.setattr(ing, "load_providers",
+                            lambda **kw: {"llm": {}, "provider_order": [], "job_sources": {}})
+        monkeypatch.setattr(
+            "job_sources.auto_register.ensure_plugins_registered",
+            lambda path: None,
+        )
+
+        with caplog.at_level(logging.INFO, logger="ingest"):
+            ing.run(
+                config_path=config_path,
+                profile_path=profile_path,
+                providers_path=providers_path,
+            )
+
+        summary_records = [
+            r for r in caplog.records
+            if "Run complete" in r.message
+        ]
+        assert summary_records, "No 'Run complete' log found"
+        # The summary should mention "1 listing error(s)"
+        assert "1 listing error" in summary_records[0].message, (
+            f"Expected '1 listing error' in summary; got: {summary_records[0].message}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Helper stubs for TestListingFailureIsolation
+# ---------------------------------------------------------------------------
+
+class _FakeConnection:
+    """Minimal context-manager stub for db.get_connection()."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+
+class _SinglePageSource(_GoodSource):
+    """A JobSource that yields one page containing the given listings."""
+
+    SOURCE = "test_src"
+
+    def __init__(self, listings):
+        self._listings = listings
+
+    def pages(self):
+        yield list(self._listings)
