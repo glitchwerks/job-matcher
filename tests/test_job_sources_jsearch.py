@@ -474,6 +474,10 @@ class TestJSearchNormalise:
         """skip_scrape is always True — full description is in the API response."""
         assert _client().normalise(_RAW_JOB)["skip_scrape"] is True
 
+    def test_description_is_full_is_true(self):
+        """description_is_full is True — API provides complete job descriptions."""
+        assert _client().normalise(_RAW_JOB)["description_is_full"] is True
+
     def test_minimal_raw_dict_does_not_raise(self):
         """normalise() handles a minimal dict without raising."""
         result = _client().normalise({"job_id": "1"})

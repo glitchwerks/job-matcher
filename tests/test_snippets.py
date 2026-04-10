@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import db
 import ingest
 from app import app as flask_app
+from ingest import _SCRAPE_MIN_LENGTH
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +358,11 @@ class TestIngestDescriptionSource:
         if skip_scrape:
             listing["skip_scrape"] = True
         if listing.get("skip_scrape"):
-            listing["description_source"] = "snippet"
+            if (listing.get("description_is_full")
+                    and len(listing.get("description", "")) >= _SCRAPE_MIN_LENGTH):
+                listing["description_source"] = "full"
+            else:
+                listing["description_source"] = "snippet"
         else:
             description = "Full job description." if scrape_ok else listing["description"]
             listing["description_source"] = "full" if scrape_ok else "snippet"
@@ -387,6 +392,44 @@ class TestIngestDescriptionSource:
             "source": "jooble", "source_id": "ingest-003",
             "title": "Engineer", "description": "short snippet from jooble",
             "redirect_url": "https://example.com/3", "skip_scrape": True,
+        }
+        result = self._run_ingest_stage(listing, scrape_ok=False, skip_scrape=True)
+        assert result["description_source"] == "snippet"
+
+    def test_description_source_full_when_skip_scrape_and_description_is_full(self):
+        """skip_scrape + description_is_full + long description → 'full'."""
+        listing = {
+            "source": "jsearch", "source_id": "ingest-004",
+            "title": "Engineer",
+            "description": "A" * 150,
+            "redirect_url": "https://example.com/4",
+            "skip_scrape": True,
+            "description_is_full": True,
+        }
+        result = self._run_ingest_stage(listing, scrape_ok=False, skip_scrape=True)
+        assert result["description_source"] == "full"
+
+    def test_description_source_snippet_when_description_is_full_but_short(self):
+        """description_is_full but description < 100 chars → still 'snippet'."""
+        listing = {
+            "source": "jsearch", "source_id": "ingest-005",
+            "title": "Engineer",
+            "description": "Too short",
+            "redirect_url": "https://example.com/5",
+            "skip_scrape": True,
+            "description_is_full": True,
+        }
+        result = self._run_ingest_stage(listing, scrape_ok=False, skip_scrape=True)
+        assert result["description_source"] == "snippet"
+
+    def test_description_source_snippet_when_skip_scrape_without_description_is_full(self):
+        """skip_scrape=True without description_is_full → 'snippet' (backward compat)."""
+        listing = {
+            "source": "jooble", "source_id": "ingest-006",
+            "title": "Engineer",
+            "description": "A" * 200,
+            "redirect_url": "https://example.com/6",
+            "skip_scrape": True,
         }
         result = self._run_ingest_stage(listing, scrape_ok=False, skip_scrape=True)
         assert result["description_source"] == "snippet"

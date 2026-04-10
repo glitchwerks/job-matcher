@@ -113,6 +113,12 @@ class TemplateSource(JobSource):
                                            block scrapers (returns 403, requires login,
                                            etc.). The pipeline will use the API
                                            description directly instead of scraping.
+            description_is_full
+                            bool         — set True alongside skip_scrape when the
+                                           source API provides complete job
+                                           descriptions (not just snippets).
+                                           Listings with this flag and descriptions
+                                           >= 100 chars are classified as "full".
 
         Args:
             raw: A single listing dict as returned by ``fetch_page()``.

@@ -428,5 +428,6 @@ class JSearchClient(JobSource):
             "description": raw.get("job_description", "") or "",
             "redirect_url": redirect_url,
             "created_at": raw.get("job_posted_at_datetime_utc") or None,
-            "skip_scrape": True,  # Full description provided; apply links are ATS portals
+            "skip_scrape": True,           # Apply links are ATS portals, not scrapable
+            "description_is_full": True,   # API provides complete job descriptions
         }

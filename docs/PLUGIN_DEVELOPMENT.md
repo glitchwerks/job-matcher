@@ -108,6 +108,7 @@ loader from `source.json` and injected onto the class at load time.
 | `redirect_url` | str           | URL linking to the full job listing. |
 | `created_at`   | str or None   | ISO 8601 string, e.g. `"2026-01-02T12:34:56Z"`. |
 | `skip_scrape`  | bool          | Optional (default `False`). Set `True` when the source URL is known to block scrapers (e.g. returns 403). The pipeline uses the API description directly. |
+| `description_is_full` | bool   | Optional (default `False`). Set `True` alongside `skip_scrape` when the API provides complete job descriptions (not just snippets). Listings with this flag and descriptions >= 100 chars are classified as `"full"` in the main feed instead of `"snippet"`. |
 
 ---
 
