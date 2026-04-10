@@ -131,3 +131,82 @@ class TestIngestStream:
         resp = client.get("/ingest/stream")
         assert resp.headers.get("Cache-Control") == "no-cache"
         assert resp.headers.get("X-Accel-Buffering") == "no"
+
+
+class TestStdoutReader:
+    """Unit tests for _stdout_reader exception handling."""
+
+    def test_parser_exception_on_one_line_does_not_kill_reader(
+        self, monkeypatch, caplog
+    ):
+        """A parse error on one line must not kill the reader thread.
+
+        Regression test for Fix 2: before the narrow try/except, an exception
+        from parser.parse() would propagate out of the inner loop, be caught by
+        the outer except, and push an 'aborted' event — dropping all subsequent
+        lines including the terminal 'complete' event.
+        """
+        import io
+        import logging
+        import app as app_module
+        from app import _stdout_reader
+
+        # Build a fake EventQueue that records pushed events
+        pushed = []
+
+        class FakeQueue:
+            def push(self, event):
+                pushed.append(event)
+
+        # Build a fake parser: line 1 → event, line 2 → raises, line 3 → event
+        good_event_1 = {
+            "type": "scored", "source": "A", "title": "Job 1",
+            "url": None, "detail": {}, "timestamp": "2026-04-10T00:00:00Z",
+        }
+        good_event_3 = {
+            "type": "complete", "source": None, "title": None,
+            "url": None, "detail": {}, "timestamp": "2026-04-10T00:00:01Z",
+        }
+        call_count = [0]
+
+        class FakeParser:
+            def parse(self, line):
+                call_count[0] += 1
+                if call_count[0] == 1:
+                    return good_event_1
+                if call_count[0] == 2:
+                    raise ValueError("malformed line")
+                return good_event_3
+
+        # Fake subprocess with 3 stdout lines
+        fake_stdout = io.StringIO("line one\nline two\nline three\n")
+
+        class FakeProc:
+            stdout = fake_stdout
+            def wait(self):
+                return 0
+            def kill(self):
+                pass
+
+        monkeypatch.setattr(app_module, "event_queue", FakeQueue())
+        monkeypatch.setattr("app.IngestEventParser", FakeParser)
+
+        with caplog.at_level(logging.ERROR, logger="app"):
+            _stdout_reader(FakeProc())
+
+        # 1. Reader did NOT exit after the exception — it continued and pushed
+        #    the third event (complete).
+        types_pushed = [e["type"] for e in pushed]
+        assert "complete" in types_pushed, (
+            f"complete event was never pushed — reader likely died after the exception. "
+            f"Events received: {types_pushed}"
+        )
+
+        # 2. The event from the third line reached the queue.
+        assert good_event_3 in pushed
+
+        # 3. The exception was logged.
+        assert any("IngestEventParser failed" in r.message for r in caplog.records), (
+            f"Expected a logged error about the parse failure. Log records: "
+            f"{[r.message for r in caplog.records]}"
+        )

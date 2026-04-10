@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from importlib.metadata import version as pkg_version, PackageNotFoundError
 
-from flask import Flask, render_template, make_response, request, jsonify, redirect, url_for, Response
+from flask import Flask, render_template, make_response, request, jsonify, redirect, url_for, Response, stream_with_context
 
 import db
 from credentials import CredentialError, load_providers, save_providers
@@ -758,7 +758,11 @@ def _stdout_reader(proc: subprocess.Popen) -> None:
             line = raw_line.rstrip("\n")
             if not line:
                 continue
-            event = parser.parse(line)
+            try:
+                event = parser.parse(line)
+            except Exception:
+                app.logger.exception("IngestEventParser failed on line: %r", line)
+                continue
             if event is not None:
                 if event["type"] == "complete":
                     saw_complete = True
@@ -965,7 +969,7 @@ def ingest_stream():
             event_queue.disconnect()
 
     return Response(
-        generate(),
+        stream_with_context(generate()),
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
