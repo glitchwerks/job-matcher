@@ -263,9 +263,26 @@ class EventQueue:
             event = {**event, "id": self._next_id, "run_id": self.run_id}
             self._next_id += 1
             self._events.append(event)
-            # Evict oldest non-terminal events if over cap
-            if event["type"] not in _TERMINAL_TYPES and len(self._events) > self._max_size:
-                self._events = self._events[-self._max_size:]
+            # Evict oldest *non-terminal* event when over cap.
+            #
+            # INVARIANT: terminal events (complete/aborted) are sacred — they must
+            # never be evicted regardless of what type is being pushed.  The original
+            # plan spec guarded only on the *incoming* event type, which is wrong:
+            # a non-terminal push can still evict a terminal event that is already
+            # sitting at the front of the queue.  We instead walk from the front and
+            # remove the first non-terminal we find.  If the queue is entirely
+            # terminals we prefer exceeding max_size over losing a run-end signal
+            # (dropping complete/aborted leaves SSE clients spinning forever).
+            if len(self._events) > self._max_size:
+                # Search only the events that existed *before* this push (all but
+                # the last element).  The newly-appended event must never evict
+                # itself — that would silently drop the event being pushed.
+                for i, e in enumerate(self._events[:-1]):
+                    if e["type"] not in _TERMINAL_TYPES:
+                        del self._events[i]
+                        break
+                # If no non-terminal was found among prior events the queue is all
+                # terminals; leave it over-cap rather than evict a sacred event.
             self._new_event.set()
 
     def clear(self) -> None:
