@@ -944,6 +944,38 @@ def _inject_env_var_credentials(providers: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Plugin isolation helper
+# ---------------------------------------------------------------------------
+
+def _safe_pages(client):
+    """Wrap ``client.pages()`` so an unhandled exception from a plugin aborts
+    only that source, not the entire ingest run.
+
+    Any exception that escapes the plugin's ``pages()`` generator is caught
+    here, logged at ERROR level with a full traceback, and then the generator
+    simply returns — leaving the outer ``for client in sources:`` loop free to
+    continue with the next source.
+
+    Args:
+        client: A :class:`JobSource` instance whose ``pages()`` iterator is
+                to be consumed safely.
+
+    Yields:
+        Lists of normalised listing dicts, exactly as ``client.pages()`` would.
+    """
+    _log = logging.getLogger("ingest")
+    try:
+        yield from client.pages()
+    except Exception:  # noqa: BLE001
+        _log.error(
+            "Plugin %r raised an unhandled exception — skipping source. "
+            "Full traceback follows.",
+            client.SOURCE,
+            exc_info=True,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
@@ -1083,7 +1115,7 @@ def run(
 
     for client in sources:
         logger.info("Fetching from source: %s", client.SOURCE)
-        for page in client.pages():
+        for page in _safe_pages(client):
             for listing in page:
                 fetched += 1
                 src_name = listing.get("source", client.SOURCE)
