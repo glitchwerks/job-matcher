@@ -2502,6 +2502,12 @@ input[type="number"] {
   border: 1px solid var(--border-subtle);
 }
 
+.ingest-event--scrape_fallback .ingest-event-tag {
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+
 /* Fetched events render as a centred section separator */
 .ingest-event--fetched {
   font-family: var(--font-mono);
