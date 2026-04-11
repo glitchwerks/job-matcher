@@ -1,0 +1,57 @@
+{# ── Ingest log stream drawer ──
+   Slide-out panel showing real-time ingest events.
+   Included in index.html; JS in static/ingest-drawer.js. #}
+
+{# -- Floating action button (visible when drawer is closed) -- #}
+<button id="ingest-fab" class="ingest-fab ingest-fab--hidden" type="button"
+        aria-label="Open ingest log" aria-controls="ingest-drawer" aria-expanded="false">
+  <span class="ingest-pulse-dot" id="ingest-pulse" aria-hidden="true"></span>
+  <span class="ingest-fab-icon" aria-hidden="true">&#9776;</span>
+</button>
+
+{# -- Drawer shell -- #}
+<aside id="ingest-drawer" class="ingest-drawer" aria-label="Ingest log stream" role="complementary">
+  <header class="ingest-drawer-header">
+    <span class="ingest-drawer-title">
+      <span class="ingest-pulse-dot" id="ingest-pulse-header" aria-hidden="true"></span>
+      Ingest Log
+    </span>
+    <button id="ingest-drawer-close" class="ingest-drawer-close" type="button"
+            aria-label="Close drawer">&times;</button>
+  </header>
+
+  {# -- Event list (auto-scrolls) -- #}
+  {# aria-live removed from the list — at 500+ events per run it would drown out all other SR audio.
+     Terminal-event announcements are surfaced via #ingest-sr-announce below instead. #}
+  <div id="ingest-event-list" class="ingest-event-list"
+       role="log" aria-label="Ingest events"></div>
+
+  {# -- Screen-reader-only live region: announces terminal events only -- #}
+  <div id="ingest-sr-announce" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+  {# -- Rolling tally (sticky footer) -- #}
+  <footer class="ingest-tally" id="ingest-tally">
+    <div class="ingest-tally-row">
+      <span class="ingest-tally-item ingest-tally--fetched">
+        Fetched <strong id="tally-fetched">0</strong>
+      </span>
+      <span class="ingest-tally-item ingest-tally--filtered">
+        Filtered <strong id="tally-filtered">0</strong>
+      </span>
+      <span class="ingest-tally-item ingest-tally--dupes">
+        Dupes <strong id="tally-dupes">0</strong>
+      </span>
+      <span class="ingest-tally-item ingest-tally--skipped">
+        Skipped <strong id="tally-skipped">0</strong>
+      </span>
+      <span class="ingest-tally-item ingest-tally--scored">
+        Scored <strong id="tally-scored">0</strong>
+      </span>
+      <span class="ingest-tally-item ingest-tally--failed">
+        Failed <strong id="tally-failed">0</strong>
+      </span>
+    </div>
+    {# Per-source breakdown rows injected by JS #}
+    <div id="ingest-source-breakdown" class="ingest-source-breakdown"></div>
+  </footer>
+</aside>

@@ -2263,3 +2263,374 @@ input[type="number"]::-webkit-outer-spin-button {
 input[type="number"] {
   -moz-appearance: textfield;
 }
+
+/* ── Ingest Drawer ─────────────────────────────────────────────────────────── */
+
+.ingest-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 400px;
+  height: 100vh;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+}
+
+.ingest-drawer--open {
+  transform: translateX(0);
+}
+
+.ingest-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.ingest-drawer-title {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ingest-drawer-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+}
+
+.ingest-drawer-close:hover {
+  color: var(--text-primary);
+}
+
+.ingest-drawer-close:focus-visible {
+  outline: 2px solid var(--text-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* -- Pulse dot -- */
+
+.ingest-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  display: inline-block;
+  flex-shrink: 0;
+  transition: background 0.3s ease;
+}
+
+.ingest-pulse-dot--live {
+  background: var(--score-high-text);
+  animation: ingest-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes ingest-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* -- FAB (floating action button) -- */
+
+.ingest-fab {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-mid);
+  color: var(--text-accent);
+  font-size: 1.1rem;
+  cursor: pointer;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.2s ease, transform 0.2s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.ingest-fab:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.ingest-fab:focus-visible {
+  outline: 2px solid var(--text-accent);
+  outline-offset: 2px;
+}
+
+.ingest-fab--hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.8);
+}
+
+.ingest-fab .ingest-pulse-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+}
+
+/* -- Event list -- */
+
+.ingest-event-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem 0;
+}
+
+.ingest-event {
+  padding: 0.35rem 1rem;
+  font-size: 0.78rem;
+  border-bottom: 1px solid var(--border-subtle);
+  animation: ingest-slide-in 0.2s ease;
+}
+
+.ingest-event--replay {
+  animation: none;
+}
+
+@keyframes ingest-slide-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.ingest-event-title {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+
+.ingest-event-source {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  float: right;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ingest-event-tag {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  display: inline-block;
+  margin-left: 0.4rem;
+}
+
+/* Event type colour rules — scored uses tier colors (semantic: success).
+   filtered/dupe/skip use neutral (not tier colors — avoids red-for-decoration).
+   score_failed/aborted use low-tier (semantic: error).                       */
+.ingest-event--scored .ingest-event-tag {
+  background: var(--score-high-bg);
+  color: var(--score-high-text);
+  border: 1px solid var(--score-high-border);
+}
+
+.ingest-event--filtered {
+  color: var(--text-muted);
+}
+.ingest-event--filtered .ingest-event-tag {
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+.ingest-event--dupe {
+  color: var(--text-muted);
+}
+.ingest-event--dupe .ingest-event-tag {
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+.ingest-event--score_failed .ingest-event-tag {
+  background: var(--score-low-bg);
+  color: var(--score-low-text);
+  border: 1px solid var(--score-low-border);
+}
+
+.ingest-event--rescore_failed .ingest-event-tag {
+  background: var(--score-low-bg);
+  color: var(--score-low-text);
+  border: 1px solid var(--score-low-border);
+}
+
+.ingest-event--rescored .ingest-event-tag {
+  background: var(--score-high-bg);
+  color: var(--score-high-text);
+  border: 1px solid var(--score-high-border);
+}
+
+.ingest-event--scrape_skip {
+  color: var(--text-muted);
+}
+.ingest-event--scrape_skip .ingest-event-tag {
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+/* Fetched events render as a centred section separator */
+.ingest-event--fetched {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: center;
+  padding: 0.6rem 1rem;
+  border-bottom: none;
+}
+
+.ingest-event--fetched::before,
+.ingest-event--fetched::after {
+  content: "";
+  display: inline-block;
+  width: 2rem;
+  height: 1px;
+  background: var(--border-mid);
+  vertical-align: middle;
+  margin: 0 0.5rem;
+}
+
+/* Complete event — muted success banner */
+.ingest-event--complete {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--score-high-text);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: center;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--score-high-border);
+  border-bottom: none;
+  background: var(--score-high-bg);
+  margin: 0.25rem 0.5rem 0.5rem;
+  border-radius: var(--radius-md);
+  animation: none;
+}
+
+/* Aborted event — error banner */
+.ingest-event--aborted {
+  background: var(--score-low-bg);
+  color: var(--score-low-text);
+  border: 1px solid var(--score-low-border);
+  border-radius: var(--radius-md);
+  margin: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  animation: none;
+}
+
+/* Connection-lost notice (injected by JS on onerror) */
+.ingest-connection-lost {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--score-mid-text);
+  text-align: center;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--border-subtle);
+  letter-spacing: 0.03em;
+}
+
+/* -- Tally footer -- */
+
+.ingest-tally {
+  flex-shrink: 0;
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-base);
+}
+
+.ingest-tally-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.ingest-tally-item {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+
+.ingest-tally-item strong {
+  font-weight: 600;
+}
+
+.ingest-tally--fetched strong { color: var(--text-accent); }
+.ingest-tally--scored strong  { color: var(--score-high-text); }
+.ingest-tally--failed strong  { color: var(--score-low-text); }
+
+/* -- Per-source breakdown -- */
+
+.ingest-source-breakdown {
+  margin-top: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.63rem;
+  color: var(--text-muted);
+}
+
+.ingest-source-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.15rem 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ingest-source-row:first-child {
+  border-top: none;
+  margin-top: 0.3rem;
+}
+
+.ingest-source-name {
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
+}
+
+/* ── Accessibility utility ─────────────────────────────────────────────────── */
+
+/* Visually hidden but accessible to screen readers.
+   Use for elements that carry meaning only for assistive technology
+   (e.g. the #ingest-sr-announce live region). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+

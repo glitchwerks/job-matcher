@@ -337,6 +337,7 @@ Transitions on `border-color` and `background` at 120ms ease. Size is 14×14px; 
 | `.save-bar-label` | `<span>` | "Unsaved changes" text; `--font-mono` 0.8rem, `--score-mid-text` (amber — warning semantics) |
 | `.file-input-wrap` | `<div>` | Flex row wrapper around the hidden file input + styled label + filename display |
 | `.file-input-hidden` | `<input type="file">` | Visually hidden native file input; accessible via `aria-label`; positioned absolutely off-screen |
+| `.sr-only` | any element | Generic screen-reader-only utility — visually hidden (1×1px, clipped, off-margin) but readable by assistive technology. Use for elements that carry meaning only for SR (e.g. `#ingest-sr-announce`). |
 | `.file-input-label` | `<label for="...">` | Styled trigger that acts as the visible "Choose File" button; inherits `.btn` visual language |
 | `.file-input-name` | `<span>` | Filename display beside the label; shows "No file chosen" by default, updated via JS on `change` |
 
@@ -643,6 +644,53 @@ The icon is ≡ (U+2261, IDENTICAL TO), used as a visual drag affordance (three 
 **Hit-target expansion** — the handle uses padding + negative margin (`padding: 0.4rem 0.5rem; margin: -0.4rem -0.5rem`) to enlarge the clickable/touch area without changing the visual footprint of the icon.
 
 **Mobile compatibility** — `touch-action: none` on `.drag-handle` prevents the browser from intercepting the pointer events needed by the drag library (SortableJS), allowing touch-based reordering to work correctly on mobile devices.
+
+### Ingest Drawer
+
+Slide-out panel for real-time ingest log stream. Fixed to the right edge of the viewport, full-height, 400px wide. Rendered via `templates/_ingest_drawer.html`, included in `index.html` just before `</body>`. Controlled by `static/ingest-drawer.js`.
+
+**Color rule for event types:** `scored`/`rescored` use `--score-high-*` (semantic: success). `score_failed`/`rescore_failed`/`aborted` use `--score-low-*` (semantic: error). `filtered`/`dupe`/`scrape_skip` use neutral tokens (`--bg-raised`, `--text-muted`, `--border-subtle`) — avoid tier colors for decorative purposes on these neutral states.
+
+| Class | Purpose |
+|---|---|
+| `.ingest-drawer` | Drawer shell — `position: fixed; right: 0; top: 0`; starts off-screen (`translateX(100%)`), transitions in over 0.3s |
+| `.ingest-drawer--open` | Modifier added by JS to slide drawer into view (`translateX(0)`) |
+| `.ingest-drawer-header` | Header bar: flex row, title left, close button right, `--border-subtle` bottom border |
+| `.ingest-drawer-title` | `--font-mono` 0.72rem uppercase, `--text-secondary`; flex row with pulse dot |
+| `.ingest-drawer-close` | `×` close button; `--text-muted` at rest, `--text-primary` on hover; `:focus-visible` amber outline |
+| `.ingest-pulse-dot` | 8px circle indicator; `--text-muted` at rest |
+| `.ingest-pulse-dot--live` | Overrides dot to `--score-high-text` with 1.5s pulse animation |
+| `.ingest-fab` | Floating action button (bottom-right corner); visible when drawer is closed |
+| `.ingest-fab--hidden` | Hides FAB: `opacity: 0`, `pointer-events: none`, `transform: scale(0.8)` |
+| `.ingest-event-list` | Scrollable event log container, `flex: 1`, `overflow-y: auto`; has `role="log"` — `aria-live` is intentionally absent (see `#ingest-sr-announce` below) |
+| `.ingest-event` | Single event row; `--font-mono` 0.78rem; slides in via 0.2s animation |
+| `.ingest-event--{type}` | Type modifier: `scored`, `rescored`, `filtered`, `dupe`, `score_failed`, `rescore_failed`, `scrape_skip`, `fetched`, `complete`, `aborted` |
+| `.ingest-event--replay` | Applied during replay burst to suppress the slide-in animation |
+| `.ingest-event-title` | Job title inside an event row; `--font-ui` weight 600, `--text-primary`, 0.82rem |
+| `.ingest-event-source` | Right-aligned source label (e.g. "Adzuna"); `--font-mono` 0.65rem uppercase, `--text-muted`; `float: right` |
+| `.ingest-event-tag` | Inline badge showing score, reason, or status; `--font-mono` 0.65rem; `--radius-sm` |
+| `.ingest-event--fetched` | Special centred section-separator style with `::before` / `::after` rule lines; `--text-accent` |
+| `.ingest-event--complete` | Green success banner; `--score-high-bg` / `--score-high-text` / `--score-high-border`; `--radius-md` |
+| `.ingest-event--aborted` | Red error banner; `--score-low-*` triplet; `--radius-md`; `margin: 0.5rem` |
+| `.ingest-connection-lost` | Amber notice injected on `onerror` while `isLive`; auto-removed on reconnect |
+| `.ingest-tally` | Sticky footer with rolling counters; `flex-shrink: 0`, `--bg-base` |
+| `.ingest-tally-row` | Flex wrap row of counter labels |
+| `.ingest-tally-item` | Single counter; `--font-mono` 0.65rem uppercase |
+| `.ingest-tally--fetched` | `fetched` counter — strong `--text-accent` |
+| `.ingest-tally--scored` | `scored` counter — strong `--score-high-text` |
+| `.ingest-tally--failed` | `failed` counter — strong `--score-low-text` |
+| `.ingest-source-breakdown` | Per-source stats grid below the tally row; injected by JS |
+| `.ingest-source-row` | Single source row: name left, "N fetched / N filtered / N passed" right |
+| `.ingest-source-name` | Source name cell; `--font-mono` uppercase, `--text-secondary` |
+| `#ingest-sr-announce` | Visually-hidden `aria-live="polite" aria-atomic="true"` region; populated by JS on terminal events only (`complete`/`aborted`) so screen readers announce once ("Ingest run complete. N scored, N filtered.") instead of announcing every one of 500+ individual events |
+
+**Accessibility — why `aria-live` is off the event list:** At 500+ events per run, `aria-live="polite"` on the event list floods a screen reader's audio queue. `aria-live` is removed from `.ingest-event-list`; the `#ingest-sr-announce` hidden div handles announcements at the right granularity (terminal events only).
+
+**JS integration:** `connectSSE()` opens `EventSource("/ingest/stream")` on page load to pick up any active or already-completed run. On HTMX `htmx:afterRequest` for `/ingest/trigger`, the drawer resets (`resetDrawer()`) and reconnects after a 500ms delay. The `EventSource` sends `Last-Event-ID` automatically on reconnect; the server uses the `run_id:event_id` format to support replay. On `idle` or terminal events (`complete`/`aborted`), `eventSource.close()` is called — the browser does not reconnect to a finished run.
+
+**Accessibility:** The FAB carries `aria-label="Open ingest log"`, `aria-controls="ingest-drawer"`, and `aria-expanded="false"` (initial state in HTML; JS toggles it to `"true"` on open). The event list has `role="log"` and `aria-label="Ingest events"` — `aria-live` is intentionally absent from the list (see `#ingest-sr-announce` above). Escape key closes the drawer. All interactive elements have `:focus-visible` amber outlines.
+
+**Focus management:** `openDrawer({ focus: true })` moves focus to `.ingest-drawer-close` so keyboard users land inside the drawer immediately after activation. This is only done for user-initiated opens (FAB click, keyboard). Programmatic opens (SSE auto-connect, sessionStorage restore) pass `{ focus: false }` to avoid stealing focus from the user. `closeDrawer()` always returns focus to `#ingest-fab`, so Tab continues from a predictable place.
 
 ### Ingest Trigger (feed page)
 

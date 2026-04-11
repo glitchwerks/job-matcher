@@ -11,17 +11,17 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 import threading
 import time as _time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from importlib.metadata import version as pkg_version, PackageNotFoundError
 
-from flask import Flask, render_template, make_response, request, jsonify, redirect, url_for
+from flask import Flask, render_template, make_response, request, jsonify, redirect, url_for, Response, stream_with_context
 
 import db
 from credentials import CredentialError, load_providers, save_providers
+from ingest_events import IngestEventParser, event_queue
 from io import BytesIO
 
 from pypdf import PdfReader
@@ -695,11 +695,18 @@ _ingest_lock: threading.Lock = threading.Lock()
 # Holds the running Popen handle while ingest.py is active. None when idle.
 _ingest_process: subprocess.Popen | None = None
 
-# Temp file that receives subprocess stdout, avoiding OS pipe-buffer deadlock.
-_ingest_log_file: "tempfile.SpooledTemporaryFile | None" = None
+# Legacy handle — no longer written; kept so existing tests/monkeypatches that
+# set _ingest_log_file still work without AttributeError.
+_ingest_log_file: "object | None" = None
 
 # Stores the result of the most recently completed ingest run.
 _last_run: dict | None = None
+
+# Maximum number of concurrent SSE connections to /ingest/stream.
+# Limited to 2 to prevent resource exhaustion — each connection holds an open
+# HTTP connection plus an event queue subscription. Typical use case is 1
+# browser tab; 2 allows for tab duplication or a background monitoring process.
+MAX_SSE_CONNECTIONS: int = 2
 
 # Matches the summary line that ingest.py prints at the end of each run:
 #   Run complete: 2 source(s) | 25 fetched | 10 pre-filtered | 5 dupes skipped |
@@ -739,6 +746,60 @@ def _parse_ingest_summary(output: str) -> dict:
     return {"new": 0, "filtered": 0, "errors": 0, "completed_at": datetime.now(timezone.utc)}
 
 
+def _stdout_reader(proc: subprocess.Popen) -> None:
+    """Daemon thread: reads ingest subprocess stdout line-by-line,
+    parses each into a structured event, and pushes to the global queue.
+
+    On exception: kills the subprocess and pushes an aborted event.
+    On EOF without a complete event: pushes an aborted event so SSE clients
+    disconnect cleanly rather than spinning forever.
+    """
+    parser = IngestEventParser()
+    saw_complete = False
+    try:
+        # readline() returns '' (empty string, not '\n') at EOF — iter sentinel stops on that
+        for raw_line in iter(proc.stdout.readline, ""):
+            line = raw_line.rstrip("\n")
+            if not line:
+                continue
+            try:
+                event = parser.parse(line)
+            except Exception:
+                app.logger.exception("IngestEventParser failed on line: %r", line)
+                continue
+            if event is not None:
+                if event["type"] == "complete":
+                    saw_complete = True
+                event_queue.push(event)
+    except Exception:
+        app.logger.exception("StdoutReader crashed")
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        event_queue.push({
+            "type": "aborted",
+            "source": None,
+            "title": None,
+            "url": None,
+            "detail": {"error": "reader thread crashed"},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        return
+
+    # EOF — subprocess exited
+    if not saw_complete:
+        exit_code = proc.wait()
+        event_queue.push({
+            "type": "aborted",
+            "source": None,
+            "title": None,
+            "url": None,
+            "detail": {"error": f"process exited with code {exit_code}"},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+
 def _ingest_running() -> bool:
     """Return True if an ingest subprocess is currently active.
 
@@ -755,23 +816,15 @@ def _ingest_running() -> bool:
         if _ingest_process is None:
             return False
         if _ingest_process.poll() is not None:
-            # Process has finished — read temp log and clear handles.
-            output = ""
+            # Process has exited — extract summary from event queue for backward compat.
+            # Clean up legacy log file handle if present (no-op for new PIPE-based runs).
             if _ingest_log_file is not None:
                 try:
-                    _ingest_log_file.seek(0)
-                    output = _ingest_log_file.read()
-                    if isinstance(output, bytes):
-                        output = output.decode("utf-8", errors="replace")
+                    _ingest_log_file.close()
                 except (OSError, ValueError):
-                    output = ""
-                finally:
-                    try:
-                        _ingest_log_file.close()
-                    except OSError:
-                        pass
-                    _ingest_log_file = None
-            _last_run = _parse_ingest_summary(output)
+                    pass
+                _ingest_log_file = None
+            _last_run = _parse_ingest_summary(event_queue.get_latest_summary())
             _ingest_process = None
             return False
         return True
@@ -791,18 +844,17 @@ def _render_ingest_running() -> str:
 def ingest_trigger():
     """Spawn ingest.py as a background subprocess.
 
-    Returns 202 with the 'Running...' HTML partial when the process is started.
+    Returns 202 with the 'Running...' HTML partial when the process starts.
     Returns 409 with a JSON error body if a run is already in progress — the
     caller can check Content-Type to distinguish the two response shapes.
 
     Uses sys.executable so the subprocess runs in the same virtualenv as the
     app server, picking up all installed dependencies automatically.
 
-    stdout is redirected to a NamedTemporaryFile rather than subprocess.PIPE.
-    This avoids the OS pipe-buffer deadlock: if the process emits more than
-    ~64 KB of output (common with 200+ listings), a PIPE write blocks until the
-    reader drains it — but app.py only reads after the process exits, causing
-    a hang.  A temp file has no such size limit.
+    stdout and stderr are merged and piped via subprocess.PIPE to a
+    StdoutReader daemon thread. The reader parses each line into a structured
+    event and pushes it to the global event queue for real-time SSE
+    consumption by /ingest/stream subscribers.
     """
     global _ingest_process, _ingest_log_file
 
@@ -827,17 +879,29 @@ def ingest_trigger():
             return jsonify({"error": "already running"}), 409
 
         try:
-            log_file = tempfile.TemporaryFile(mode="w+", suffix=".log", prefix="ingest_")
             proc = subprocess.Popen(
                 cmd,
-                stdout=log_file,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,  # line-buffered
+                # Force unbuffered output from the child so log lines reach
+                # the parent pipe immediately even when stderr is not a tty.
+                env={**os.environ, "PYTHONUNBUFFERED": "1"},
             )
         except (OSError, PermissionError) as e:
             return jsonify({"error": f"Failed to start ingestion: {e}"}), 500
+        event_queue.clear()
 
-        _ingest_log_file = log_file
         _ingest_process = proc
+        _ingest_log_file = None  # no longer used; kept for backward compat
+
+        reader = threading.Thread(
+            target=_stdout_reader,
+            args=(proc,),
+            daemon=True,
+        )
+        reader.start()
 
     resp = make_response(_render_ingest_running(), 202)
     resp.headers["Content-Type"] = "text/html"
@@ -860,6 +924,58 @@ def ingest_status():
         # Signal HTMX to reload the feed once the job completes.
         resp.headers["HX-Trigger"] = "ingestComplete"
     return resp
+
+
+@app.route("/ingest/stream")
+def ingest_stream():
+    """SSE endpoint streaming real-time ingest events.
+
+    Yields events from the EventQueue in SSE wire format. Supports replay
+    via Last-Event-ID header (format: "{run_id}:{event_id}"). Returns 429
+    if max connections exceeded.
+    """
+    if event_queue.connection_count >= MAX_SSE_CONNECTIONS:
+        return jsonify({"error": "too many connections"}), 429
+
+    # Parse Last-Event-ID: "{run_id}:{event_id}" or just "{event_id}"
+    last_event_id_raw = request.headers.get("Last-Event-ID", "")
+    last_id = 0
+    if last_event_id_raw:
+        parts = last_event_id_raw.rsplit(":", 1)
+        if len(parts) == 2:
+            req_run_id, id_str = parts
+            try:
+                candidate_id = int(id_str)
+            except ValueError:
+                candidate_id = 0
+            # Stale run_id → replay from beginning
+            if req_run_id == event_queue.run_id:
+                last_id = candidate_id
+        else:
+            try:
+                last_id = int(parts[0])
+            except ValueError:
+                last_id = 0
+
+    def generate():
+        event_queue.connect()
+        try:
+            for event in event_queue.subscribe(last_id=last_id):
+                eid = event.get("id", 0)
+                run_id = event.get("run_id", event_queue.run_id)
+                data = json.dumps(event, separators=(",", ":"))
+                yield f"id: {run_id}:{eid}\ndata: {data}\n\n"
+        finally:
+            event_queue.disconnect()
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 def _build_llm_schemas(

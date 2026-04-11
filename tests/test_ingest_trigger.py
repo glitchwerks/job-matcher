@@ -5,7 +5,6 @@ Uses Flask's built-in test client and monkeypatches the module-level
 _ingest_process handle so no real subprocess is ever spawned.
 """
 
-import io
 import os
 import sys
 import pytest
@@ -38,23 +37,28 @@ def client():
         yield c
 
 
-def _make_mock_process(*, exited: bool = False, stdout: str = "") -> MagicMock:
+def _make_mock_process(*, exited: bool = False, stdout_lines: list | None = None) -> MagicMock:
     """Return a MagicMock that behaves like a running or finished Popen handle.
 
-    For exited processes, the caller should also set ``app_module._ingest_log_file``
-    to a file-like object containing ``stdout`` so that ``_ingest_running()``
-    can read it.  Use ``_make_log_file(stdout)`` as a convenience.
+    ``stdout_lines`` controls what the _stdout_reader thread sees.  Each element
+    is returned by successive readline() calls; a final empty string signals EOF
+    and terminates the reader loop.  Defaults to [""] (immediate clean EOF) so
+    the reader thread exits without producing MagicMock noise in stderr.
     """
+    if stdout_lines is None:
+        stdout_lines = [""]  # clean EOF by default
+
     proc = MagicMock()
     proc.poll.return_value = None if not exited else 0
+
+    # Give the mock a real readline() sequence so _stdout_reader terminates
+    # cleanly instead of trying to iterate a raw MagicMock.
+    readline_returns = list(stdout_lines)
+    if readline_returns[-1] != "":
+        readline_returns.append("")  # ensure EOF terminator
+    proc.stdout.readline.side_effect = readline_returns
+
     return proc
-
-
-def _make_log_file(content: str) -> io.StringIO:
-    """Return a StringIO positioned at the start, as a stand-in for the temp log file."""
-    buf = io.StringIO(content)
-    buf.seek(0)
-    return buf
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +75,6 @@ class TestIngestTrigger:
             return _make_mock_process()
 
         monkeypatch.setattr(app_module.subprocess, "Popen", mock_popen)
-        monkeypatch.setattr(app_module.tempfile, "TemporaryFile", lambda **kw: io.StringIO())
         resp = client.post("/ingest/trigger")
         assert resp.status_code == 202
         assert len(spawned) == 1
@@ -81,7 +84,6 @@ class TestIngestTrigger:
         monkeypatch.setattr(
             app_module.subprocess, "Popen", lambda *a, **kw: _make_mock_process()
         )
-        monkeypatch.setattr(app_module.tempfile, "TemporaryFile", lambda **kw: io.StringIO())
         resp = client.post("/ingest/trigger")
         body = resp.data.decode()
         assert "ingest-status" in body
@@ -96,7 +98,6 @@ class TestIngestTrigger:
             return _make_mock_process()
 
         monkeypatch.setattr(app_module.subprocess, "Popen", mock_popen)
-        monkeypatch.setattr(app_module.tempfile, "TemporaryFile", lambda **kw: io.StringIO())
         client.post("/ingest/trigger")
         assert "--hours" in spawned[0]
         assert "25" in spawned[0]
@@ -110,7 +111,6 @@ class TestIngestTrigger:
             return _make_mock_process()
 
         monkeypatch.setattr(app_module.subprocess, "Popen", mock_popen)
-        monkeypatch.setattr(app_module.tempfile, "TemporaryFile", lambda **kw: io.StringIO())
         client.post("/ingest/trigger", data={"hours": "48"})
         assert "48" in spawned[0]
 
@@ -123,7 +123,6 @@ class TestIngestTrigger:
             return _make_mock_process()
 
         monkeypatch.setattr(app_module.subprocess, "Popen", mock_popen)
-        monkeypatch.setattr(app_module.tempfile, "TemporaryFile", lambda **kw: io.StringIO())
         client.post("/ingest/trigger", data={"rescore": "1"})
         assert "--rescore" in spawned[0]
 
@@ -136,7 +135,6 @@ class TestIngestTrigger:
             return _make_mock_process()
 
         monkeypatch.setattr(app_module.subprocess, "Popen", mock_popen)
-        monkeypatch.setattr(app_module.tempfile, "TemporaryFile", lambda **kw: io.StringIO())
         client.post("/ingest/trigger")
         assert "--rescore" not in spawned[0]
 
@@ -149,7 +147,6 @@ class TestIngestTrigger:
             return _make_mock_process()
 
         monkeypatch.setattr(app_module.subprocess, "Popen", mock_popen)
-        monkeypatch.setattr(app_module.tempfile, "TemporaryFile", lambda **kw: io.StringIO())
         client.post("/ingest/trigger", data={"hours": "not-a-number"})
         assert "25" in spawned[0]
 
@@ -162,7 +159,6 @@ class TestIngestTrigger:
             return _make_mock_process()
 
         monkeypatch.setattr(app_module.subprocess, "Popen", mock_popen)
-        monkeypatch.setattr(app_module.tempfile, "TemporaryFile", lambda **kw: io.StringIO())
         client.post("/ingest/trigger")
         assert spawned[0][0] == sys.executable
 
@@ -171,7 +167,6 @@ class TestIngestTrigger:
         def failing_popen(cmd, **kwargs):
             raise OSError("python not found")
         monkeypatch.setattr(app_module.subprocess, "Popen", failing_popen)
-        monkeypatch.setattr(app_module.tempfile, "TemporaryFile", lambda **kw: io.StringIO())
         resp = client.post("/ingest/trigger")
         assert resp.status_code == 500
 
@@ -240,7 +235,6 @@ class TestIngestStatus:
     def test_completed_process_resets_to_idle(self, client, monkeypatch):
         """Once poll() returns non-None the handle is cleared and idle HTML is returned."""
         monkeypatch.setattr(app_module, "_ingest_process", _make_mock_process(exited=True))
-        monkeypatch.setattr(app_module, "_ingest_log_file", _make_log_file(""))
         resp = client.get("/ingest/status")
         body = resp.data.decode()
         assert "Run Ingestion" in body
@@ -274,20 +268,32 @@ class TestIngestRunningHelper:
 
     def test_returns_false_and_clears_handle_after_exit(self, monkeypatch):
         monkeypatch.setattr(app_module, "_ingest_process", _make_mock_process(exited=True))
-        monkeypatch.setattr(app_module, "_ingest_log_file", _make_log_file(""))
         result = app_module._ingest_running()
         assert result is False
         assert app_module._ingest_process is None
 
     def test_sets_last_run_after_exit(self, monkeypatch):
-        """When process exits, _last_run should be populated from parsed log output."""
-        # Use the real format that ingest.py produces.
+        """When process exits, _last_run should be populated from the event queue
+        complete event (subprocess stdout is now piped through StdoutReader, not
+        a temp file — summary is extracted from the queue instead)."""
+        from ingest_events import EventQueue
         summary_line = (
             "Run complete: 1 source(s) | 5 fetched | 10 pre-filtered | 2 dupes skipped | "
             "3 scored (0 failed) | 0 scrape fallbacks | ~500 tok | ~$0.0001"
         )
+        # Seed a fresh queue with the complete event so _ingest_running() finds it.
+        q = EventQueue()
+        q.push({
+            "type": "complete",
+            "source": None,
+            "title": None,
+            "url": None,
+            "detail": {"summary": summary_line},
+            "timestamp": "2026-04-09T00:00:00+00:00",
+        })
+        monkeypatch.setattr(app_module, "event_queue", q)
         monkeypatch.setattr(app_module, "_ingest_process", _make_mock_process(exited=True))
-        monkeypatch.setattr(app_module, "_ingest_log_file", _make_log_file(summary_line))
+        monkeypatch.setattr(app_module, "_ingest_log_file", None)
         monkeypatch.setattr(app_module, "_last_run", None)
         app_module._ingest_running()
         assert app_module._last_run is not None
