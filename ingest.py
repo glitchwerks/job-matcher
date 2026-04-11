@@ -1140,6 +1140,9 @@ def run(
     for client in sources:
         logger.info("Fetching from source: %s", client.SOURCE)
         for page in _safe_pages(client):
+            # Emit fetched event before per-listing loop to maintain ordering invariant
+            # for SSE clients (prevents filtered > fetched in drawer). See issue #200.
+            logger.info("Fetched %d listing(s) from %s", len(page), client.SOURCE)
             for listing in page:
                 fetched += 1
                 src_name = listing.get("source", client.SOURCE)
@@ -1322,9 +1325,6 @@ def run(
                         src_name,
                         title,
                     )
-
-        source_count = source_fetch_counts.get(client.SOURCE, 0)
-        logger.info("Fetched %d listing(s) from %s", source_count, client.SOURCE)
 
     total_tokens = total_tokens_input + total_tokens_output
     run_cost = sum(b["cost"] for b in provider_costs.values())

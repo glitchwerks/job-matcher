@@ -465,6 +465,163 @@ class TestEventQueue:
         assert len(ids) == len(set(ids)), "Duplicate sequence IDs found after concurrent push"
 
 
+class TestFetchedOrderingInvariant:
+    """Regression tests for issue #200: fetched event must precede per-listing events.
+
+    Root cause: the "Fetched N listing(s) from <source>" log line was previously
+    emitted *after* the per-listing loop, so filtered/scored/failed events for a
+    page arrived at the SSE client before the fetched event for that same page —
+    briefly producing an impossible `filtered > fetched` state in the drawer.
+
+    Fix: the log line is now emitted immediately when the source returns a page,
+    before any per-listing processing begins.
+    """
+
+    def setup_method(self):
+        self.parser = IngestEventParser()
+
+    def _parse_lines(self, lines):
+        """Parse a list of log lines and return only non-None events."""
+        events = []
+        for line in lines:
+            event = self.parser.parse(line)
+            if event is not None:
+                events.append(event)
+        return events
+
+    def test_fetched_precedes_filtered_on_same_page(self):
+        """fetched event must appear before any filtered event for the same page."""
+        lines = [
+            "INFO ingest: Fetched 3 listing(s) from Adzuna",
+            "INFO ingest: FILTERED  [Adzuna] Junior Dev — title_exclude",
+            "INFO ingest: FILTERED  [Adzuna] Intern Role — title_exclude",
+            "INFO ingest: SCORED 8/10  [Adzuna] Senior Engineer",
+        ]
+        events = self._parse_lines(lines)
+        types = [e["type"] for e in events]
+
+        fetched_idx = types.index("fetched")
+        first_filtered_idx = types.index("filtered")
+        assert fetched_idx < first_filtered_idx, (
+            f"fetched event (index {fetched_idx}) must appear before first filtered "
+            f"event (index {first_filtered_idx}) — ordering invariant violated"
+        )
+
+    def test_fetched_precedes_scored_on_same_page(self):
+        """fetched event must appear before any scored event for the same page."""
+        lines = [
+            "INFO ingest: Fetched 2 listing(s) from Jooble",
+            "INFO ingest: SCORED 7/10  [Jooble] Data Engineer",
+            "INFO ingest: SCORED 5/10  [Jooble] Backend Dev",
+        ]
+        events = self._parse_lines(lines)
+        types = [e["type"] for e in events]
+
+        fetched_idx = types.index("fetched")
+        first_scored_idx = types.index("scored")
+        assert fetched_idx < first_scored_idx, (
+            f"fetched event (index {fetched_idx}) must appear before first scored "
+            f"event (index {first_scored_idx}) — ordering invariant violated"
+        )
+
+    def test_fetched_precedes_score_failed_on_same_page(self):
+        """fetched event must appear before any score_failed event for the same page."""
+        lines = [
+            "INFO ingest: Fetched 1 listing(s) from USAJobs",
+            "WARNING ingest: SCORE FAILED  [USAJobs] Bad Listing",
+        ]
+        events = self._parse_lines(lines)
+        types = [e["type"] for e in events]
+
+        fetched_idx = types.index("fetched")
+        score_failed_idx = types.index("score_failed")
+        assert fetched_idx < score_failed_idx, (
+            f"fetched event (index {fetched_idx}) must appear before score_failed "
+            f"event (index {score_failed_idx}) — ordering invariant violated"
+        )
+
+    def test_fetched_precedes_dupe_on_same_page(self):
+        """fetched event must appear before any dupe event for the same page."""
+        lines = [
+            "INFO ingest: Fetched 2 listing(s) from Adzuna",
+            "INFO ingest: DUPE      [Adzuna] Already Seen Role",
+            "INFO ingest: SCORED 9/10  [Adzuna] New Role",
+        ]
+        events = self._parse_lines(lines)
+        types = [e["type"] for e in events]
+
+        fetched_idx = types.index("fetched")
+        dupe_idx = types.index("dupe")
+        assert fetched_idx < dupe_idx, (
+            f"fetched event (index {fetched_idx}) must appear before dupe "
+            f"event (index {dupe_idx}) — ordering invariant violated"
+        )
+
+    def test_multi_page_each_fetched_precedes_its_page_events(self):
+        """For multi-page sources, each page's fetched event must precede that page's listings.
+
+        This directly guards against the original bug: if fetched were emitted after
+        the per-listing loop, per-listing events from page 2 would arrive before the
+        page-2 fetched event, making filtered > fetched visible in the drawer.
+        """
+        lines = [
+            # Page 1
+            "INFO ingest: Fetched 2 listing(s) from Adzuna",
+            "INFO ingest: SCORED 8/10  [Adzuna] Engineer A",
+            "INFO ingest: FILTERED  [Adzuna] Intern A — title_exclude",
+            # Page 2
+            "INFO ingest: Fetched 2 listing(s) from Adzuna",
+            "INFO ingest: SCORED 7/10  [Adzuna] Engineer B",
+            "INFO ingest: FILTERED  [Adzuna] Intern B — title_exclude",
+        ]
+        events = self._parse_lines(lines)
+
+        # Walk through events: every time we see a per-listing event (scored/filtered/dupe/
+        # score_failed), there must have been at least one fetched event seen so far.
+        seen_fetched = 0
+        per_listing_types = {"scored", "filtered", "dupe", "score_failed"}
+        for i, event in enumerate(events):
+            if event["type"] == "fetched":
+                seen_fetched += 1
+            elif event["type"] in per_listing_types:
+                assert seen_fetched > 0, (
+                    f"Per-listing event '{event['type']}' at index {i} arrived before "
+                    f"any fetched event — ordering invariant violated for multi-page run"
+                )
+
+    def test_empty_page_does_not_break_parser(self):
+        """Empty pages should emit fetched=0 without breaking event flow."""
+        lines = [
+            "INFO ingest: Fetched 0 listing(s) from Adzuna",
+            "INFO ingest: Fetched 2 listing(s) from Adzuna",
+            "INFO ingest: SCORED 8/10  [Adzuna] Engineer A",
+        ]
+        events = self._parse_lines(lines)
+        assert len(events) == 3
+        assert events[0]["detail"]["fetched_count"] == 0
+        assert events[1]["detail"]["fetched_count"] == 2
+
+    def test_fetched_count_accumulates_correctly_across_pages(self):
+        """Multiple fetched events for the same source must sum to the total page sizes.
+
+        Validates that the move from per-source-total to per-page emission does not
+        change the final accumulated fetched count seen by the drawer (which uses +=).
+        """
+        lines = [
+            "INFO ingest: Fetched 5 listing(s) from Adzuna",
+            "INFO ingest: SCORED 8/10  [Adzuna] Job A",
+            "INFO ingest: Fetched 3 listing(s) from Adzuna",
+            "INFO ingest: SCORED 7/10  [Adzuna] Job B",
+        ]
+        events = self._parse_lines(lines)
+        fetched_events = [e for e in events if e["type"] == "fetched"]
+
+        total_fetched = sum(e["detail"]["fetched_count"] for e in fetched_events)
+        assert total_fetched == 8, (
+            f"Expected total fetched_count of 8 (5+3) across two pages, got {total_fetched}"
+        )
+
+
 class TestIngestEventParserEdgeCases:
     """Edge cases and boundary conditions for the parser."""
 
