@@ -280,10 +280,36 @@ Deploy workflow triggers (workflow_run on CI success)
 ### Key details
 
 - The deploy jobs run on `[self-hosted, linux]` — the GitHub Actions runner must be installed and running on the VM (see [First-Time Server Setup](#first-time-server-setup)).
-- CI must pass before any deploy job runs (`if: github.event.workflow_run.conclusion == 'success'`).
+- CI must pass before any auto-deploy job runs (`if: github.event.workflow_run.conclusion == 'success'`).
 - Deploys use `up -d --remove-orphans` which replaces containers in-place with zero downtime for the database.
 - After each deploy, old images are pruned to reclaim disk space.
 - The deploy workflow does **not** SSH into the VM. Instead, the self-hosted runner executes `docker compose` commands directly on the host. This means no `DEPLOY_SSH_*` secrets are needed for the current deployment model.
+
+### Manual deploy (workflow_dispatch)
+
+Any branch can be deployed on demand from the GitHub Actions UI without waiting for a push-triggered CI run:
+
+1. Go to **Actions → Deploy** in the GitHub repository.
+2. Click **Run workflow**, select the target branch from the dropdown, and click **Run workflow**.
+
+The manual path runs these jobs in sequence:
+
+```
+workflow_dispatch (branch selected in UI)
+        │
+        ▼
+manual-test job — runs pytest with a Postgres service container
+        │ passes (lint not required)
+        ▼
+build-and-push-manual job — builds + pushes image to GHCR
+        │   Non-main → ghcr.io/.../job-matcher-pr:<sha> and :<short-sha>-<branch>
+        │   main     → :latest, :<sha>, and :<short-sha>-main
+        ▼
+deploy-dev-manual  (if branch != main) → dev stack, port 5000
+deploy-prod-manual (if branch == main) → prod stack, port 5001
+```
+
+If `pytest` fails the deploy jobs are skipped. Lint (ruff) is not a gate for manual deploys — see issue #197 for rationale.
 
 ### Registering the self-hosted runner
 
