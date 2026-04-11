@@ -250,6 +250,23 @@ For legacy Windows deployment instructions, see [`docs/LEGACY_DEPLOYMENT.md`](do
 
 Pushing to `main` triggers an automatic deployment on the homelab server via a self-hosted GitHub Actions runner.
 
+### Manual deploy from the Actions UI
+
+You can deploy any branch on demand without waiting for a push-triggered CI run:
+
+1. Go to **Actions → Deploy** in the GitHub repository.
+2. Click **Run workflow** (top-right of the workflow list).
+3. Select the branch you want to deploy from the dropdown and click **Run workflow**.
+
+**What happens:**
+
+- `pytest` runs first (PostgreSQL service spun up automatically). If tests fail, the deploy is cancelled.
+- Lint (ruff) is **not** required for a manual deploy — only broken tests block it. Linting (`ruff`) is intentionally not a blocker for manual dispatches: a lint violation doesn't change runtime behavior, and gating dev testing on style rules slows down the feedback loop. Tests are still required because deploying code that doesn't pass its own test suite would waste the environment.
+- The Docker image is built and pushed to GHCR for the selected branch.
+- Branch → environment routing follows the same logic as auto-deploy:
+  - `main` → prod stack (port 5001, `docker-compose.prod.yml`)
+  - Any other branch → dev stack (port 5000, `docker-compose.dev.yml`)
+
 ### Deployment flow
 
 ```

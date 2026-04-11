@@ -6,18 +6,27 @@ on:
     types: [completed]
     # Fires for all branches where CI runs.
     # deploy-dev triggers for non-main branches; deploy-prod for main only.
+  workflow_dispatch:
+    # No custom inputs — GitHub's built-in branch selector (the "Run workflow"
+    # dropdown) provides the branch ref. github.ref_name is the selected branch.
+
+# ---------------------------------------------------------------------------
+# AUTO-DEPLOY PATH  (workflow_run — triggered when CI passes)
+# ---------------------------------------------------------------------------
 
 jobs:
   build-and-push:
     name: Build and push Docker image
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: >-
+      ${{ github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: read
       packages: write
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
@@ -60,7 +69,8 @@ jobs:
     runs-on: [self-hosted, linux]
     needs: build-and-push
     if: >-
-      ${{ github.event.workflow_run.conclusion == 'success' &&
+      ${{ github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' &&
           github.event.workflow_run.head_branch != 'main' }}
     permissions:
       contents: read
@@ -91,7 +101,8 @@ jobs:
     runs-on: [self-hosted, linux]
     needs: build-and-push
     if: >-
-      ${{ github.event.workflow_run.conclusion == 'success' &&
+      ${{ github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' &&
           github.event.workflow_run.head_branch == 'main' }}
     permissions:
       contents: read
@@ -108,6 +119,170 @@ jobs:
       - name: Deploy prod stack
         env:
           APP_VERSION: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          export APP_VERSION
+          docker compose -p job-matcher-pr-prod --env-file /opt/job-matcher-pr/.env.prod -f /opt/job-matcher-pr/docker-compose.prod.yml pull
+          docker compose -p job-matcher-pr-prod --env-file /opt/job-matcher-pr/.env.prod -f /opt/job-matcher-pr/docker-compose.prod.yml up -d --remove-orphans
+          docker compose -p job-matcher-pr-prod --env-file /opt/job-matcher-pr/.env.prod -f /opt/job-matcher-pr/docker-compose.prod.yml ps --status running --services | grep -q "web"
+          docker image prune -f --filter "label=com.docker.compose.project=job-matcher-pr-prod"
+
+# ---------------------------------------------------------------------------
+# MANUAL DEPLOY PATH  (workflow_dispatch — triggered from the Actions UI)
+# ---------------------------------------------------------------------------
+
+  manual-test:
+    name: Run tests (pytest gate)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    # Lint (ruff) is intentionally omitted — see issue #197 rationale.
+    # Only broken tests block a manual deploy; lint violations do not.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: jobmatcher
+          POSTGRES_PASSWORD: jobmatcher
+          POSTGRES_DB: jobmatcher
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv pip install -r requirements.txt -r requirements-dev.txt --system
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql://jobmatcher:jobmatcher@localhost:5432/jobmatcher
+        run: pytest
+
+  build-and-push-manual:
+    name: Build and push Docker image (manual dispatch)
+    runs-on: ubuntu-latest
+    needs: manual-test
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        # github.sha is HEAD of the branch selected in the "Run workflow" UI
+
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Compute safe branch tag
+        id: branch_tag
+        run: echo "safe=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image (non-main — SHA + branch tags)
+        if: ${{ github.ref_name != 'main' }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/job-matcher-pr:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/job-matcher-pr:${{ steps.sha.outputs.short }}-${{ steps.branch_tag.outputs.safe }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push image (main — SHA + branch tags + latest)
+        if: ${{ github.ref_name == 'main' }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/job-matcher-pr:latest
+            ghcr.io/${{ github.repository_owner }}/job-matcher-pr:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/job-matcher-pr:${{ steps.sha.outputs.short }}-${{ steps.branch_tag.outputs.safe }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-dev-manual:
+    name: Deploy dev stack (manual dispatch)
+    runs-on: [self-hosted, linux]
+    needs: build-and-push-manual
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' &&
+          github.ref_name != 'main' }}
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy dev stack
+        env:
+          APP_VERSION: ${{ github.sha }}
+        run: |
+          export APP_VERSION
+          docker compose -p job-matcher-pr-dev --env-file /opt/job-matcher-pr/.env.dev -f /opt/job-matcher-pr/docker-compose.dev.yml pull
+          docker compose -p job-matcher-pr-dev --env-file /opt/job-matcher-pr/.env.dev -f /opt/job-matcher-pr/docker-compose.dev.yml up -d --remove-orphans
+          docker compose -p job-matcher-pr-dev --env-file /opt/job-matcher-pr/.env.dev -f /opt/job-matcher-pr/docker-compose.dev.yml ps --status running --services | grep -q "web"
+
+      - name: Prune old images
+        run: docker image prune -f --filter "label=com.docker.compose.project=job-matcher-pr-dev"
+
+  deploy-prod-manual:
+    name: Deploy prod stack (manual dispatch)
+    runs-on: [self-hosted, linux]
+    needs: build-and-push-manual
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' &&
+          github.ref_name == 'main' }}
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy prod stack
+        env:
+          APP_VERSION: ${{ github.sha }}
         run: |
           export APP_VERSION
           docker compose -p job-matcher-pr-prod --env-file /opt/job-matcher-pr/.env.prod -f /opt/job-matcher-pr/docker-compose.prod.yml pull

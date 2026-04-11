@@ -183,6 +183,70 @@ class TestJobicyNormalise:
         result = client.normalise(_RAW_JOB)
         assert result["contract_type"] is None
 
+    # ------------------------------------------------------------------
+    # Regression tests for #194: contract_time list → AttributeError
+    # ------------------------------------------------------------------
+
+    def test_contract_time_list_collapses_to_first_element_string(self):
+        """normalise() collapses jobType list to a plain string (regression #194).
+
+        The Jobicy API sometimes returns jobType as a list (e.g. ["full_time"]).
+        prefilter() calls .lower() on contract_time, which crashes with
+        AttributeError if the value is a list.  normalise() must always
+        produce a string or None for contract_time.
+        """
+        client = _client()
+        result = client.normalise({**_RAW_JOB, "jobType": ["full_time"]})
+        assert result["contract_time"] == "full_time"
+        assert isinstance(result["contract_time"], str)
+
+    def test_contract_time_list_with_multiple_values_uses_first(self):
+        """normalise() uses the first element when jobType has multiple values."""
+        client = _client()
+        result = client.normalise({**_RAW_JOB, "jobType": ["full_time", "contract"]})
+        assert result["contract_time"] == "full_time"
+        assert isinstance(result["contract_time"], str)
+
+    def test_contract_time_empty_list_becomes_none(self):
+        """normalise() yields None when jobType is an empty list."""
+        client = _client()
+        result = client.normalise({**_RAW_JOB, "jobType": []})
+        assert result["contract_time"] is None
+
+    def test_contract_time_string_passthrough(self):
+        """normalise() leaves a plain string jobType unchanged (existing behaviour)."""
+        client = _client()
+        result = client.normalise({**_RAW_JOB, "jobType": "part_time"})
+        assert result["contract_time"] == "part_time"
+
+    def test_contract_time_none_stays_none(self):
+        """normalise() yields None when jobType is explicitly null."""
+        client = _client()
+        result = client.normalise({**_RAW_JOB, "jobType": None})
+        assert result["contract_time"] is None
+
+    def test_contract_time_list_with_none_element_becomes_none(self):
+        """normalise() yields None when jobType list contains None (regression PR #196).
+
+        [None] previously stringified to "None" via str(None), which prefilter()
+        would then lowercase and treat as a legitimate contract_time value.
+        Non-str list elements must collapse the field to None.
+        """
+        client = _client()
+        result = client.normalise({**_RAW_JOB, "jobType": [None]})
+        assert result["contract_time"] is None
+
+    def test_contract_time_list_with_int_element_becomes_none(self):
+        """normalise() yields None when jobType list contains an int (regression PR #196).
+
+        [123] previously stringified to "123" via str(123), which prefilter()
+        would then lowercase and treat as a legitimate contract_time value.
+        Non-str list elements must collapse the field to None.
+        """
+        client = _client()
+        result = client.normalise({**_RAW_JOB, "jobType": [123]})
+        assert result["contract_time"] is None
+
     def test_source_is_jobicy_string(self):
         """source field is always the literal string 'jobicy'."""
         client = _client()

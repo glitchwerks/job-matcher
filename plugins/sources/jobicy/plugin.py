@@ -21,6 +21,29 @@ logger = logging.getLogger("ingest.jobicy")
 _JOBICY_URL = "https://jobicy.com/api/v2/remote-jobs"
 
 
+def _coerce_contract_field(value: object) -> str | None:
+    """Normalise a raw Jobicy contract field to a plain string or None.
+
+    The Jobicy API is inconsistent: ``jobType`` may be a string (``"full_time"``),
+    a list (``["full_time"]``), or absent/null.  ``prefilter()`` calls
+    ``.lower()`` on this field, so it must always be a ``str`` or ``None`` —
+    never a list.
+
+    Rules:
+    - list with at least one non-empty ``str`` element → first element as-is
+    - list whose first element is not a ``str`` (e.g. ``None``, ``int``) → ``None``
+    - empty list → ``None``
+    - non-empty string → returned as-is
+    - ``None`` / falsy scalar → ``None``
+    """
+    if isinstance(value, list):
+        element = value[0] if value else None
+        return element if isinstance(element, str) and element else None
+    if value:
+        return str(value)
+    return None
+
+
 class JobicyClient(JobSource):
     """JobSource implementation for the Jobicy remote jobs API.
 
@@ -158,7 +181,7 @@ class JobicyClient(JobSource):
             "salary_max": salary_max,
             "salary_period": salary_period,
             "contract_type": None,
-            "contract_time": raw.get("jobType", "") or "",
+            "contract_time": _coerce_contract_field(raw.get("jobType")),
             "description": strip_html(raw.get("jobDescription", "") or ""),
             "redirect_url": raw.get("url", "") or "",
             "created_at": raw.get("pubDate", "") or "",
