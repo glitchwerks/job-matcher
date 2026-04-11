@@ -542,14 +542,17 @@ class TestReaderToQueueToSseComposition:
     def test_reader_pushes_correct_count_into_queue(self, fresh_queue, monkeypatch):
         """_stdout_reader must push exactly the number of parseable events into the queue.
 
-        Happy path: 1 fetched + 2 scored + 1 filtered + 1 dupe + 1 score_failed + 1 complete
-        (SCRAPE FALLBACK sets a flag — no event emitted for it directly).
+        Happy path: 1 fetched + 2 scored + 1 filtered + 1 dupe + 1 score_failed +
+        1 scrape_fallback + 1 complete. SCRAPE FALLBACK now emits a scrape_fallback
+        event AND sets a flag to annotate the subsequent scored event with scraped=False
+        (see #202).
         """
         proc = _make_fake_proc(_HAPPY_PATH_LINES)
         _run_reader_synchronously(proc, fresh_queue, monkeypatch)
 
-        # SCRAPE FALLBACK produces no event; everything else does
-        expected_count = len(_HAPPY_PATH_LINES) - 1  # minus the SCRAPE FALLBACK line
+        # Every log line in _HAPPY_PATH_LINES produces exactly one event (including
+        # SCRAPE FALLBACK, which now emits a scrape_fallback event per #202).
+        expected_count = len(_HAPPY_PATH_LINES)
         assert len(fresh_queue._events) == expected_count, (
             f"Expected {expected_count} events in queue, got {len(fresh_queue._events)}"
         )
