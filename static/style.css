@@ -2401,9 +2401,10 @@ input[type="number"] {
 }
 
 .ingest-event {
-  padding: 0.35rem 1rem;
+  padding: 0.35rem 1rem 0.35rem calc(1rem - 3px);
   font-size: 0.78rem;
   border-bottom: 1px solid var(--border-subtle);
+  border-left: 3px solid transparent;
   animation: ingest-slide-in 0.2s ease;
 }
 
@@ -2450,22 +2451,31 @@ input[type="number"] {
   border: 1px solid var(--score-high-border);
 }
 
-.ingest-event--filtered {
-  color: var(--text-muted);
+/* Neutral skip states — shared grey left-edge accent bar (#192).
+   Row text is NOT dimmed; the bar carries the "skipped" signal. */
+.ingest-event--filtered,
+.ingest-event--dupe,
+.ingest-event--scrape_skip,
+.ingest-event--scrape_fallback {
+  border-left-color: var(--border-subtle);
 }
+
 .ingest-event--filtered .ingest-event-tag {
   background: var(--bg-raised);
   color: var(--text-muted);
   border: 1px solid var(--border-subtle);
 }
 
-.ingest-event--dupe {
-  color: var(--text-muted);
-}
 .ingest-event--dupe .ingest-event-tag {
   background: var(--bg-raised);
   color: var(--text-muted);
   border: 1px solid var(--border-subtle);
+}
+
+/* Error states — red left-edge accent bar (#192) */
+.ingest-event--score_failed,
+.ingest-event--rescore_failed {
+  border-left-color: var(--score-low-border);
 }
 
 .ingest-event--score_failed .ingest-event-tag {
@@ -2486,10 +2496,13 @@ input[type="number"] {
   border: 1px solid var(--score-high-border);
 }
 
-.ingest-event--scrape_skip {
-  color: var(--text-muted);
-}
 .ingest-event--scrape_skip .ingest-event-tag {
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+.ingest-event--scrape_fallback .ingest-event-tag {
   background: var(--bg-raised);
   color: var(--text-muted);
   border: 1px solid var(--border-subtle);

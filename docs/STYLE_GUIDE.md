@@ -649,7 +649,17 @@ The icon is ≡ (U+2261, IDENTICAL TO), used as a visual drag affordance (three 
 
 Slide-out panel for real-time ingest log stream. Fixed to the right edge of the viewport, full-height, 400px wide. Rendered via `templates/_ingest_drawer.html`, included in `index.html` just before `</body>`. Controlled by `static/ingest-drawer.js`.
 
-**Color rule for event types:** `scored`/`rescored` use `--score-high-*` (semantic: success). `score_failed`/`rescore_failed`/`aborted` use `--score-low-*` (semantic: error). `filtered`/`dupe`/`scrape_skip` use neutral tokens (`--bg-raised`, `--text-muted`, `--border-subtle`) — avoid tier colors for decorative purposes on these neutral states.
+**Color rule for event types:** `scored`/`rescored` use `--score-high-*` (semantic: success). `score_failed`/`rescore_failed`/`aborted` use `--score-low-*` (semantic: error). `filtered`/`dupe`/`scrape_skip`/`scrape_fallback` use neutral tokens (`--bg-raised`, `--text-muted`, `--border-subtle`) — avoid tier colors for decorative purposes on these neutral states.
+
+**Left-edge accent bar pattern** (introduced in #192): every `.ingest-event` row carries a 3px `border-left` (transparent by default) so horizontal alignment stays consistent across all event types. Skip and error states color this bar to let users scan the drawer at a glance without reading row text. No icons, glyphs, text prefixes, or background tints are used — row height is ~22px and must stay compact.
+
+| Event group | `border-left-color` | Notes |
+|---|---|---|
+| `filtered`, `dupe`, `scrape_skip`, `scrape_fallback` | `--border-subtle` (neutral grey) | Shared single token. Row text is **not** dimmed — the bar alone carries the "skipped" signal |
+| `score_failed`, `rescore_failed` | `--score-low-border` (red) | Only real-error state; already uses red on its tag badge |
+| `scored`, `rescored`, `fetched`, `complete`, `aborted` | `transparent` (no bar) | These states have their own visual treatment (tier colors or banners) |
+
+The left padding on `.ingest-event` is `calc(1rem - 3px)` (compensates for the 3px border so total horizontal space is unchanged from the original `1rem`).
 
 | Class | Purpose |
 |---|---|
@@ -663,8 +673,8 @@ Slide-out panel for real-time ingest log stream. Fixed to the right edge of the 
 | `.ingest-fab` | Floating action button (bottom-right corner); visible when drawer is closed |
 | `.ingest-fab--hidden` | Hides FAB: `opacity: 0`, `pointer-events: none`, `transform: scale(0.8)` |
 | `.ingest-event-list` | Scrollable event log container, `flex: 1`, `overflow-y: auto`; has `role="log"` — `aria-live` is intentionally absent (see `#ingest-sr-announce` below) |
-| `.ingest-event` | Single event row; `--font-mono` 0.78rem; slides in via 0.2s animation |
-| `.ingest-event--{type}` | Type modifier: `scored`, `rescored`, `filtered`, `dupe`, `score_failed`, `rescore_failed`, `scrape_skip`, `fetched`, `complete`, `aborted` |
+| `.ingest-event` | Single event row; `--font-mono` 0.78rem; `border-left: 3px solid transparent` (see accent bar pattern above); slides in via 0.2s animation |
+| `.ingest-event--{type}` | Type modifier: `scored`, `rescored`, `filtered`, `dupe`, `score_failed`, `rescore_failed`, `scrape_skip`, `scrape_fallback`, `fetched`, `complete`, `aborted` |
 | `.ingest-event--replay` | Applied during replay burst to suppress the slide-in animation |
 | `.ingest-event-title` | Job title inside an event row; `--font-ui` weight 600, `--text-primary`, 0.82rem |
 | `.ingest-event-source` | Right-aligned source label (e.g. "Adzuna"); `--font-mono` 0.65rem uppercase, `--text-muted`; `float: right` |
