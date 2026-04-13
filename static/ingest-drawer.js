@@ -239,10 +239,6 @@
   // ---------------------------------------------------------------------------
 
   /**
-   * Create and append a DOM element for the given event.
-   * replay=true suppresses the slide-in animation (used for replayed events).
-   */
-  /**
    * Map a numeric score to a CSS tier class name.
    *
    * Thresholds match the rest of the app (score cards, stat bars, etc.):
@@ -258,6 +254,10 @@
     return "tier-low";
   }
 
+  /**
+   * Create and append a DOM element for the given event.
+   * replay=true suppresses the slide-in animation (used for replayed events).
+   */
   function renderEvent(event, replay) {
     // idle events are bookkeeping-only — do not render anything
     if (event.type === "idle") { return; }
@@ -284,7 +284,7 @@
             ? '<span class="ingest-event-source">' + escapeHtml(event.source) + "</span>"
             : "") +
           '<span class="ingest-event-title">' + escapeHtml(event.title || "") + "</span>" +
-          '<span class="ingest-event-tag ' + tierClass + '">' + (score != null ? score : 0) + "/10</span>" +
+          '<span class="ingest-event-tag ' + tierClass + '">' + (score != null ? score : "\u2013") + "/10</span>" +
           (event.detail && event.detail.scraped === false
             ? '<span class="ingest-event-tag">SNIPPET</span>'
             : event.type === "scored"
