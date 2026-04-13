@@ -619,7 +619,6 @@ def stats():
         stats=data,
         view="stats",
         config_warnings=_config_warnings(),
-        runtime_versions=RUNTIME_VERSIONS,
     )
 
 
@@ -2161,6 +2160,7 @@ def admin():
         view="admin",
         listing_count=listing_count,
         csrf_token=session["csrf_token"],
+        runtime_versions=RUNTIME_VERSIONS,
     )
 
 

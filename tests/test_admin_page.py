@@ -78,6 +78,14 @@ class TestAdminPage:
         assert "Schedule" in body
         assert "Danger Zone" in body
 
+    def test_admin_runtime_pane_has_content(self, client):
+        """Runtime pane contains the Runtime heading and at least the flask row."""
+        with patch("db.get_listing_count", return_value=0):
+            resp = client.get("/admin")
+        body = resp.data.decode()
+        assert "Runtime" in body
+        assert "flask" in body.lower()
+
 
 # ---------------------------------------------------------------------------
 # Admin nav link present on all pages

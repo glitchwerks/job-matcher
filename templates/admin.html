@@ -77,7 +77,23 @@
     id="pane-runtime"
     class="tab-pane active"
     role="tabpanel">
-    <!-- Phase 2 content -->
+    <h2 class="stats-section-heading">Runtime</h2>
+    <table class="stats-table stats-runtime-table">
+      <thead>
+        <tr>
+          <th>Component</th>
+          <th>Version</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in runtime_versions %}
+          <tr>
+            <td>{{ row.component }}</td>
+            <td class="stats-version">{{ row.version }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 
   {# ── Logs pane ────────────────────────────────────────────────── #}
