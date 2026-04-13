@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import sys
+from unittest.mock import patch
 
 import pytest
 
@@ -109,11 +110,15 @@ class TestIssue273IngestGracefulCredentialFailure:
             json.dump({"primary_skills": []}, fh)
 
         # Must not raise — before the fix this would SystemExit.
-        ingest.run(
-            config_path=cfg_path,
-            profile_path=profile_path,
-            providers_path=str(tmp_path / "providers.json"),
-        )
+        with (
+            patch("ingest.db.create_ingest_run", return_value=1, create=True),
+            patch("ingest.db.finish_ingest_run", create=True),
+        ):
+            ingest.run(
+                config_path=cfg_path,
+                profile_path=profile_path,
+                providers_path=str(tmp_path / "providers.json"),
+            )
 
     def test_run_logs_warning_when_no_credentials(self, tmp_path, monkeypatch, caplog):
         """A warning is logged when credentials are absent."""
@@ -136,7 +141,11 @@ class TestIssue273IngestGracefulCredentialFailure:
         with open(profile_path, "w") as fh:
             json.dump({"primary_skills": []}, fh)
 
-        with caplog.at_level(logging.WARNING, logger="ingest"):
+        with (
+            patch("ingest.db.create_ingest_run", return_value=1, create=True),
+            patch("ingest.db.finish_ingest_run", create=True),
+            caplog.at_level(logging.WARNING, logger="ingest"),
+        ):
             ingest.run(
                 config_path=cfg_path,
                 profile_path=profile_path,

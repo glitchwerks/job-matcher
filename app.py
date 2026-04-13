@@ -2152,12 +2152,15 @@ def settings_config_redirect():
 
 _LOG_FILENAME_RE = re.compile(r"^ingest_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})\.log$")
 
+# Scheduler health thresholds (hours since last scheduled run).
+SCHEDULE_WARN_HOURS = 25
+SCHEDULE_CRITICAL_HOURS = 49
+
 
 @app.route("/admin")
 def admin():
     """Administration page — runtime info, log downloads, ingest schedule, and database ops."""
-    if "csrf_token" not in session:
-        session["csrf_token"] = secrets.token_urlsafe(32)
+    session.setdefault("csrf_token", secrets.token_urlsafe(32))
     listing_count = db.get_listing_count()
     return render_template(
         "admin.html",
@@ -2279,8 +2282,12 @@ def admin_log_download(filename):
 
     target = (LOG_DIR / filename).resolve()
 
-    # Symlink escape check — resolved path must be inside LOG_DIR
-    if not str(target).startswith(str(LOG_DIR.resolve())):
+    # Symlink escape check — resolved path must be inside LOG_DIR.
+    # Use relative_to() rather than startswith() so the check is
+    # case-insensitive-safe and handles path separators correctly on Windows.
+    try:
+        target.relative_to(LOG_DIR.resolve())
+    except ValueError:
         abort(404)
 
     if not target.is_file():
@@ -2299,6 +2306,7 @@ def admin_schedule_state():
     """Return an HTML fragment showing ingest run history and scheduler health."""
     try:
         runs = db.get_recent_ingest_runs(10)
+    # Catch-all: schedule state is best-effort; a DB error must never break the admin page.
     except Exception:  # noqa: BLE001
         runs = []
 
@@ -2324,12 +2332,12 @@ def admin_schedule_state():
             if last_scheduled.get("status") == "failed":
                 badge = "red"
                 badge_text = "Last scheduled run failed"
-            elif age_hours is not None and age_hours > 49:
+            elif age_hours is not None and age_hours > SCHEDULE_CRITICAL_HOURS:
                 badge = "red"
-                badge_text = "Scheduler may be down — no scheduled run in 49+ hours"
-            elif age_hours is not None and age_hours > 25:
+                badge_text = f"Scheduler may be down — no scheduled run in {SCHEDULE_CRITICAL_HOURS}+ hours"
+            elif age_hours is not None and age_hours > SCHEDULE_WARN_HOURS:
                 badge = "amber"
-                badge_text = "Last scheduled run was 25+ hours ago"
+                badge_text = f"Last scheduled run was {SCHEDULE_WARN_HOURS}+ hours ago"
             elif last_scheduled.get("status") == "running":
                 badge = "amber"
                 badge_text = "Scheduled run in progress"

@@ -29,12 +29,22 @@ import re
 import sys
 from unittest.mock import patch
 
+import pytest
+
 # Ensure the project root is on the path regardless of how pytest is invoked.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import db
-import ingest
-from job_sources.base import JobSource
+_DB_URL = os.environ.get("DATABASE_URL", "")
+_SKIP_DB = not _DB_URL or "dummy" in _DB_URL
+
+pytestmark = pytest.mark.skipif(
+    _SKIP_DB,
+    reason="DATABASE_URL not set or points to dummy — skipping live-DB ingest run tests",
+)
+
+import db  # noqa: E402
+import ingest  # noqa: E402
+from job_sources.base import JobSource  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

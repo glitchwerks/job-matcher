@@ -213,8 +213,12 @@ class TestAdminLogDownload:
     @pytest.mark.skipif(os.name == "nt", reason="Symlinks require admin on Windows")
     def test_symlink_escape_returns_404(self, client, log_dir, tmp_path):
         """A symlink pointing outside LOG_DIR is rejected with 404."""
-        # Create a file outside the log dir
-        secret = tmp_path / "secret.txt"
+        # Create a file strictly outside log_dir in a sibling directory.
+        # (log_dir IS tmp_path, so tmp_path itself is inside log_dir — use a
+        # subdirectory of tmp_path.parent that is not log_dir.)
+        outside_dir = tmp_path.parent / "outside_secret"
+        outside_dir.mkdir(exist_ok=True)
+        secret = outside_dir / "secret.txt"
         secret.write_text("secret content", encoding="utf-8")
 
         # Create a symlink inside log_dir that points to the outside file,

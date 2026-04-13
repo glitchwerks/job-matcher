@@ -192,6 +192,8 @@ class _Conn:
         if exc_type is not None:
             try:
                 self._conn.rollback()
+            # Catch-all: stale run cleanup is best-effort; swallow any rollback error
+            # so the original exception is not masked.
             except Exception:
                 pass
         self._pool.putconn(self._conn)
@@ -349,6 +351,7 @@ def init_db() -> None:
         )
 
         # Stale-row sweep: a SIGKILL'd ingest leaves status='running' forever.
+        # 1 hour: longest observed ingest run is ~15 min; 1h gives 4x margin.
         conn.execute("""
             UPDATE ingest_runs
                SET status = 'failed',
