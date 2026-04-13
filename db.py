@@ -384,7 +384,7 @@ def create_ingest_run(trigger_source: str, log_filename: str | None = None) -> i
                RETURNING id""",
             (trigger_source, log_filename),
         )
-        return cur.fetchone()[0]
+        return cur.fetchone()["id"]
 
 
 def finish_ingest_run(

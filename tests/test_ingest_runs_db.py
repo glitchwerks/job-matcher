@@ -167,7 +167,7 @@ class TestStaleSweep:
                    VALUES ('manual_cli', NOW() - INTERVAL '2 hours', 'running')
                    RETURNING id""",
             )
-            run_id = cur.fetchone()[0]
+            run_id = cur.fetchone()["id"]
 
         try:
             db.init_db()  # should sweep the row
