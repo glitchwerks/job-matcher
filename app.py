@@ -891,7 +891,7 @@ def ingest_trigger():
                 bufsize=1,  # line-buffered
                 # Force unbuffered output from the child so log lines reach
                 # the parent pipe immediately even when stderr is not a tty.
-                env={**os.environ, "PYTHONUNBUFFERED": "1"},
+                env={**os.environ, "PYTHONUNBUFFERED": "1", "INGEST_TRIGGER": "manual_ui"},
             )
         except (OSError, PermissionError) as e:
             return jsonify({"error": f"Failed to start ingestion: {e}"}), 500
@@ -2291,6 +2291,60 @@ def admin_log_download(filename):
         filename,
         as_attachment=True,
         mimetype="text/plain; charset=utf-8",
+    )
+
+
+@app.route("/admin/schedule-state")
+def admin_schedule_state():
+    """Return an HTML fragment showing ingest run history and scheduler health."""
+    try:
+        runs = db.get_recent_ingest_runs(10)
+    except Exception:  # noqa: BLE001
+        runs = []
+
+    # Compute health badge
+    badge = "none"  # no data
+    badge_text = "No runs recorded yet"
+
+    if runs:
+        # Find most recent scheduled run
+        scheduled_runs = [r for r in runs if r.get("trigger_source") == "scheduled"]
+
+        if scheduled_runs:
+            last_scheduled = scheduled_runs[0]
+            age_hours = None
+            if last_scheduled.get("started_at"):
+                started = last_scheduled["started_at"]
+                if hasattr(started, "tzinfo") and started.tzinfo:
+                    now = datetime.now(timezone.utc)
+                else:
+                    now = datetime.utcnow()
+                age_hours = (now - started).total_seconds() / 3600
+
+            if last_scheduled.get("status") == "failed":
+                badge = "red"
+                badge_text = "Last scheduled run failed"
+            elif age_hours is not None and age_hours > 49:
+                badge = "red"
+                badge_text = "Scheduler may be down — no scheduled run in 49+ hours"
+            elif age_hours is not None and age_hours > 25:
+                badge = "amber"
+                badge_text = "Last scheduled run was 25+ hours ago"
+            elif last_scheduled.get("status") == "running":
+                badge = "amber"
+                badge_text = "Scheduled run in progress"
+            else:
+                badge = "green"
+                badge_text = "Scheduler healthy"
+        else:
+            badge = "none"
+            badge_text = "No scheduled runs recorded"
+
+    return render_template(
+        "admin/_schedule_state.html",
+        runs=runs,
+        badge=badge,
+        badge_text=badge_text,
     )
 
 

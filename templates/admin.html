@@ -110,7 +110,8 @@
     id="pane-schedule"
     class="tab-pane"
     role="tabpanel">
-    <!-- Phase 4 content -->
+    <h2 class="stats-section-heading">Ingest Schedule</h2>
+    <div id="admin-schedule-state" hx-get="/admin/schedule-state" hx-trigger="load, every 60s"></div>
   </div>
 
   {# ── Danger Zone pane ─────────────────────────────────────────── #}

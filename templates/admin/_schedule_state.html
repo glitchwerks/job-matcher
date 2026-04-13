@@ -1,0 +1,79 @@
+{# Schedule state panel — loaded via HTMX into the Schedule pane #}
+{% if not runs %}
+<p class="empty-state">No runs recorded yet</p>
+{% else %}
+
+{# ── Health badge ──────────────────────────────────────────────── #}
+<div class="schedule-badge schedule-badge--{{ badge }}" style="
+  display: inline-block;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  {% if badge == 'green' %}
+    background: var(--score-high-bg); color: var(--score-high-text);
+  {% elif badge == 'amber' %}
+    background: var(--score-mid-bg); color: var(--score-mid-text);
+  {% elif badge == 'red' %}
+    background: var(--score-low-bg); color: var(--score-low-text);
+  {% else %}
+    background: var(--bg-surface); color: var(--text-secondary);
+  {% endif %}
+">{{ badge_text }}</div>
+
+{# ── Recent runs table ─────────────────────────────────────────── #}
+<h3 style="margin: 1rem 0 0.5rem; font-size: 0.95rem; color: var(--text-primary);">Recent Runs</h3>
+<table class="stats-table">
+  <thead>
+    <tr>
+      <th>Started</th>
+      <th>Trigger</th>
+      <th>Status</th>
+      <th>Fetched</th>
+      <th>Filtered</th>
+      <th>Scored</th>
+      <th>Failed</th>
+      <th>Cost</th>
+      <th>Log</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for run in runs %}
+      <tr>
+        <td>{{ run.started_at.strftime('%Y-%m-%d %H:%M') if run.started_at else '—' }}</td>
+        <td>{{ run.trigger_source }}</td>
+        <td>
+          {% if run.status == 'success' %}
+            <span style="color: var(--score-high-text);">✓ success</span>
+          {% elif run.status == 'failed' %}
+            <span style="color: var(--score-low-text);">✗ failed</span>
+          {% elif run.status == 'running' %}
+            <span style="color: var(--score-mid-text);">⟳ running</span>
+          {% else %}
+            {{ run.status }}
+          {% endif %}
+        </td>
+        <td>{{ run.fetched or 0 }}</td>
+        <td>{{ run.filtered or 0 }}</td>
+        <td>{{ run.scored or 0 }}</td>
+        <td>{{ run.failed_count or 0 }}</td>
+        <td>${{ "%.4f"|format(run.cost_usd or 0) }}</td>
+        <td>
+          {% if run.log_filename %}
+            <a href="/admin/logs/{{ run.log_filename }}/download" class="btn-small">↓</a>
+          {% else %}
+            —
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if runs[0].status == 'failed' and runs[0].error_message %}
+<div style="margin-top: 1rem; padding: 0.75rem; background: var(--score-low-bg); border-radius: 4px; color: var(--score-low-text); font-size: 0.85rem;">
+  <strong>Last error:</strong> {{ runs[0].error_message }}
+</div>
+{% endif %}
+
+{% endif %}

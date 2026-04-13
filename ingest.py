@@ -27,6 +27,7 @@ import os
 import re
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 from geopy.distance import geodesic
@@ -52,6 +53,28 @@ logger = logging.getLogger("ingest")
 # Set to True by --verbose / -v CLI flag. Used at scoring callsites to emit
 # the full breakdown (verdict, matched/missing skills, concerns) at INFO level.
 _verbose = False
+
+# Set by _configure_file_logging() so that run() can record the log filename
+# in the ingest_runs table without needing a return value from that function.
+_current_log_file: str | None = None
+
+
+def _detect_trigger_source() -> str:
+    """Determine how this ingest run was triggered.
+
+    Reads the ``INGEST_TRIGGER`` environment variable.  Recognised values are
+    ``'scheduled'`` (set by Ofelia) and ``'ui'``/``'manual_ui'`` (set by the
+    Flask UI subprocess call).  Anything else is treated as a manual CLI run.
+
+    Returns:
+        One of ``'scheduled'``, ``'manual_ui'``, or ``'manual_cli'``.
+    """
+    trigger = os.environ.get("INGEST_TRIGGER", "").lower()
+    if trigger == "scheduled":
+        return "scheduled"
+    if trigger in ("ui", "manual_ui"):
+        return "manual_ui"
+    return "manual_cli"
 
 
 def _configure_file_logging() -> None:
@@ -81,6 +104,8 @@ def _configure_file_logging() -> None:
 
     ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(log_dir, f"ingest_{ts}.log")
+    global _current_log_file
+    _current_log_file = log_file
 
     try:
         handler = logging.FileHandler(log_file, encoding="utf-8")
@@ -1044,314 +1069,351 @@ def run(
 
     db.init_db()
 
-    # Initialise the geospatial filter.  Geocodes location.center up-front if
-    # location.center and location.radius_km are both set in the profile.
-    geo = GeoFilter(profile=profile)
-    if geo.is_active:
-        _loc = profile.get("location", {})
-        logger.info(
-            "  Geo filter: center=%r radius=%s km fallback=%s",
-            _loc.get("center"),
-            _loc.get("radius_km"),
-            _loc.get("geocode_fallback", "pass"),
-        )
+    # Record this run in the ingest_runs table so the Admin UI can show history.
+    _log_name = Path(_current_log_file).name if _current_log_file else None
+    run_id = db.create_ingest_run(
+        trigger_source=_detect_trigger_source(),
+        log_filename=_log_name,
+    )
+
+    # _pipeline_error stores any unhandled exception so the finally block can
+    # record it in ingest_runs without swallowing the exception.
+    _pipeline_error: BaseException | None = None
 
     try:
-        providers = load_providers(
-            providers_path=providers_path,
-            keys_path=keys_path,
-            config_path=config_path,
-        )
-    except CredentialError as exc:
-        logger.warning(
-            "No credentials found — skipping ingest run. %s", exc
-        )
-        return
+        # ------------------------------------------------------------------ #
+        # Pipeline body (geo filter → load providers → source loop → summary) #
+        # ------------------------------------------------------------------ #
 
-    _inject_env_var_credentials(providers)
+        # Initialise the geospatial filter.  Geocodes location.center up-front if
+        # location.center and location.radius_km are both set in the profile.
+        geo = GeoFilter(profile=profile)
+        if geo.is_active:
+            _loc = profile.get("location", {})
+            logger.info(
+                "  Geo filter: center=%r radius=%s km fallback=%s",
+                _loc.get("center"),
+                _loc.get("radius_km"),
+                _loc.get("geocode_fallback", "pass"),
+            )
 
-    from job_sources.auto_register import ensure_plugins_registered
-    ensure_plugins_registered(providers_path)
+        try:
+            providers = load_providers(
+                providers_path=providers_path,
+                keys_path=keys_path,
+                config_path=config_path,
+            )
+        except CredentialError as exc:
+            logger.warning(
+                "No credentials found — skipping ingest run. %s", exc
+            )
+            db.finish_ingest_run(run_id, status="failed", error_message=str(exc))
+            return
 
-    sources = make_enabled_sources(providers, config)
-    if not sources:
-        logger.warning(
-            "No job sources are enabled. Enable at least one source in Settings > Sources."
-        )
-        logger.info("Run complete: 0 fetched | no sources enabled")
-        return
+        _inject_env_var_credentials(providers)
 
-    chain = build_provider_chain(providers)
-    dead_providers: set[str] = set()
+        from job_sources.auto_register import ensure_plugins_registered
+        ensure_plugins_registered(providers_path)
 
-    # --- Run start banner ---
-    logger.info("=" * 60)
-    logger.info("INGEST RUN STARTED")
-    logger.info(
-        "  Search: '%s' | max_pages: %d | max_days_old: %d",
-        config["search"].get("what", ""),
-        config["search"].get("max_pages", 0),
-        config["search"].get("max_days_old", 0),
-    )
-    pf = config.get("prefilter", {})
-    if pf:
+        sources = make_enabled_sources(providers, config)
+        if not sources:
+            logger.warning(
+                "No job sources are enabled. Enable at least one source in Settings > Sources."
+            )
+            logger.info("Run complete: 0 fetched | no sources enabled")
+            db.finish_ingest_run(run_id, status="success", counts={"fetched": 0})
+            return
+
+        chain = build_provider_chain(providers)
+        dead_providers: set[str] = set()
+
+        # --- Run start banner ---
+        logger.info("=" * 60)
+        logger.info("INGEST RUN STARTED")
         logger.info(
-            "  Prefilter: title_include=%s | salary_floor=%s",
-            pf.get("title_include", []),
-            pf.get("salary_min") or config.get("search", {}).get("salary_min"),
+            "  Search: '%s' | max_pages: %d | max_days_old: %d",
+            config["search"].get("what", ""),
+            config["search"].get("max_pages", 0),
+            config["search"].get("max_days_old", 0),
         )
-    logger.info(
-        "  Sources: %s",
-        ", ".join(c.SOURCE for c in sources),
-    )
-    if chain:
+        pf = config.get("prefilter", {})
+        if pf:
+            logger.info(
+                "  Prefilter: title_include=%s | salary_floor=%s",
+                pf.get("title_include", []),
+                pf.get("salary_min") or config.get("search", {}).get("salary_min"),
+            )
         logger.info(
-            "  LLM providers: %s",
-            " | ".join(f"{_provider_name(p)}/{_provider_model(p)}" for p in chain),
+            "  Sources: %s",
+            ", ".join(c.SOURCE for c in sources),
         )
-    else:
-        logger.warning("  No LLM providers configured — scoring will fail for all listings")
-    logger.info("=" * 60)
+        if chain:
+            logger.info(
+                "  LLM providers: %s",
+                " | ".join(f"{_provider_name(p)}/{_provider_model(p)}" for p in chain),
+            )
+        else:
+            logger.warning("  No LLM providers configured — scoring will fail for all listings")
+        logger.info("=" * 60)
 
-    # Counters.
-    fetched = 0
-    prefiltered = 0
-    deduped = 0
-    scraped_ok = 0
-    scraped_fallback = 0
-    scraped_skipped = 0
-    scored = 0
-    score_failed = 0
-    listing_failed = 0
-    total_tokens_input = 0
-    total_tokens_output = 0
-    # Per-provider cost tracking: {provider_name: {input, output, cost}}
-    provider_costs: dict[str, dict] = {}
-    source_fetch_counts: dict[str, int] = {}
+        # Counters.
+        fetched = 0
+        prefiltered = 0
+        deduped = 0
+        scraped_ok = 0
+        scraped_fallback = 0
+        scraped_skipped = 0
+        scored = 0
+        score_failed = 0
+        listing_failed = 0
+        total_tokens_input = 0
+        total_tokens_output = 0
+        # Per-provider cost tracking: {provider_name: {input, output, cost}}
+        provider_costs: dict[str, dict] = {}
+        source_fetch_counts: dict[str, int] = {}
 
-    # Cutoff used for --hours filtering.
-    hours_cutoff: datetime | None = None
-    if hours is not None:
-        from datetime import timedelta
-        hours_cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        # Cutoff used for --hours filtering.
+        hours_cutoff: datetime | None = None
+        if hours is not None:
+            from datetime import timedelta
+            hours_cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-    for client in sources:
-        logger.info("Fetching from source: %s", client.SOURCE)
-        for page in _safe_pages(client):
-            # Emit fetched event before per-listing loop to maintain ordering invariant
-            # for SSE clients (prevents filtered > fetched in drawer). See issue #200.
-            logger.info("Fetched %d listing(s) from %s", len(page), client.SOURCE)
-            for listing in page:
-                fetched += 1
-                src_name = listing.get("source", client.SOURCE)
-                source_fetch_counts[src_name] = source_fetch_counts.get(src_name, 0) + 1
-                title = listing.get("title", "(no title)")
-                try:
-                    # --- Hours filter (created_at) ---
-                    if hours_cutoff is not None:
-                        created_raw = listing.get("created_at", "")
-                        if created_raw:
-                            try:
-                                created_dt = datetime.fromisoformat(
-                                    created_raw.replace("Z", "+00:00")
-                                )
-                                if created_dt < hours_cutoff:
-                                    prefiltered += 1
-                                    logger.info(
-                                        "FILTERED  [%s] %s — created_at older than %d hours",
-                                        src_name, title, hours,
+        for client in sources:
+            logger.info("Fetching from source: %s", client.SOURCE)
+            for page in _safe_pages(client):
+                # Emit fetched event before per-listing loop to maintain ordering invariant
+                # for SSE clients (prevents filtered > fetched in drawer). See issue #200.
+                logger.info("Fetched %d listing(s) from %s", len(page), client.SOURCE)
+                for listing in page:
+                    fetched += 1
+                    src_name = listing.get("source", client.SOURCE)
+                    source_fetch_counts[src_name] = source_fetch_counts.get(src_name, 0) + 1
+                    title = listing.get("title", "(no title)")
+                    try:
+                        # --- Hours filter (created_at) ---
+                        if hours_cutoff is not None:
+                            created_raw = listing.get("created_at", "")
+                            if created_raw:
+                                try:
+                                    created_dt = datetime.fromisoformat(
+                                        created_raw.replace("Z", "+00:00")
                                     )
-                                    continue
-                            except (ValueError, TypeError):
-                                pass  # Unparseable date — let the listing through.
+                                    if created_dt < hours_cutoff:
+                                        prefiltered += 1
+                                        logger.info(
+                                            "FILTERED  [%s] %s — created_at older than %d hours",
+                                            src_name, title, hours,
+                                        )
+                                        continue
+                                except (ValueError, TypeError):
+                                    pass  # Unparseable date — let the listing through.
 
-                    # --- Pre-filter ---
-                    reason = prefilter(listing, config)
-                    if reason is not None:
-                        prefiltered += 1
-                        logger.info("FILTERED  [%s] %s — %s", src_name, title, reason)
-                        continue
+                        # --- Pre-filter ---
+                        reason = prefilter(listing, config)
+                        if reason is not None:
+                            prefiltered += 1
+                            logger.info("FILTERED  [%s] %s — %s", src_name, title, reason)
+                            continue
 
-                    # --- Geospatial filter ---
-                    geo_reason = geo.check(listing)
-                    if geo_reason is not None:
-                        prefiltered += 1
-                        logger.info("FILTERED  [%s] %s — %s", src_name, title, geo_reason)
-                        continue
+                        # --- Geospatial filter ---
+                        geo_reason = geo.check(listing)
+                        if geo_reason is not None:
+                            prefiltered += 1
+                            logger.info("FILTERED  [%s] %s — %s", src_name, title, geo_reason)
+                            continue
 
-                    # --- Dedup ---
-                    # Open one connection and reuse it for both dedup checks to avoid
-                    # two open/close round-trips per listing.
-                    with db.get_connection() as _dedup_conn:
-                        _is_dupe = db.listing_exists(
-                            _dedup_conn, listing["source"], listing["source_id"]
-                        )
-                        if not _is_dupe:
-                            redirect_url = listing.get("redirect_url", "")
-                            if redirect_url:
-                                _is_dupe = db.listing_exists_by_url(_dedup_conn, redirect_url)
-                    if _is_dupe:
-                        deduped += 1
-                        logger.info("DUPE      [%s] %s", src_name, title)
-                        continue
+                        # --- Dedup ---
+                        # Open one connection and reuse it for both dedup checks to avoid
+                        # two open/close round-trips per listing.
+                        with db.get_connection() as _dedup_conn:
+                            _is_dupe = db.listing_exists(
+                                _dedup_conn, listing["source"], listing["source_id"]
+                            )
+                            if not _is_dupe:
+                                redirect_url = listing.get("redirect_url", "")
+                                if redirect_url:
+                                    _is_dupe = db.listing_exists_by_url(_dedup_conn, redirect_url)
+                        if _is_dupe:
+                            deduped += 1
+                            logger.info("DUPE      [%s] %s", src_name, title)
+                            continue
 
-                    # --- Scrape ---
-                    # Sources that set skip_scrape=True provide the description via
-                    # API.  If the source also sets description_is_full=True AND the
-                    # description is long enough (>= _SCRAPE_MIN_LENGTH), classify
-                    # as "full"; otherwise fall back to "snippet".
-                    if listing.get("skip_scrape"):
-                        scraped_skipped += 1
-                        if (listing.get("description_is_full")
-                                and len(listing.get("description", "")) >= _SCRAPE_MIN_LENGTH):
-                            listing["description_source"] = "full"
-                            logger.info("SCRAPE SKIP (full) [%s] %s", src_name, title)
+                        # --- Scrape ---
+                        # Sources that set skip_scrape=True provide the description via
+                        # API.  If the source also sets description_is_full=True AND the
+                        # description is long enough (>= _SCRAPE_MIN_LENGTH), classify
+                        # as "full"; otherwise fall back to "snippet".
+                        if listing.get("skip_scrape"):
+                            scraped_skipped += 1
+                            if (listing.get("description_is_full")
+                                    and len(listing.get("description", "")) >= _SCRAPE_MIN_LENGTH):
+                                listing["description_source"] = "full"
+                                logger.info("SCRAPE SKIP (full) [%s] %s", src_name, title)
+                            else:
+                                listing["description_source"] = "snippet"
+                                logger.info("SCRAPE SKIP (snippet) [%s] %s", src_name, title)
                         else:
-                            listing["description_source"] = "snippet"
-                            logger.info("SCRAPE SKIP (snippet) [%s] %s", src_name, title)
-                    else:
-                        description, ok = scrape_description(
-                            listing["redirect_url"],
-                            fallback=listing["description"],
+                            description, ok = scrape_description(
+                                listing["redirect_url"],
+                                fallback=listing["description"],
+                            )
+                            if ok:
+                                scraped_ok += 1
+                                listing["description_source"] = "full"
+                            else:
+                                scraped_fallback += 1
+                                listing["description_source"] = "snippet"
+                                logger.info("SCRAPE FALLBACK  [%s] %s", src_name, title)
+                            listing["description"] = description
+
+                        # --- Score ---
+                        score_result = score_listing_with_fallback(
+                            listing=listing,
+                            profile=profile,
+                            chain=chain,
+                            dead_providers=dead_providers,
                         )
-                        if ok:
-                            scraped_ok += 1
-                            listing["description_source"] = "full"
+
+                        if score_result is None:
+                            score_failed += 1
+                            logger.warning("SCORE FAILED  [%s] %s", src_name, title)
+                            listing.update(
+                                {
+                                    "score": None,
+                                    "matched_skills": [],
+                                    "missing_skills": [],
+                                    "concerns": [],
+                                    "verdict": None,
+                                    "seen": 0,
+                                }
+                            )
                         else:
-                            scraped_fallback += 1
-                            listing["description_source"] = "snippet"
-                            logger.info("SCRAPE FALLBACK  [%s] %s", src_name, title)
-                        listing["description"] = description
+                            scored += 1
+                            logger.info(
+                                "SCORED %d/10  [%s] %s",
+                                score_result.get("score", 0),
+                                src_name,
+                                title,
+                            )
+                            if _verbose:
+                                logger.info(
+                                    "  verdict: %s\n  matched: %s\n  missing: %s\n  concerns: %s",
+                                    score_result.get("verdict", ""),
+                                    ", ".join(score_result.get("matched_skills") or []) or "none",
+                                    ", ".join(score_result.get("missing_skills") or []) or "none",
+                                    ", ".join(score_result.get("concerns") or []) or "none",
+                                )
+                            else:
+                                logger.debug(
+                                    "  verdict: %s | matched: %s | missing: %s",
+                                    score_result.get("verdict", ""),
+                                    ", ".join(score_result.get("matched_skills") or []) or "none",
+                                    ", ".join(score_result.get("missing_skills") or []) or "none",
+                                )
+                            tok_in = score_result.get("tokens_input") or 0
+                            tok_out = score_result.get("tokens_output") or 0
+                            total_tokens_input += tok_in
+                            total_tokens_output += tok_out
 
-                    # --- Score ---
-                    score_result = score_listing_with_fallback(
-                        listing=listing,
-                        profile=profile,
-                        chain=chain,
-                        dead_providers=dead_providers,
-                    )
+                            # Accumulate per-provider cost for the run summary.
+                            used_provider = score_result.get("model_used", "").split("/")[0] or "unknown"
+                            if used_provider not in provider_costs:
+                                # Retrieve the matching provider to get its pricing rates.
+                                matched = next(
+                                    (p for p in chain if _provider_name(p) == used_provider),
+                                    None,
+                                )
+                                provider_costs[used_provider] = {
+                                    "input": 0,
+                                    "output": 0,
+                                    "cost": 0.0,
+                                    "_in_rate": matched.input_cost_per_mtok if matched else 0.0,
+                                    "_out_rate": matched.output_cost_per_mtok if matched else 0.0,
+                                }
+                            bucket = provider_costs[used_provider]
+                            bucket["input"] += tok_in
+                            bucket["output"] += tok_out
+                            bucket["cost"] += (
+                                tok_in  / 1_000_000 * bucket["_in_rate"]
+                                + tok_out / 1_000_000 * bucket["_out_rate"]
+                            )
 
-                    if score_result is None:
-                        score_failed += 1
-                        logger.warning("SCORE FAILED  [%s] %s", src_name, title)
-                        listing.update(
-                            {
-                                "score": None,
-                                "matched_skills": [],
-                                "missing_skills": [],
-                                "concerns": [],
-                                "verdict": None,
-                                "seen": 0,
-                            }
-                        )
-                    else:
-                        scored += 1
-                        logger.info(
-                            "SCORED %d/10  [%s] %s",
-                            score_result.get("score", 0),
+                            listing.update(score_result)
+                            listing["seen"] = 1
+
+                        # --- Persist ---
+                        listing["fetched_at"] = datetime.now(timezone.utc).isoformat()
+                        listing["bookmarked"] = 0
+                        listing["dismissed"] = 0
+                        listing["job_type"] = job_type or None
+
+                        # Populate posted_at from created_at when the source's normalise()
+                        # does not set it directly (non-Adzuna sources).  db.insert_listing()
+                        # defaults posted_at to NULL via setdefault — setting it here ensures
+                        # date-sort works correctly for all sources.
+                        if not listing.get("posted_at"):
+                            listing["posted_at"] = listing.get("created_at") or None
+
+                        try:
+                            db.insert_listing(listing)
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning("DB insert failed  [%s] %s: %s", src_name, title, exc)
+
+                    except Exception:  # noqa: BLE001
+                        listing_failed += 1
+                        logger.exception(
+                            "LISTING FAILED  [%s] %s — unhandled exception in per-listing pipeline",
                             src_name,
                             title,
                         )
-                        if _verbose:
-                            logger.info(
-                                "  verdict: %s\n  matched: %s\n  missing: %s\n  concerns: %s",
-                                score_result.get("verdict", ""),
-                                ", ".join(score_result.get("matched_skills") or []) or "none",
-                                ", ".join(score_result.get("missing_skills") or []) or "none",
-                                ", ".join(score_result.get("concerns") or []) or "none",
-                            )
-                        else:
-                            logger.debug(
-                                "  verdict: %s | matched: %s | missing: %s",
-                                score_result.get("verdict", ""),
-                                ", ".join(score_result.get("matched_skills") or []) or "none",
-                                ", ".join(score_result.get("missing_skills") or []) or "none",
-                            )
-                        tok_in = score_result.get("tokens_input") or 0
-                        tok_out = score_result.get("tokens_output") or 0
-                        total_tokens_input += tok_in
-                        total_tokens_output += tok_out
 
-                        # Accumulate per-provider cost for the run summary.
-                        used_provider = score_result.get("model_used", "").split("/")[0] or "unknown"
-                        if used_provider not in provider_costs:
-                            # Retrieve the matching provider to get its pricing rates.
-                            matched = next(
-                                (p for p in chain if _provider_name(p) == used_provider),
-                                None,
-                            )
-                            provider_costs[used_provider] = {
-                                "input": 0,
-                                "output": 0,
-                                "cost": 0.0,
-                                "_in_rate": matched.input_cost_per_mtok if matched else 0.0,
-                                "_out_rate": matched.output_cost_per_mtok if matched else 0.0,
-                            }
-                        bucket = provider_costs[used_provider]
-                        bucket["input"] += tok_in
-                        bucket["output"] += tok_out
-                        bucket["cost"] += (
-                            tok_in  / 1_000_000 * bucket["_in_rate"]
-                            + tok_out / 1_000_000 * bucket["_out_rate"]
-                        )
-
-                        listing.update(score_result)
-                        listing["seen"] = 1
-
-                    # --- Persist ---
-                    listing["fetched_at"] = datetime.now(timezone.utc).isoformat()
-                    listing["bookmarked"] = 0
-                    listing["dismissed"] = 0
-                    listing["job_type"] = job_type or None
-
-                    # Populate posted_at from created_at when the source's normalise()
-                    # does not set it directly (non-Adzuna sources).  db.insert_listing()
-                    # defaults posted_at to NULL via setdefault — setting it here ensures
-                    # date-sort works correctly for all sources.
-                    if not listing.get("posted_at"):
-                        listing["posted_at"] = listing.get("created_at") or None
-
-                    try:
-                        db.insert_listing(listing)
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning("DB insert failed  [%s] %s: %s", src_name, title, exc)
-
-                except Exception:  # noqa: BLE001
-                    listing_failed += 1
-                    logger.exception(
-                        "LISTING FAILED  [%s] %s — unhandled exception in per-listing pipeline",
-                        src_name,
-                        title,
-                    )
-
-    total_tokens = total_tokens_input + total_tokens_output
-    run_cost = sum(b["cost"] for b in provider_costs.values())
-    logger.info(
-        "Run complete: %d source(s) | %d fetched | %d pre-filtered | "
-        "%d dupes skipped | %d scored (%d failed) | "
-        "%d listing error(s) | "
-        "%d scrape skipped | %d scrape fallbacks | ~%s tok | ~$%.4f",
-        len(sources), fetched, prefiltered,
-        deduped, scored, score_failed,
-        listing_failed,
-        scraped_skipped, scraped_fallback, f"{total_tokens:,}", run_cost,
-    )
-    if len(provider_costs) > 1:
-        breakdown = " | ".join(
-            f"{name}: ~{b['input'] + b['output']:,} tok ~${b['cost']:.4f}"
-            for name, b in provider_costs.items()
-        )
-        logger.info("  Cost breakdown: %s", breakdown)
-    if source_fetch_counts:
-        logger.info("  Sources: %s", " | ".join(f"{src}: {cnt}" for src, cnt in source_fetch_counts.items()))
-    if geo.is_active:
+        total_tokens = total_tokens_input + total_tokens_output
+        run_cost = sum(b["cost"] for b in provider_costs.values())
         logger.info(
-            "  Geocache: %d hit(s) | %d miss(es) | %d failed | %d discarded by radius",
-            geo.hits, geo.misses, geo.failed, geo.geo_discarded,
+            "Run complete: %d source(s) | %d fetched | %d pre-filtered | "
+            "%d dupes skipped | %d scored (%d failed) | "
+            "%d listing error(s) | "
+            "%d scrape skipped | %d scrape fallbacks | ~%s tok | ~$%.4f",
+            len(sources), fetched, prefiltered,
+            deduped, scored, score_failed,
+            listing_failed,
+            scraped_skipped, scraped_fallback, f"{total_tokens:,}", run_cost,
         )
-    logger.info("=" * 60)
-    logger.info("INGEST RUN COMPLETE")
-    logger.info("=" * 60)
+        if len(provider_costs) > 1:
+            breakdown = " | ".join(
+                f"{name}: ~{b['input'] + b['output']:,} tok ~${b['cost']:.4f}"
+                for name, b in provider_costs.items()
+            )
+            logger.info("  Cost breakdown: %s", breakdown)
+        if source_fetch_counts:
+            logger.info("  Sources: %s", " | ".join(f"{src}: {cnt}" for src, cnt in source_fetch_counts.items()))
+        if geo.is_active:
+            logger.info(
+                "  Geocache: %d hit(s) | %d miss(es) | %d failed | %d discarded by radius",
+                geo.hits, geo.misses, geo.failed, geo.geo_discarded,
+            )
+        logger.info("=" * 60)
+        logger.info("INGEST RUN COMPLETE")
+        logger.info("=" * 60)
+
+        db.finish_ingest_run(
+            run_id,
+            status="success",
+            counts={
+                "fetched": fetched,
+                "filtered": prefiltered,
+                "scored": scored,
+                "failed": score_failed,
+            },
+            cost_usd=run_cost,
+        )
+    except Exception as exc:  # noqa: BLE001
+        db.finish_ingest_run(
+            run_id,
+            status="failed",
+            error_message=str(exc),
+        )
+        raise
 
 
 # ---------------------------------------------------------------------------

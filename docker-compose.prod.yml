@@ -39,7 +39,7 @@ services:
     labels:
       ofelia.enabled: "true"
       ofelia.job-exec.daily-ingest-prod.schedule: "@daily"
-      ofelia.job-exec.daily-ingest-prod.command: "python ingest.py --hours 25"
+      ofelia.job-exec.daily-ingest-prod.command: "bash -c 'INGEST_TRIGGER=scheduled python ingest.py --hours 25'"
 
   scheduler:
     image: mcuadros/ofelia:latest
