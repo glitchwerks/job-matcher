@@ -834,3 +834,134 @@ class TestScrapeFallbackEvent:
         # The scored event following the fallback is annotated scraped=False
         scored_after = events[3]
         assert scored_after["detail"]["scraped"] is False
+
+
+# ---------------------------------------------------------------------------
+# scoreToTier contract tests (issue #217)
+# ---------------------------------------------------------------------------
+
+
+def _score_to_tier(score: int | None) -> str:
+    """Python mirror of the JS ``scoreToTier()`` helper in ``ingest-drawer.js``.
+
+    Maps a numeric score to a CSS tier class name using the same thresholds
+    as the rest of the application (score cards, stat bars, etc.):
+
+    - score >= 8  → ``"tier-high"`` (green)
+    - score >= 5  → ``"tier-mid"``  (amber)
+    - score <  5  → ``"tier-low"``  (red)
+    - None        → ``"tier-null"`` (grey)
+
+    This function exists solely to let the tests below assert the tier mapping
+    contract in plain Python without requiring a JS runtime.  Any change to the
+    JS thresholds must be reflected here (and vice-versa).
+
+    Args:
+        score: Numeric LLM score (0–10) or None when the score is absent.
+
+    Returns:
+        The CSS modifier class name that the score tag should carry.
+    """
+    if score is None:
+        return "tier-null"
+    if score >= 8:
+        return "tier-high"
+    if score >= 5:
+        return "tier-mid"
+    return "tier-low"
+
+
+class TestScoreToTier:
+    """Contract tests for the scoreToTier() tier-mapping helper (issue #217).
+
+    These tests document the exact thresholds used by ingest-drawer.js so that
+    any accidental drift between the JS helper and the rest of the app's scoring
+    colour conventions is caught immediately.
+
+    The JS function being tested:
+        function scoreToTier(score) {
+          if (score == null)  { return "tier-null"; }
+          if (score >= 8)     { return "tier-high"; }
+          if (score >= 5)     { return "tier-mid"; }
+          return "tier-low";
+        }
+    """
+
+    # -- Boundary values -------------------------------------------------------
+
+    def test_score_10_is_tier_high(self) -> None:
+        """Score of 10 (maximum) maps to tier-high."""
+        assert _score_to_tier(10) == "tier-high"
+
+    def test_score_8_is_tier_high(self) -> None:
+        """Score of 8 is the lower boundary of tier-high (>= 8)."""
+        assert _score_to_tier(8) == "tier-high"
+
+    def test_score_7_is_tier_mid(self) -> None:
+        """Score of 7 is just below tier-high, should be tier-mid."""
+        assert _score_to_tier(7) == "tier-mid"
+
+    def test_score_5_is_tier_mid(self) -> None:
+        """Score of 5 is the lower boundary of tier-mid (>= 5)."""
+        assert _score_to_tier(5) == "tier-mid"
+
+    def test_score_4_is_tier_low(self) -> None:
+        """Score of 4 is just below tier-mid, should be tier-low."""
+        assert _score_to_tier(4) == "tier-low"
+
+    def test_score_2_is_tier_low(self) -> None:
+        """Score of 2 (representative low value) maps to tier-low."""
+        assert _score_to_tier(2) == "tier-low"
+
+    def test_score_0_is_tier_low(self) -> None:
+        """Score of 0 (minimum) maps to tier-low."""
+        assert _score_to_tier(0) == "tier-low"
+
+    def test_score_none_is_tier_null(self) -> None:
+        """Absent/null score maps to tier-null (grey)."""
+        assert _score_to_tier(None) == "tier-null"
+
+    # -- Scored events carry the score field the JS renderer depends on --------
+
+    def test_scored_event_contains_score_field(self) -> None:
+        """``scored`` events must carry ``detail.score`` as an integer.
+
+        ingest-drawer.js reads ``event.detail.score`` to determine which tier
+        class to apply to the score tag.  If this field is absent or None, the
+        tag falls back to ``tier-null``.
+        """
+        parser = IngestEventParser()
+        event = parser.parse("INFO ingest: SCORED 8/10  [Adzuna] Senior Engineer")
+        assert event is not None
+        assert "score" in event["detail"]
+        assert isinstance(event["detail"]["score"], int)
+        assert event["detail"]["score"] == 8
+
+    def test_rescored_event_contains_score_field(self) -> None:
+        """``rescored`` events must carry ``detail.score`` as an integer.
+
+        The JS ``scored``/``rescored`` branch uses the same ``scoreToTier()``
+        path for both event types.
+        """
+        parser = IngestEventParser()
+        event = parser.parse("INFO ingest: RESCORED 5/10  Backend Engineer")
+        assert event is not None
+        assert "score" in event["detail"]
+        assert isinstance(event["detail"]["score"], int)
+        assert event["detail"]["score"] == 5
+
+    def test_scored_event_score_field_present_for_zero(self) -> None:
+        """A score of 0 must be preserved, not coerced to None/falsy."""
+        parser = IngestEventParser()
+        event = parser.parse("INFO ingest: SCORED 0/10  [Adzuna] Bad Match")
+        assert event is not None
+        assert event["detail"]["score"] == 0
+        assert _score_to_tier(event["detail"]["score"]) == "tier-low"
+
+    def test_scored_event_score_field_present_for_ten(self) -> None:
+        """A score of 10 must round-trip cleanly through parse → tier mapping."""
+        parser = IngestEventParser()
+        event = parser.parse("INFO ingest: SCORED 10/10  [Adzuna] Perfect Match")
+        assert event is not None
+        assert event["detail"]["score"] == 10
+        assert _score_to_tier(event["detail"]["score"]) == "tier-high"

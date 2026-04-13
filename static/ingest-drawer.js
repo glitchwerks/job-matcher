@@ -239,6 +239,22 @@
   // ---------------------------------------------------------------------------
 
   /**
+   * Map a numeric score to a CSS tier class name.
+   *
+   * Thresholds match the rest of the app (score cards, stat bars, etc.):
+   *   >= 8 → tier-high (green)
+   *   >= 5 → tier-mid  (amber)
+   *   <  5 → tier-low  (red)
+   *   null/undefined → tier-null (grey)
+   */
+  function scoreToTier(score) {
+    if (score == null)  { return "tier-null"; }
+    if (score >= 8)     { return "tier-high"; }
+    if (score >= 5)     { return "tier-mid"; }
+    return "tier-low";
+  }
+
+  /**
    * Create and append a DOM element for the given event.
    * replay=true suppresses the slide-in animation (used for replayed events).
    */
@@ -260,19 +276,22 @@
         break;
 
       case "scored":
-      case "rescored":
+      case "rescored": {
+        var score = event.detail && event.detail.score != null ? event.detail.score : null;
+        var tierClass = scoreToTier(score);
         el.innerHTML =
           (event.source
             ? '<span class="ingest-event-source">' + escapeHtml(event.source) + "</span>"
             : "") +
           '<span class="ingest-event-title">' + escapeHtml(event.title || "") + "</span>" +
-          '<span class="ingest-event-tag">' + ((event.detail && event.detail.score) || 0) + "/10</span>" +
+          '<span class="ingest-event-tag ' + tierClass + '">' + (score != null ? score : "\u2013") + "/10</span>" +
           (event.detail && event.detail.scraped === false
             ? '<span class="ingest-event-tag">SNIPPET</span>'
             : event.type === "scored"
               ? '<span class="ingest-event-tag">FULL</span>'
               : "");
         break;
+      }
 
       case "filtered":
         el.innerHTML =

@@ -678,7 +678,7 @@ The left padding on `.ingest-event` is `calc(1rem - 3px)` (compensates for the 3
 | `.ingest-event--replay` | Applied during replay burst to suppress the slide-in animation |
 | `.ingest-event-title` | Job title inside an event row; `--font-ui` weight 600, `--text-primary`, 0.82rem |
 | `.ingest-event-source` | Right-aligned source label (e.g. "Adzuna"); `--font-mono` 0.65rem uppercase, `--text-muted`; `float: right` |
-| `.ingest-event-tag` | Inline badge showing score, reason, or status; `--font-mono` 0.65rem; `--radius-sm` |
+| `.ingest-event-tag` | Inline badge showing score, reason, or status; `--font-mono` 0.65rem; `--radius-sm`. Score badges receive a tier modifier class set by `scoreToTier()` in `ingest-drawer.js`: `.tier-high` (score ≥ 8, green), `.tier-mid` (score ≥ 5, amber), `.tier-low` (score < 5, red), `.tier-null` (null/missing score, grey). Status badges (SNIPPET, FULL, reason text) receive no tier class and inherit the base tag style. |
 | `.ingest-event--fetched` | Special centred section-separator style with `::before` / `::after` rule lines; `--text-accent` |
 | `.ingest-event--complete` | Green success banner; `--score-high-bg` / `--score-high-text` / `--score-high-border`; `--radius-md` |
 | `.ingest-event--aborted` | Red error banner; `--score-low-*` triplet; `--radius-md`; `margin: 0.5rem` |

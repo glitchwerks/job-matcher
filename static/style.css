@@ -2442,13 +2442,28 @@ input[type="number"] {
   margin-left: 0.4rem;
 }
 
-/* Event type colour rules — scored uses tier colors (semantic: success).
+/* Event type colour rules — score tags use tier classes set by JS (scoreToTier).
    filtered/dupe/skip use neutral (not tier colors — avoids red-for-decoration).
-   score_failed/aborted use low-tier (semantic: error).                       */
-.ingest-event--scored .ingest-event-tag {
+   score_failed/aborted use low-tier (semantic: error).                          */
+.ingest-event-tag.tier-high {
   background: var(--score-high-bg);
   color: var(--score-high-text);
   border: 1px solid var(--score-high-border);
+}
+.ingest-event-tag.tier-mid {
+  background: var(--score-mid-bg);
+  color: var(--score-mid-text);
+  border: 1px solid var(--score-mid-border);
+}
+.ingest-event-tag.tier-low {
+  background: var(--score-low-bg);
+  color: var(--score-low-text);
+  border: 1px solid var(--score-low-border);
+}
+.ingest-event-tag.tier-null {
+  background: var(--score-null-bg);
+  color: var(--score-null-text);
+  border: 1px solid var(--score-null-border);
 }
 
 /* Neutral skip states — shared grey left-edge accent bar (#192).
@@ -2488,12 +2503,6 @@ input[type="number"] {
   background: var(--score-low-bg);
   color: var(--score-low-text);
   border: 1px solid var(--score-low-border);
-}
-
-.ingest-event--rescored .ingest-event-tag {
-  background: var(--score-high-bg);
-  color: var(--score-high-text);
-  border: 1px solid var(--score-high-border);
 }
 
 .ingest-event--scrape_skip .ingest-event-tag {
