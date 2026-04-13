@@ -445,8 +445,7 @@ def get_recent_ingest_runs(limit: int = 10) -> list[dict]:
             "SELECT * FROM ingest_runs ORDER BY started_at DESC LIMIT %s",
             (limit,),
         )
-        columns = [desc[0] for desc in cur.description]
-        return [dict(zip(columns, row)) for row in cur.fetchall()]
+        return [dict(row) for row in cur.fetchall()]
 
 
 # ---------------------------------------------------------------------------
