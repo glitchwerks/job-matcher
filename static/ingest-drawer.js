@@ -268,10 +268,8 @@
           '<span class="ingest-event-title">' + escapeHtml(event.title || "") + "</span>" +
           '<span class="ingest-event-tag">' + ((event.detail && event.detail.score) || 0) + "/10</span>" +
           (event.detail && event.detail.scraped === false
-            ? '<span class="ingest-event-tag">SNIPPET</span>'
-            : event.type === "scored"
-              ? '<span class="ingest-event-tag">FULL</span>'
-              : "");
+            ? '<span class="ingest-event-tag tier-mid">SNIPPET</span>'
+            : "");
         break;
 
       case "filtered":

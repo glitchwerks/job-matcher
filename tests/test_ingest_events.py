@@ -834,3 +834,139 @@ class TestScrapeFallbackEvent:
         # The scored event following the fallback is annotated scraped=False
         scored_after = events[3]
         assert scored_after["detail"]["scraped"] is False
+
+
+# ---------------------------------------------------------------------------
+# Drawer tag rendering contract (issue #221)
+# ---------------------------------------------------------------------------
+
+
+class TestDrawerScrapeMethodTag:
+    """Verify the ``scraped`` field contract that drives the ingest-drawer tag.
+
+    The JS ``renderEvent()`` function uses ``event.detail.scraped`` to decide
+    which tag to render for ``scored`` / ``rescored`` rows:
+
+    - ``scraped is True``  (full scrape, the default) — **no scrape-method tag**
+      emitted.  ``FULL`` is the default and adds visual noise.
+    - ``scraped is False`` (API-snippet fallback) — a ``SNIPPET`` tag with
+      ``tier-mid`` (amber) class is emitted as a quality warning.
+
+    These tests assert the Python parser produces the correct ``scraped`` value
+    so that the JS layer renders the right tag.
+    """
+
+    def setup_method(self) -> None:
+        """Create a fresh parser before each test."""
+        self.parser = IngestEventParser()
+
+    # -- scored, full scrape (no FULL tag in drawer) --
+
+    def test_scored_full_scrape_has_scraped_true(self) -> None:
+        """A normally-scraped scored event sets scraped=True.
+
+        The JS drawer must NOT emit any scrape-method tag for this row;
+        ``FULL`` is the default and would be visual noise.
+        """
+        line = "INFO ingest: SCORED 8/10  [Adzuna] Senior Python Developer"
+        event = self.parser.parse(line)
+        assert event is not None
+        assert event["type"] == "scored"
+        assert event["detail"]["scraped"] is True, (
+            "Full-scrape scored events must carry scraped=True so the drawer "
+            "suppresses the FULL tag"
+        )
+
+    def test_rescored_full_scrape_has_scraped_true(self) -> None:
+        """A rescored event without a preceding fallback sets scraped=True.
+
+        The JS drawer must NOT emit any scrape-method tag for rescored rows
+        that used the full scraped description.
+        """
+        line = "INFO ingest: RESCORED 7/10  Backend Engineer"
+        event = self.parser.parse(line)
+        assert event is not None
+        assert event["type"] == "rescored"
+        assert event["detail"]["scraped"] is True, (
+            "Full-scrape rescored events must carry scraped=True so the drawer "
+            "suppresses the FULL tag"
+        )
+
+    # -- scored, snippet fallback (SNIPPET + tier-mid tag in drawer) --
+
+    def test_scored_snippet_fallback_has_scraped_false(self) -> None:
+        """A scored event preceded by SCRAPE FALLBACK sets scraped=False.
+
+        The JS drawer must emit a ``SNIPPET`` tag with ``tier-mid`` (amber)
+        styling for this row — snippet data reduces scoring quality.
+        """
+        self.parser.parse("INFO ingest: SCRAPE FALLBACK  [Adzuna] Some Job")
+        event = self.parser.parse("INFO ingest: SCORED 6/10  [Adzuna] Some Job")
+        assert event is not None
+        assert event["detail"]["scraped"] is False, (
+            "Snippet-fallback scored events must carry scraped=False so the "
+            "drawer renders the amber SNIPPET warning tag"
+        )
+
+    def test_rescored_snippet_fallback_has_scraped_false(self) -> None:
+        """A rescored event preceded by SCRAPE FALLBACK sets scraped=False.
+
+        Rescore mode can also encounter snippet fallbacks; the drawer must
+        render the amber SNIPPET tag in that case too.
+        """
+        self.parser.parse("INFO ingest: SCRAPE FALLBACK  [Adzuna] Some Job")
+        event = self.parser.parse("INFO ingest: RESCORED 5/10  Some Job")
+        assert event is not None
+        assert event["detail"]["scraped"] is False, (
+            "Snippet-fallback rescored events must carry scraped=False so the "
+            "drawer renders the amber SNIPPET warning tag"
+        )
+
+    # -- fallback flag resets after use --
+
+    def test_scraped_flag_resets_after_scored(self) -> None:
+        """The snippet flag must reset after the first scored event consumes it.
+
+        Without a reset, every subsequent scored row in the same run would
+        incorrectly show the SNIPPET tag.
+        """
+        self.parser.parse("INFO ingest: SCRAPE FALLBACK  [Adzuna] Job A")
+        self.parser.parse("INFO ingest: SCORED 6/10  [Adzuna] Job A")
+        # Next scored event has no preceding fallback — must be full
+        next_event = self.parser.parse(
+            "INFO ingest: SCORED 9/10  [Adzuna] Job B"
+        )
+        assert next_event is not None
+        assert next_event["detail"]["scraped"] is True, (
+            "scraped flag must reset after the first scored/rescored event "
+            "consumes it — subsequent rows must not inherit the SNIPPET state"
+        )
+
+    def test_scraped_flag_resets_after_rescored(self) -> None:
+        """The snippet flag must reset after a rescored event consumes it."""
+        self.parser.parse("INFO ingest: SCRAPE FALLBACK  [Adzuna] Job A")
+        self.parser.parse("INFO ingest: RESCORED 5/10  Job A")
+        next_event = self.parser.parse("INFO ingest: RESCORED 9/10  Job B")
+        assert next_event is not None
+        assert next_event["detail"]["scraped"] is True, (
+            "scraped flag must reset after rescored consumes it"
+        )
+
+    # -- other event types unaffected --
+
+    def test_filtered_event_unaffected_by_scrape_flag(self) -> None:
+        """Filtered events do not carry a scraped field at all.
+
+        Only scored/rescored rows drive the SNIPPET tag; other event types
+        must not be affected by the fallback flag.
+        """
+        self.parser.parse("INFO ingest: SCRAPE FALLBACK  [Adzuna] Some Job")
+        event = self.parser.parse(
+            "INFO ingest: FILTERED  [Adzuna] Junior Dev — title_exclude"
+        )
+        assert event is not None
+        assert event["type"] == "filtered"
+        # filtered events do not have a scraped key — tag logic does not apply
+        assert "scraped" not in event.get("detail", {}), (
+            "filtered events must not carry a scraped detail field"
+        )

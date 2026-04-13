@@ -162,12 +162,17 @@ class IngestEventParser:
         # -- RESCORED --
         m = _RESCORED_RE.match(stripped)
         if m:
+            scraped = not self._scrape_fallback
+            self._scrape_fallback = False
             return {
                 "type": "rescored",
                 "source": None,
                 "title": m.group(2),
                 "url": None,
-                "detail": {"score": int(m.group(1))},
+                "detail": {
+                    "score": int(m.group(1)),
+                    "scraped": scraped,
+                },
                 "timestamp": now,
             }
 

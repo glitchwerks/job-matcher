@@ -2442,6 +2442,13 @@ input[type="number"] {
   margin-left: 0.4rem;
 }
 
+/* SNIPPET fallback warning badge — amber tier signals reduced scoring quality. */
+.ingest-event-tag.tier-mid {
+  background: var(--score-mid-bg);
+  color: var(--score-mid-text);
+  border: 1px solid var(--score-mid-border);
+}
+
 /* Event type colour rules — scored uses tier colors (semantic: success).
    filtered/dupe/skip use neutral (not tier colors — avoids red-for-decoration).
    score_failed/aborted use low-tier (semantic: error).                       */
