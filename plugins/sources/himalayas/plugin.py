@@ -52,13 +52,18 @@ def _strip_html(text: str) -> str:
 
 
 def _parse_created_at(value: Optional[int | str]) -> Optional[str]:
-    """Convert a Himalayas ``createdAt`` value to an ISO 8601 string.
+    """Convert a Himalayas ``pubDate`` value to an ISO 8601 string.
 
-    Himalayas may return either an ISO 8601 string or a Unix millisecond
-    timestamp (int). ``None`` is passed through as ``None``.
+    Himalayas returns ``pubDate`` as either an ISO 8601 string or a Unix
+    timestamp integer.  The integer may be in **seconds** (10-digit, e.g.
+    ``1_775_944_840``) or **milliseconds** (13-digit, e.g.
+    ``1_700_000_000_000``).  Values below ``10_000_000_000`` are treated as
+    seconds; values at or above that threshold are treated as milliseconds.
+    ``None`` is passed through as ``None``.
 
     Args:
-        value: ISO 8601 string, Unix millisecond int, or ``None``.
+        value: ISO 8601 string, Unix seconds int, Unix milliseconds int,
+               or ``None``.
 
     Returns:
         ISO 8601 string (e.g. ``"2026-01-02T12:34:56Z"``) or ``None``.
@@ -66,7 +71,12 @@ def _parse_created_at(value: Optional[int | str]) -> Optional[str]:
     if value is None:
         return None
     if isinstance(value, int):
-        return datetime.fromtimestamp(value / 1000, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # Distinguish Unix seconds from Unix milliseconds by magnitude.
+        # Seconds-range timestamps (year ~2001–2286) are < 10_000_000_000.
+        # Milliseconds-range timestamps for the same period are >= 10^12.
+        _MS_THRESHOLD = 10_000_000_000
+        ts_seconds = value / 1000 if value >= _MS_THRESHOLD else value
+        return datetime.fromtimestamp(ts_seconds, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     # Assume string — pass through unchanged.
     return str(value)
 

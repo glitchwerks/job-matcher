@@ -8,7 +8,7 @@ Covers:
     handles API failure gracefully
   - normalise(): all canonical field mappings
     - locationRestrictions: join, empty → "Worldwide"
-    - createdAt: ISO string pass-through, Unix ms int conversion, None
+    - pubDate: ISO string pass-through, Unix seconds int conversion, None
     - jobType: all known mappings, unknown value lowercased, None
     - description: HTML stripped, plain text unchanged, empty
     - salary_min / salary_max: present, null
@@ -115,6 +115,28 @@ class TestParseCreatedAt:
         result = _parse_created_at(1_704_067_200_000)
         assert result == "2024-01-01T00:00:00Z"
 
+    # --- Regression tests for issue #199 ------------------------------------
+    # The Himalayas API returns pubDate as Unix SECONDS (not milliseconds).
+    # The helper must detect seconds-range values and not divide by 1000.
+
+    def test_unix_seconds_int_recent(self):
+        """A Unix-seconds timestamp in the billions is interpreted as seconds, not ms.
+
+        Regression (#199): pubDate=1_775_944_840 is 2026-04-11, not 1970-01-21.
+        """
+        # 1_775_944_840 seconds = 2026-04-11T22:00:40Z
+        result = _parse_created_at(1_775_944_840)
+        assert result == "2026-04-11T22:00:40Z"
+
+    def test_unix_seconds_int_2024(self):
+        """Another Unix-seconds value is interpreted correctly as seconds.
+
+        Regression (#199): 1_704_067_200 (no trailing zeros) is 2024-01-01.
+        """
+        # 1_704_067_200 seconds = 2024-01-01T00:00:00Z
+        result = _parse_created_at(1_704_067_200)
+        assert result == "2024-01-01T00:00:00Z"
+
 
 # ---------------------------------------------------------------------------
 # _map_job_type helper
@@ -217,10 +239,24 @@ class TestHimalayasClientNormalise:
         assert result["location"] == "USA, Canada, UK"
 
     def test_normalise_created_at_unix_ms_int(self):
+        """pubDate as a large int (ms range, > year 9999 if treated as s) is handled."""
         client = self._client()
         raw = {**_RAW_JOB, "pubDate": 1_700_000_000_000}
         result = client.normalise(raw)
         assert result["created_at"] == "2023-11-14T22:13:20Z"
+
+    def test_normalise_created_at_unix_seconds_int(self):
+        """Regression (#199): pubDate as a Unix-seconds int is not divided by 1000.
+
+        The Himalayas API returns pubDate as Unix seconds (e.g. 1_775_944_840).
+        Before the fix, the helper treated ALL ints as ms, producing a 1970 date
+        that caused the --hours filter to drop every Himalayas listing.
+        """
+        client = self._client()
+        # 1_775_944_840 seconds = 2026-04-11T22:00:40Z
+        raw = {**_RAW_JOB, "pubDate": 1_775_944_840}
+        result = client.normalise(raw)
+        assert result["created_at"] == "2026-04-11T22:00:40Z"
 
     def test_normalise_created_at_none(self):
         client = self._client()

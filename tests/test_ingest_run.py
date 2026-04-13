@@ -634,6 +634,139 @@ class TestIngestRunSkipScrape:
         )
 
 
+class TestIngestHoursFilter:
+    """Tests for the --hours created_at filter in ingest.run().
+
+    Regression guard for issue #199: ensures the filter behaves correctly when
+    created_at is parseable, missing, or malformed.
+    """
+
+    def setup_method(self):
+        _cleanup("mock-")
+
+    def teardown_method(self):
+        _cleanup("mock-")
+
+    def test_recent_listing_passes_hours_filter(self, tmp_path):
+        """A listing with created_at within the hours window is not filtered."""
+        from datetime import datetime, timezone, timedelta
+
+        config_path = _make_temp_config(tmp_path)
+        profile_path = _make_temp_profile(tmp_path)
+        keys_path = _make_temp_keys(tmp_path)
+
+        recent_created_at = (
+            datetime.now(timezone.utc) - timedelta(hours=1)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        recent_listing = {**_LISTING_1, "created_at": recent_created_at}
+        mock_source = MockJobSource(listings=[recent_listing])
+
+        with (
+            patch("ingest.make_enabled_sources", return_value=[mock_source]),
+            patch("ingest.scrape_description", return_value=("Job description.", True)),
+            patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
+        ):
+            ingest.run(
+                config_path=config_path,
+                profile_path=profile_path,
+                keys_path=keys_path,
+                hours=24,
+            )
+
+        count = _count_by_prefix("mock-")
+        assert count == 1, f"Recent listing should pass the 24-hour filter; got {count} rows"
+
+    def test_old_listing_dropped_by_hours_filter(self, tmp_path, caplog):
+        """A listing with created_at older than the hours window is filtered out."""
+        from datetime import datetime, timezone, timedelta
+
+        config_path = _make_temp_config(tmp_path)
+        profile_path = _make_temp_profile(tmp_path)
+        keys_path = _make_temp_keys(tmp_path)
+
+        old_created_at = (
+            datetime.now(timezone.utc) - timedelta(hours=48)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        old_listing = {**_LISTING_1, "created_at": old_created_at}
+        mock_source = MockJobSource(listings=[old_listing])
+
+        with (
+            patch("ingest.make_enabled_sources", return_value=[mock_source]),
+            patch("ingest.scrape_description", return_value=("Job description.", True)),
+            patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
+            caplog.at_level(logging.INFO, logger="ingest"),
+        ):
+            ingest.run(
+                config_path=config_path,
+                profile_path=profile_path,
+                keys_path=keys_path,
+                hours=24,
+            )
+
+        count = _count_by_prefix("mock-")
+        assert count == 0, f"48-hour-old listing should be filtered by 24-hour window; got {count} rows"
+        assert "FILTERED" in caplog.text, "Expected FILTERED log entry for old listing"
+
+    def test_malformed_created_at_passes_hours_filter(self, tmp_path):
+        """Regression (#199): a listing with an unparseable created_at is NOT dropped.
+
+        The filter must log-and-pass (let it through) rather than silently drop
+        listings whose timestamp cannot be parsed. This guards the existing
+        except (ValueError, TypeError): pass behavior in ingest.py.
+        """
+        config_path = _make_temp_config(tmp_path)
+        profile_path = _make_temp_profile(tmp_path)
+        keys_path = _make_temp_keys(tmp_path)
+
+        malformed_listing = {**_LISTING_1, "created_at": "not-a-date"}
+        mock_source = MockJobSource(listings=[malformed_listing])
+
+        with (
+            patch("ingest.make_enabled_sources", return_value=[mock_source]),
+            patch("ingest.scrape_description", return_value=("Job description.", True)),
+            patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
+        ):
+            ingest.run(
+                config_path=config_path,
+                profile_path=profile_path,
+                keys_path=keys_path,
+                hours=24,
+            )
+
+        count = _count_by_prefix("mock-")
+        assert count == 1, (
+            f"Listing with malformed created_at should pass through the hours filter "
+            f"(log-and-pass, not drop); got {count} rows"
+        )
+
+    def test_missing_created_at_passes_hours_filter(self, tmp_path):
+        """A listing with no created_at field passes the hours filter unconditionally."""
+        config_path = _make_temp_config(tmp_path)
+        profile_path = _make_temp_profile(tmp_path)
+        keys_path = _make_temp_keys(tmp_path)
+
+        no_date_listing = {**_LISTING_1, "created_at": None}
+        mock_source = MockJobSource(listings=[no_date_listing])
+
+        with (
+            patch("ingest.make_enabled_sources", return_value=[mock_source]),
+            patch("ingest.scrape_description", return_value=("Job description.", True)),
+            patch("ingest.score_listing_with_fallback", return_value=_fixed_score_result()),
+        ):
+            ingest.run(
+                config_path=config_path,
+                profile_path=profile_path,
+                keys_path=keys_path,
+                hours=24,
+            )
+
+        count = _count_by_prefix("mock-")
+        assert count == 1, (
+            f"Listing with missing created_at should pass through the hours filter; "
+            f"got {count} rows"
+        )
+
+
 class TestInjectEnvVarCredentials:
     """Unit tests for ingest._inject_env_var_credentials()."""
 
