@@ -11,7 +11,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: jobmatcher_dev
     ports:
-      - "5432:5432"       # expose to host for local dev (python app.py outside Docker)
+      - "127.0.0.1:5432:5432"  # localhost only — local dev (python app.py outside Docker)
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 10s
