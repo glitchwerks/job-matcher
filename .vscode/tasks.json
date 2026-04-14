@@ -9,7 +9,8 @@
       "type": "shell",
       // Resolves the main worktree root at runtime so this works from both the
       // main checkout and any git worktree (.worktrees/<branch>).
-      "command": "$r=(git worktree list | Select-Object -First 1).Split(' ')[0]; docker compose -f \"$r/docker-compose.dev.yml\" --env-file \"$r/.env.dev\" -p job-matcher-pr-dev up -d db",
+      // Uses --porcelain for space-safe parsing: first line is "worktree <path>".
+      "command": "$r=((git worktree list --porcelain | Select-Object -First 1) -replace '^worktree ',''); docker compose -f \"$r/docker-compose.dev.yml\" --env-file \"$r/.env.dev\" -p job-matcher-pr-dev up -d db",
       "options": {
         "cwd": "${workspaceFolder}",
         "shell": {

@@ -123,8 +123,6 @@ if (-not (Test-Path $requirementsPath)) {
 else {
     Write-Status "Installing dependencies via uv pip..." -Level Info
 
-    $uvPip = Join-Path $venvPath 'Scripts\uv.exe'
-
     if (Test-CommandExists 'uv') {
         # Use the global uv with --python pointing at the venv interpreter so
         # packages land inside .venv rather than the global environment.
