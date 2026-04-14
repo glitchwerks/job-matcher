@@ -1,12 +1,39 @@
 {
   "version": "2.0.0",
+  // DATABASE_URL below uses the default dev credentials from .env.dev.example.
+  // If you changed POSTGRES_PASSWORD in .env.dev, update the password in each
+  // task's env block to match.
   "tasks": [
+    {
+      "label": "Start Dev DB",
+      "type": "shell",
+      // Resolves the main worktree root at runtime so this works from both the
+      // main checkout and any git worktree (.worktrees/<branch>).
+      // Uses --porcelain for space-safe parsing: first line is "worktree <path>".
+      "command": "$r=((git worktree list --porcelain | Select-Object -First 1) -replace '^worktree ',''); docker compose -f \"$r/docker-compose.dev.yml\" --env-file \"$r/.env.dev\" -p job-matcher-pr-dev up -d db",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-Command"]
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "job-matcher"
+      },
+      "problemMatcher": []
+    },
     {
       "label": "Start Web UI",
       "type": "shell",
       "command": ".venv/Scripts/python app.py",
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "DATABASE_URL": "postgresql://jobmatcher:changeme_dev@localhost:5432/jobmatcher_dev"
+        }
       },
       "presentation": {
         "reveal": "always",
@@ -21,7 +48,10 @@
       "type": "shell",
       "command": ".venv/Scripts/python ingest.py --hours 24",
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "DATABASE_URL": "postgresql://jobmatcher:changeme_dev@localhost:5432/jobmatcher_dev"
+        }
       },
       "presentation": {
         "reveal": "always",
@@ -35,7 +65,10 @@
       "type": "shell",
       "command": ".venv/Scripts/python ingest.py --rescore",
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "DATABASE_URL": "postgresql://jobmatcher:changeme_dev@localhost:5432/jobmatcher_dev"
+        }
       },
       "presentation": {
         "reveal": "always",
@@ -46,7 +79,7 @@
     },
     {
       "label": "Start Job Matcher",
-      "dependsOn": ["Start Web UI"],
+      "dependsOn": ["Start Dev DB", "Start Web UI"],
       "dependsOrder": "parallel",
       "group": {
         "kind": "build",
@@ -58,7 +91,12 @@
       "label": "Seed Demo DB",
       "type": "shell",
       "command": ".venv/Scripts/python scripts/seed_demo.py",
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "DATABASE_URL": "postgresql://jobmatcher:changeme_dev@localhost:5432/jobmatcher_dev"
+        }
+      },
       "presentation": {
         "reveal": "always",
         "panel": "dedicated",
@@ -70,13 +108,31 @@
       "label": "Start Web UI (Demo)",
       "type": "shell",
       "command": ".venv/Scripts/python app.py --demo",
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "DATABASE_URL": "postgresql://jobmatcher:changeme_dev@localhost:5432/jobmatcher_dev"
+        }
+      },
       "presentation": {
         "reveal": "always",
         "panel": "dedicated",
         "group": "job-matcher"
       },
       "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Setup Local Dev",
+      "type": "shell",
+      "command": "powershell -ExecutionPolicy Bypass -File scripts/setup-local.ps1",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
       "problemMatcher": []
     }
   ]

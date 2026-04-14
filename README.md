@@ -92,6 +92,64 @@ See [Customising your profile](#customising-your-profile) below.
 
 ---
 
+## Local Development (VS Code + Docker)
+
+For developers working in VS Code with Docker Desktop, a setup script and task suite handle the full local workflow — including PostgreSQL via Docker Compose.
+
+### First-time setup
+
+Run the setup script once from a PowerShell terminal in the repo root (or any worktree):
+
+```powershell
+.\scripts\setup-local.ps1
+```
+
+The script is **idempotent** — safe to re-run at any time without clobbering existing config files. It:
+
+1. Creates `.venv` via `uv venv` (falls back to `python -m venv` if `uv` is not installed)
+2. Installs all Python dependencies via `uv pip install -r requirements.txt`
+3. Copies `config/*.example.json` files to their non-example names (skips any that already exist)
+4. Copies `.env.dev.example` → `.env.dev` (skips if it already exists)
+5. Creates the `logs/` directory if missing
+6. Prints next-steps guidance
+
+After the script runs, open `config/providers.json` (or use the `/settings` UI) to add your LLM API keys, and edit `config/profile.json` to match your skills.
+
+### VS Code tasks
+
+All common workflows are available as VS Code tasks. Open the Command Palette (`Ctrl+Shift+P`) and run **Tasks: Run Task**, or use `Ctrl+Shift+B` to trigger the default build task.
+
+| Task | What it does |
+|---|---|
+| **Start Job Matcher** (`Ctrl+Shift+B`) | Starts the dev DB and web UI in parallel (default build task) |
+| **Start Dev DB** | Spins up the PostgreSQL container via `docker-compose.dev.yml` |
+| **Start Web UI** | Runs `app.py` with `DATABASE_URL` pre-set for the dev database |
+| **Run Ingestion** | Runs `ingest.py --hours 24` against the dev database |
+| **Rescore Listings** | Runs `ingest.py --rescore` to re-evaluate all stored listings |
+| **Seed Demo DB** | Populates the database with demo data |
+| **Start Web UI (Demo)** | Runs `app.py --demo` for a demo walkthrough |
+| **Setup Local Dev** | Re-runs `scripts/setup-local.ps1` from within VS Code |
+
+All tasks that talk to PostgreSQL have `DATABASE_URL` pre-configured for the default dev credentials (`changeme_dev`). If you changed `POSTGRES_PASSWORD` in `.env.dev`, update the password in the `env` block of each affected task in `.vscode/tasks.json`.
+
+### Worktree support
+
+The **Start Dev DB** task resolves the main git worktree root at runtime using `git worktree list`, so it correctly locates `docker-compose.dev.yml` regardless of whether you have the repo open from the main checkout (`job-matcher-pr/`) or from a worktree (`.worktrees/<branch>/`). The setup script does the same via `git rev-parse --show-toplevel`.
+
+### Changing the default dev database password
+
+The default dev password is `changeme_dev` (set in `.env.dev.example`). If you change `POSTGRES_PASSWORD` in your `.env.dev`:
+
+1. Recreate the DB container so PostgreSQL picks up the new password:
+   ```powershell
+   docker compose -f docker-compose.dev.yml --env-file .env.dev -p job-matcher-pr-dev down -v
+   docker compose -f docker-compose.dev.yml --env-file .env.dev -p job-matcher-pr-dev up -d db
+   ```
+2. Update `DATABASE_URL` in `.vscode/tasks.json` to use the new password.
+3. Update your shell's `DATABASE_URL` export if you run `ingest.py` or `pytest` outside VS Code.
+
+---
+
 ## Running an ingestion
 
 ```bash
