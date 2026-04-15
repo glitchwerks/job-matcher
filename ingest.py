@@ -25,6 +25,7 @@ import logging
 import math
 import os
 import re
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1060,21 +1061,45 @@ def run(
                         Default: ``"config/providers.json"``.
                         Override in tests to inject a temp file.
     """
-    config = load_config(config_path)
-    profile = load_profile(profile_path)
+    # ---------------------------------------------------------------------- #
+    # Pre-pipeline setup — errors here are caught and logged before the main #
+    # try block so they appear in the log file, not silently on stderr only. #
+    # ---------------------------------------------------------------------- #
+    try:
+        config = load_config(config_path)
+        profile = load_profile(profile_path)
+    except SystemExit as exc:
+        # load_config/load_profile raise SystemExit, which bypasses a plain
+        # except Exception.  Extract the message and log it so the error
+        # appears in the log file, then re-raise to preserve the exit code.
+        logger.error("Startup error: %s", exc)
+        raise
+
     job_type = config["search"].get("what", "").strip()
 
     if hours is not None:
         config["search"]["max_days_old"] = math.ceil(hours / 24)
 
-    db.init_db()
+    try:
+        db.init_db()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Database initialisation failed: %s", exc)
+        sys.exit(1)
 
     # Record this run in the ingest_runs table so the Admin UI can show history.
+    # If this fails (e.g. ingest_runs table missing), run_id is set to None and
+    # the run continues without admin-UI tracking.
+    run_id: int | None = None
     _log_name = Path(_current_log_file).name if _current_log_file else None
-    run_id = db.create_ingest_run(
-        trigger_source=_detect_trigger_source(),
-        log_filename=_log_name,
-    )
+    try:
+        run_id = db.create_ingest_run(
+            trigger_source=_detect_trigger_source(),
+            log_filename=_log_name,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Could not create ingest_runs record (admin UI will not show this run): %s", exc
+        )
 
     # _pipeline_error stores any unhandled exception so the finally block can
     # record it in ingest_runs without swallowing the exception.
@@ -1107,7 +1132,8 @@ def run(
             logger.warning(
                 "No credentials found — skipping ingest run. %s", exc
             )
-            db.finish_ingest_run(run_id, status="failed", error_message=str(exc))
+            if run_id is not None:
+                db.finish_ingest_run(run_id, status="failed", error_message=str(exc))
             return
 
         _inject_env_var_credentials(providers)
@@ -1121,7 +1147,8 @@ def run(
                 "No job sources are enabled. Enable at least one source in Settings > Sources."
             )
             logger.info("Run complete: 0 fetched | no sources enabled")
-            db.finish_ingest_run(run_id, status="success", counts={"fetched": 0})
+            if run_id is not None:
+                db.finish_ingest_run(run_id, status="success", counts={"fetched": 0})
             return
 
         chain = build_provider_chain(providers)
@@ -1396,23 +1423,28 @@ def run(
         logger.info("INGEST RUN COMPLETE")
         logger.info("=" * 60)
 
-        db.finish_ingest_run(
-            run_id,
-            status="success",
-            counts={
-                "fetched": fetched,
-                "filtered": prefiltered,
-                "scored": scored,
-                "failed": score_failed,
-            },
-            cost_usd=run_cost,
-        )
+        if run_id is not None:
+            db.finish_ingest_run(
+                run_id,
+                status="success",
+                counts={
+                    "fetched": fetched,
+                    "filtered": prefiltered,
+                    "scored": scored,
+                    "failed": score_failed,
+                },
+                cost_usd=run_cost,
+            )
     except Exception as exc:  # noqa: BLE001
-        db.finish_ingest_run(
-            run_id,
-            status="failed",
-            error_message=str(exc),
-        )
+        if run_id is not None:
+            try:
+                db.finish_ingest_run(
+                    run_id,
+                    status="failed",
+                    error_message=str(exc),
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning("Could not record run failure in database")
         raise
 
 
@@ -1444,7 +1476,11 @@ def rescore(
                         Default: ``"config/providers.json"``.
                         Override in tests to inject a temp file.
     """
-    profile = load_profile(profile_path)
+    try:
+        profile = load_profile(profile_path)
+    except SystemExit as exc:
+        logger.error("Startup error: %s", exc)
+        raise
 
     try:
         providers = load_providers(
@@ -1461,7 +1497,12 @@ def rescore(
     chain = build_provider_chain(providers)
     dead_providers: set[str] = set()
 
-    listings = db.get_all_scored()
+    try:
+        listings = db.get_all_scored()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Could not fetch listings from database: %s", exc)
+        sys.exit(1)
+
     if not listings:
         logger.info("No scored listings to rescore.")
         return
