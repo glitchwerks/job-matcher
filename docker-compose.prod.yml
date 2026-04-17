@@ -31,6 +31,7 @@ services:
       - ./logs:/app/logs:rw
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/jobmatcher_prod
+      SECRET_KEY: '${SECRET_KEY:?SECRET_KEY must be set in .env.prod — generate with: python -c ''import secrets; print(secrets.token_hex(32))''}'
       FLASK_DEBUG: "0"
       LOG_DIR: "/app/logs"
       APP_ENV: prod

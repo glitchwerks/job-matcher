@@ -1024,6 +1024,7 @@
 
       fetch('/api/apply-prefilter-suggestions', {
         method: 'POST',
+        credentials: 'same-origin',
         body: fd,
       })
         .then(function (resp) { return resp.json().then(function (d) { return { ok: resp.ok, data: d }; }); })

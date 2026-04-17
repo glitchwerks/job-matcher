@@ -93,6 +93,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -1608,3 +1609,62 @@ class TestApplyPrefilterSuggestionsEndpoint:
         with open(path) as fh:
             cfg = json.load(fh)
         assert cfg["prefilter"]["title_include"].count("engineer") == 1
+
+    # ------------------------------------------------------------------
+    # Regression: issue #259 — browser CSRF flow (GET /profile → POST)
+    # ------------------------------------------------------------------
+
+    def test_csrf_token_round_trip_via_profile_get(
+        self, tmp_path, monkeypatch
+    ):
+        """GET /profile establishes the CSRF token; POST with that token succeeds.
+
+        Regression test for issue #259.  The existing ``client_with_csrf``
+        fixture bypasses the real browser flow by injecting the token directly
+        into the session.  This test uses the same client instance to simulate
+        the actual sequence a browser follows:
+
+        1. GET /profile — session cookie is written with ``csrf_token``.
+        2. The token is embedded in the rendered HTML as ``var _csrfToken``.
+        3. POST /api/apply-prefilter-suggestions — same session cookie is sent,
+           token is read from the form body and compared against the session.
+
+        The POST must return 200, not 403, proving the CSRF guard is satisfied
+        when the correct browser-flow token is used.
+        """
+        config_path = str(tmp_path / "config.json")
+        monkeypatch.setattr(app_module, "_CONFIG_PATH", config_path)
+        self._write_config(config_path, {})
+
+        with flask_app.test_client() as c:
+            # Step 1: GET /profile to establish the session and receive the
+            # CSRF token rendered into the page.
+            get_resp = c.get("/profile")
+            assert get_resp.status_code == 200, (
+                f"GET /profile returned {get_resp.status_code}"
+            )
+
+            # Step 2: Extract the CSRF token from the rendered HTML.
+            html = get_resp.data.decode("utf-8", errors="replace")
+            m = re.search(r'var _csrfToken = "([^"]+)";', html)
+            assert m is not None, (
+                "var _csrfToken not found in GET /profile response — "
+                "session CSRF token was not rendered into the template"
+            )
+            csrf_token = m.group(1)
+
+            # Step 3: POST with the token extracted from the page, using the
+            # same client instance so the session cookie is sent automatically.
+            post_resp = c.post(
+                "/api/apply-prefilter-suggestions",
+                data={
+                    "csrf_token": csrf_token,
+                    "title_include": json.dumps(["engineer"]),
+                    "title_exclude": json.dumps([]),
+                },
+            )
+            assert post_resp.status_code == 200, (
+                f"Expected 200, got {post_resp.status_code}: "
+                f"{post_resp.data.decode()}"
+            )
+            assert post_resp.get_json()["success"] is True

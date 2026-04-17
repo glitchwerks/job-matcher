@@ -40,15 +40,18 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # The compose env files only need POSTGRES_* credentials.
+      # The compose env files only need POSTGRES_* credentials and SECRET_KEY.
       # DATABASE_URL, FLASK_DEBUG, etc. are set in the compose environment: block.
       # Use printf to avoid heredoc indentation issues inside YAML run blocks.
+      # SECRET_KEY is generated fresh per run — the value only needs to be non-empty
+      # and random; it is not persisted beyond this workflow execution.
       - name: Create test env files
         run: |
-          printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=jobmatcher_dev\n' \
-            "${{ env.POSTGRES_USER }}" "${{ env.POSTGRES_PASSWORD }}" > .env.dev
-          printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=jobmatcher_prod\n' \
-            "${{ env.POSTGRES_USER }}" "${{ env.POSTGRES_PASSWORD }}" > .env.prod
+          SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+          printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=jobmatcher_dev\nSECRET_KEY=%s\n' \
+            "${{ env.POSTGRES_USER }}" "${{ env.POSTGRES_PASSWORD }}" "$SECRET_KEY" > .env.dev
+          printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=jobmatcher_prod\nSECRET_KEY=%s\n' \
+            "${{ env.POSTGRES_USER }}" "${{ env.POSTGRES_PASSWORD }}" "$SECRET_KEY" > .env.prod
 
       # Create config directories and populate them from example files so the
       # Flask app has valid (if empty) config on first boot.
@@ -66,7 +69,7 @@ jobs:
       # DEV STACK
       # ---------------------------------------------------------------------------
       - name: Start dev stack
-        run: docker compose -p job-matcher-pr-dev -f docker-compose.dev.yml up -d
+        run: docker compose -p job-matcher-pr-dev --env-file .env.dev -f docker-compose.dev.yml up -d
 
       - name: Wait for dev stack to be healthy (port 5000)
         run: |
@@ -80,7 +83,7 @@ jobs:
             sleep 5
           done
           echo "Dev stack did not become healthy within 60s — dumping logs"
-          docker compose -p job-matcher-pr-dev -f docker-compose.dev.yml logs
+          docker compose -p job-matcher-pr-dev --env-file .env.dev -f docker-compose.dev.yml logs
           exit 1
 
       - name: Assert dev stack responds with HTTP 200
@@ -88,18 +91,18 @@ jobs:
           STATUS=$(curl -o /dev/null -sw "%{http_code}" http://localhost:5000/)
           if [ "$STATUS" != "200" ]; then
             echo "Expected HTTP 200 from dev stack, got $STATUS"
-            docker compose -p job-matcher-pr-dev -f docker-compose.dev.yml logs
+            docker compose -p job-matcher-pr-dev --env-file .env.dev -f docker-compose.dev.yml logs
             exit 1
           fi
           echo "Dev stack returned HTTP $STATUS — OK"
 
       - name: Assert dev stack has expected container count
         run: |
-          CONTAINER_COUNT=$(docker compose -p job-matcher-pr-dev -f docker-compose.dev.yml ps -q | wc -l)
+          CONTAINER_COUNT=$(docker compose -p job-matcher-pr-dev --env-file .env.dev -f docker-compose.dev.yml ps -q | wc -l)
           echo "Dev stack container count: $CONTAINER_COUNT"
           if [ "$CONTAINER_COUNT" -lt 2 ]; then
             echo "Expected at least 2 containers, found $CONTAINER_COUNT"
-            docker compose -p job-matcher-pr-dev -f docker-compose.dev.yml ps
+            docker compose -p job-matcher-pr-dev --env-file .env.dev -f docker-compose.dev.yml ps
             exit 1
           fi
           echo "Container count check passed"
@@ -108,7 +111,7 @@ jobs:
       # PROD STACK
       # ---------------------------------------------------------------------------
       - name: Start prod stack
-        run: docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml up -d
+        run: docker compose -p job-matcher-pr-prod --env-file .env.prod -f docker-compose.prod.yml up -d
 
       - name: Wait for prod stack to be healthy (port 5001)
         run: |
@@ -122,7 +125,7 @@ jobs:
             sleep 5
           done
           echo "Prod stack did not become healthy within 60s — dumping logs"
-          docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml logs
+          docker compose -p job-matcher-pr-prod --env-file .env.prod -f docker-compose.prod.yml logs
           exit 1
 
       - name: Assert prod stack responds with HTTP 200
@@ -130,18 +133,18 @@ jobs:
           STATUS=$(curl -o /dev/null -sw "%{http_code}" http://localhost:5001/)
           if [ "$STATUS" != "200" ]; then
             echo "Expected HTTP 200 from prod stack, got $STATUS"
-            docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml logs
+            docker compose -p job-matcher-pr-prod --env-file .env.prod -f docker-compose.prod.yml logs
             exit 1
           fi
           echo "Prod stack returned HTTP $STATUS — OK"
 
       - name: Assert prod stack has expected container count
         run: |
-          CONTAINER_COUNT=$(docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml ps -q | wc -l)
+          CONTAINER_COUNT=$(docker compose -p job-matcher-pr-prod --env-file .env.prod -f docker-compose.prod.yml ps -q | wc -l)
           echo "Prod stack container count: $CONTAINER_COUNT"
           if [ "$CONTAINER_COUNT" -lt 2 ]; then
             echo "Expected at least 2 containers, found $CONTAINER_COUNT"
-            docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml ps
+            docker compose -p job-matcher-pr-prod --env-file .env.prod -f docker-compose.prod.yml ps
             exit 1
           fi
           echo "Container count check passed"
@@ -182,5 +185,5 @@ jobs:
       - name: Teardown stacks
         if: always()
         run: |
-          docker compose -p job-matcher-pr-dev  -f docker-compose.dev.yml  down -v || true
-          docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml down -v || true
+          docker compose -p job-matcher-pr-dev  --env-file .env.dev  -f docker-compose.dev.yml  down -v || true
+          docker compose -p job-matcher-pr-prod --env-file .env.prod -f docker-compose.prod.yml down -v || true

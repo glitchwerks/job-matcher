@@ -38,6 +38,13 @@ from unittest.mock import patch
 # and can re-enter psycopg2 freely — they just won't be blocked by the
 # import-time init call.
 # ---------------------------------------------------------------------------
+# Provide a stable test secret key so that importing app.py does not raise
+# RuntimeError from the SECRET_KEY validation added to guard against empty or
+# placeholder values in real deployments.
+os.environ.setdefault(
+    "SECRET_KEY", "test-secret-key-not-for-production-use"
+)
+
 if not os.environ.get("DATABASE_URL"):
     # Provide a dummy URL so db.py's startup guard doesn't raise, then
     # immediately patch the two DB entry-points used by app.py.

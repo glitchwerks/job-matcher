@@ -36,9 +36,18 @@ from job_sources import get_sources
 from ingest import validate_search_config, ValidationIssue
 
 app = Flask(__name__)
-# A stable secret key is required for session-based CSRF tokens.  In production
-# this should be overridden via the SECRET_KEY environment variable.
-app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+
+# A stable secret key is required for session-based CSRF tokens.
+# Refuse to start with an empty or placeholder value — a fresh random key on
+# every restart invalidates session cookies and breaks CSRF protection.
+_secret_key_env = os.environ.get("SECRET_KEY", "")
+if not _secret_key_env or _secret_key_env.startswith("changeme"):
+    raise RuntimeError(
+        "SECRET_KEY must be set to a secure random value. "
+        'Generate one with: python -c "import secrets; print(secrets.token_hex(32))" '
+        "and set it in .env.dev / .env.prod."
+    )
+app.secret_key = _secret_key_env
 
 # Inject environment and version globals so all templates can render the status bar.
 app.jinja_env.globals['APP_ENV'] = os.environ.get('APP_ENV', 'local')

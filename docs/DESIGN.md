@@ -582,10 +582,10 @@ Each stack is defined by a Compose file and a corresponding `.env` file:
 **Starting stacks:**
 ```bash
 # Dev
-docker compose -p job-matcher-pr-dev -f docker-compose.dev.yml up -d
+docker compose -p job-matcher-pr-dev --env-file .env.dev -f docker-compose.dev.yml up -d
 
 # Prod
-docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml up -d
+docker compose -p job-matcher-pr-prod --env-file .env.prod -f docker-compose.prod.yml up -d
 ```
 
 **Containers per stack:**
