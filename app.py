@@ -1478,19 +1478,64 @@ If a field cannot be confidently extracted, use an empty array, empty string, or
 
 JSON only:"""
 
-def _build_import_prompt(resume_text: str) -> str:
+# Appended to _IMPORT_PROMPT_FRESH (before the final "JSON only:" sentinel)
+# when the caller opts in to prefilter title suggestions.  Kept separate so
+# the base prompt is byte-for-byte identical when the toggle is off.
+_IMPORT_PROMPT_PREFILTER_EXTENSION = """
+Additionally, suggest job-title keyword filters based on the roles this
+candidate has held and the jobs they would plausibly target:
+- "prefilter_suggestions": object with exactly two keys:
+  - "title_include": array of lowercase substring strings that SHOULD appear
+    in a job title for it to be relevant (e.g. ["engineer", "developer"])
+  - "title_exclude": array of lowercase substring strings that should NEVER
+    appear in a job title (e.g. ["manager", "director", "intern"])
+
+Rules for prefilter_suggestions:
+- Use simple substrings, not regular expressions.
+- All strings must be lowercase.
+- "title_include" and "title_exclude" must be completely disjoint — no string
+  may appear in both lists (case-insensitively).
+- If you cannot confidently suggest filters, use empty arrays for both keys.
+- Do NOT include "require_contract_time" or "require_contract_type" — those
+  are separate user preferences, not resume-derived."""
+
+
+def _build_import_prompt(
+    resume_text: str,
+    suggest_filters: bool = False,
+) -> str:
     """Build the LLM prompt for PDF resume import.
 
     Both fresh and merge modes use the same extraction-only prompt.  Merging
     is handled deterministically by ``_merge_import_result()`` after the LLM
     responds, so the LLM never needs to see the existing profile.
 
+    When ``suggest_filters`` is ``True`` the prefilter extension is appended
+    to the prompt so the LLM also returns ``prefilter_suggestions``.  When it
+    is ``False`` the prompt is byte-for-byte identical to the legacy prompt —
+    no extra tokens are charged.
+
     Args:
         resume_text: Extracted plain text from the uploaded PDF.
+        suggest_filters: When ``True``, ask the LLM to additionally return
+            ``prefilter_suggestions`` (title_include / title_exclude arrays).
 
     Returns:
         Formatted prompt string ready to send to the LLM.
     """
+    if suggest_filters:
+        # Insert the prefilter extension before the closing "JSON only:" line.
+        base = _IMPORT_PROMPT_FRESH.rstrip()
+        # Remove the trailing sentinel, add extension, restore sentinel.
+        sentinel = "JSON only:"
+        if base.endswith(sentinel):
+            base = base[: -len(sentinel)].rstrip()
+        return (
+            base
+            + "\n"
+            + _IMPORT_PROMPT_PREFILTER_EXTENSION.strip()
+            + "\n\nJSON only:"
+        ).format(resume_text=resume_text)
     return _IMPORT_PROMPT_FRESH.format(resume_text=resume_text)
 
 
@@ -1500,23 +1545,58 @@ def _parse_import_response(raw: str) -> dict | None:
     Strips markdown code fences, parses JSON, and fills missing keys with
     safe defaults so callers can always rely on the expected keys existing.
 
+    If ``prefilter_suggestions`` is present its ``title_include`` and
+    ``title_exclude`` arrays are validated to be disjoint (case-insensitive).
+    If they overlap the entire response is rejected (returns ``None``) so the
+    caller surfaces an error rather than silently writing conflicting filters.
+
     Args:
         raw: Raw text response from the LLM.
 
     Returns:
-        Parsed dict with all expected keys, or ``None`` if parsing fails.
+        Parsed dict with all expected keys, or ``None`` if parsing fails or
+        ``prefilter_suggestions`` fails the disjoint-set check.
     """
     try:
         cleaned = strip_fences(raw)
         data = json.loads(cleaned)
     except (json.JSONDecodeError, ValueError):
-        app.logger.warning("[import] _parse_import_response: failed to parse LLM response (first 500 chars): %r", raw[:500])
+        app.logger.warning(
+            "[import] _parse_import_response: failed to parse LLM "
+            "response (first 500 chars): %r",
+            raw[:500],
+        )
         return None
     data.setdefault("primary_skills", [])
     data.setdefault("education", [])
     data.setdefault("seniority", "")
     data.setdefault("preferred_industries", [])
     data.setdefault("location_center", None)
+
+    # Validate prefilter_suggestions when present.
+    if "prefilter_suggestions" in data:
+        pf = data["prefilter_suggestions"]
+        if isinstance(pf, dict):
+            inc = [str(s).lower() for s in pf.get("title_include", [])]
+            exc = [str(s).lower() for s in pf.get("title_exclude", [])]
+            overlap = set(inc) & set(exc)
+            if overlap:
+                app.logger.warning(
+                    "[import] _parse_import_response: prefilter_suggestions "
+                    "title_include/title_exclude overlap — rejecting response. "
+                    "Overlapping terms: %r",
+                    overlap,
+                )
+                return None
+            # Normalise to lowercase lists in-place.
+            data["prefilter_suggestions"] = {
+                "title_include": inc,
+                "title_exclude": exc,
+            }
+        else:
+            # Unexpected type — drop the key rather than passing bad data.
+            del data["prefilter_suggestions"]
+
     return data
 
 
@@ -1707,6 +1787,53 @@ def _merge_import_result(current: dict, imported: dict) -> dict:
     return result
 
 
+def _merge_prefilter_suggestions(
+    existing_prefilter: dict,
+    suggestions: dict,
+) -> dict:
+    """Merge LLM-suggested prefilter patterns into the existing prefilter block.
+
+    Merge rules:
+    - ``title_include``: case-insensitive union of existing and suggested
+      patterns; existing user-added patterns are never removed.
+    - ``title_exclude``: same union-then-dedup rule.
+    - All other prefilter keys (``require_contract_time``,
+      ``require_contract_type``, etc.) are preserved unchanged from
+      ``existing_prefilter``.
+
+    The caller is responsible for ensuring ``suggestions`` has already passed
+    the disjoint-set check in ``_parse_import_response()`` — this function
+    does not re-validate.
+
+    Args:
+        existing_prefilter: The current ``prefilter`` block from
+            ``config.json`` (may be empty dict).
+        suggestions: The ``prefilter_suggestions`` dict from the parsed LLM
+            response, containing ``title_include`` and ``title_exclude`` lists
+            of lowercase strings.
+
+    Returns:
+        A new prefilter dict with merged title patterns and all other keys
+        preserved from ``existing_prefilter``.
+    """
+    result = dict(existing_prefilter)
+
+    def _merge_list(key: str) -> list[str]:
+        """Return deduped union of existing and suggested values for *key*."""
+        existing: list[str] = list(existing_prefilter.get(key) or [])
+        existing_lower = {v.lower() for v in existing}
+        merged = list(existing)
+        for term in suggestions.get(key, []):
+            if term.lower() not in existing_lower:
+                merged.append(term)
+                existing_lower.add(term.lower())
+        return merged
+
+    result["title_include"] = _merge_list("title_include")
+    result["title_exclude"] = _merge_list("title_exclude")
+    return result
+
+
 # ---------------------------------------------------------------------------
 # PDF resume import — async job tracking
 # ---------------------------------------------------------------------------
@@ -1777,6 +1904,7 @@ def _run_pdf_import_job(
     mode: str,
     providers_dict: dict,
     profile_path: str,
+    suggest_filters: bool = False,
 ) -> None:
     """Worker function executed in a daemon thread for large PDF imports.
 
@@ -1784,11 +1912,15 @@ def _run_pdf_import_job(
     stores the result or error in ``_pdf_jobs`` under ``job_id``.
 
     Args:
-        job_id:        UUID string identifying the job in ``_pdf_jobs``.
-        resume_text:   Pre-validated, sanitised resume text to send to the LLM.
-        mode:          ``"fresh"`` or ``"merge"``.
-        providers_dict: Loaded providers config dict (captured at request time).
-        profile_path:  Filesystem path to the profile JSON (for merge mode).
+        job_id:          UUID string identifying the job in ``_pdf_jobs``.
+        resume_text:     Pre-validated, sanitised resume text to send to LLM.
+        mode:            ``"fresh"`` or ``"merge"``.
+        providers_dict:  Loaded providers config dict (captured at request
+                         time).
+        profile_path:    Filesystem path to the profile JSON (for merge mode).
+        suggest_filters: When ``True``, the LLM is additionally asked to
+                         return ``prefilter_suggestions``
+                         (title_include / title_exclude).
     """
 
     with _pdf_jobs_lock:
@@ -1806,7 +1938,7 @@ def _run_pdf_import_job(
             return
 
         current_profile = load_profile(profile_path) if mode == "merge" else None
-        prompt = _build_import_prompt(resume_text)
+        prompt = _build_import_prompt(resume_text, suggest_filters=suggest_filters)
         result = generate_with_fallback(prompt, chain, set())
         if result is None:
             with _pdf_jobs_lock:
@@ -1847,13 +1979,17 @@ def _run_pdf_import_job(
                 "location_center": parsed.get("location_center"),
             }
 
+        job_result: dict = {
+            "success": True,
+            "profile": profile_result,
+            "model_used": model_used,
+        }
+        if suggest_filters and "prefilter_suggestions" in parsed:
+            job_result["prefilter_suggestions"] = parsed["prefilter_suggestions"]
+
         with _pdf_jobs_lock:
             _pdf_jobs[job_id]["status"] = "complete"
-            _pdf_jobs[job_id]["result"] = {
-                "success": True,
-                "profile": profile_result,
-                "model_used": model_used,
-            }
+            _pdf_jobs[job_id]["result"] = job_result
 
     except (ValueError, KeyError, TypeError, RuntimeError, OSError) as exc:
         with _pdf_jobs_lock:
@@ -1915,6 +2051,9 @@ def profile_import_pdf():
     if mode not in ("fresh", "merge"):
         mode = "fresh"
 
+    # Optional prefilter title-filter suggestions (off by default).
+    suggest_filters = request.form.get("suggest_filters") == "1"
+
     # Extract text
     pdf_bytes = uploaded.read()
     if len(pdf_bytes) > 10 * 1024 * 1024:
@@ -1955,11 +2094,16 @@ def profile_import_pdf():
         providers_dict = _load_providers_safe()
         _pdf_executor.submit(
             _run_pdf_import_job,
-            job_id, resume_text, mode, providers_dict, _PROFILE_PATH,
+            job_id,
+            resume_text,
+            mode,
+            providers_dict,
+            _PROFILE_PATH,
+            suggest_filters,
         )
         return jsonify({"async": True, "job_id": job_id}), 202
 
-    # Small PDF — synchronous path (unchanged behaviour)
+    # Small PDF — synchronous path
     providers_dict = _load_providers_safe()
     chain = build_provider_chain(providers_dict)
     if not chain:
@@ -1967,7 +2111,7 @@ def profile_import_pdf():
 
     # Build prompt and call LLM
     current_profile = load_profile(_PROFILE_PATH) if mode == "merge" else None
-    prompt = _build_import_prompt(resume_text)
+    prompt = _build_import_prompt(resume_text, suggest_filters=suggest_filters)
     result = generate_with_fallback(prompt, chain, set())
     if result is None:
         return jsonify({"success": False, "error": "All LLM providers failed. Check your API keys in Settings."}), 502
@@ -2001,7 +2145,15 @@ def profile_import_pdf():
             "location_center": parsed.get("location_center"),
         }
 
-    return jsonify({"success": True, "profile": profile_result, "model_used": model_used}), 200
+    response_payload: dict = {
+        "success": True,
+        "profile": profile_result,
+        "model_used": model_used,
+    }
+    if suggest_filters and "prefilter_suggestions" in parsed:
+        response_payload["prefilter_suggestions"] = parsed["prefilter_suggestions"]
+
+    return jsonify(response_payload), 200
 
 
 @app.route("/profile/import-pdf/status/<job_id>", methods=["GET"])
@@ -2488,6 +2640,93 @@ def _validate_with_timeout(validator, api_key: str, model: str) -> tuple[str, st
         # Thread is still blocked (network hang) — treat as unreachable.
         return ("unreachable", f"Timed out after {_VALIDATE_TIMEOUT_SECONDS}s")
     return result_holder[0] if result_holder else ("unreachable", None)
+
+
+@app.route("/api/apply-prefilter-suggestions", methods=["POST"])
+def apply_prefilter_suggestions():
+    """Merge LLM-suggested title filters into config.json prefilter block.
+
+    Accepts a JSON body with the shape returned by the import endpoint when
+    ``suggest_filters=1``:
+
+    .. code-block:: json
+
+        {
+            "title_include": ["engineer", "developer"],
+            "title_exclude": ["manager", "director"]
+        }
+
+    The suggestions are merged (union-then-dedup, case-insensitive) into the
+    existing ``config.json`` ``prefilter`` block via
+    ``_merge_prefilter_suggestions()``.  All other prefilter keys
+    (``require_contract_time``, ``require_contract_type``) are preserved.
+
+    The disjoint-set invariant is enforced here too: if the POST body itself
+    contains overlapping include/exclude terms the request is rejected with
+    400 so malformed client payloads cannot corrupt config.
+
+    Returns:
+        200 ``{"success": True}`` on success.
+        400 on missing/invalid input or overlapping include/exclude terms.
+        500 on config read/write failure.
+    """
+    body = request.get_json(silent=True) or {}
+    inc_raw = body.get("title_include")
+    exc_raw = body.get("title_exclude")
+
+    if not isinstance(inc_raw, list) or not isinstance(exc_raw, list):
+        return jsonify({
+            "success": False,
+            "error": (
+                "Request body must be JSON with "
+                "title_include and title_exclude arrays."
+            ),
+        }), 400
+
+    inc = [str(s).lower() for s in inc_raw]
+    exc = [str(s).lower() for s in exc_raw]
+    overlap = set(inc) & set(exc)
+    if overlap:
+        return jsonify({
+            "success": False,
+            "error": (
+                "title_include and title_exclude must be disjoint. "
+                f"Overlapping terms: {sorted(overlap)}"
+            ),
+        }), 400
+
+    try:
+        with open(_CONFIG_PATH, "r", encoding="utf-8") as fh:
+            cfg = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc_io:
+        app.logger.error(
+            "[apply-prefilter-suggestions] failed to read config: %s", exc_io
+        )
+        return jsonify({
+            "success": False,
+            "error": "Could not read config.json.",
+        }), 500
+
+    existing_prefilter = cfg.get("prefilter") or {}
+    cfg["prefilter"] = _merge_prefilter_suggestions(
+        existing_prefilter,
+        {"title_include": inc, "title_exclude": exc},
+    )
+
+    try:
+        with open(_CONFIG_PATH, "w", encoding="utf-8") as fh:
+            json.dump(cfg, fh, indent=2)
+            fh.write("\n")
+    except OSError as exc_io:
+        app.logger.error(
+            "[apply-prefilter-suggestions] failed to write config: %s", exc_io
+        )
+        return jsonify({
+            "success": False,
+            "error": "Could not write config.json.",
+        }), 500
+
+    return jsonify({"success": True}), 200
 
 
 @app.route("/api/validate-keys", methods=["POST"])

@@ -330,11 +330,59 @@
           <span class="file-input-name" id="import-pdf-name">No file chosen</span>
         </div>
 
+        <label class="settings-label" style="margin-top:0.75rem">Options</label>
+        <label class="skill-toggle" style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem">
+          <input type="checkbox" id="import-suggest-filters" class="skill-toggle-checkbox">
+          <span class="skill-toggle-track">
+            <span class="skill-toggle-knob"></span>
+          </span>
+          <span style="color:var(--text-secondary);font-size:0.85rem">Also suggest title filters</span>
+        </label>
+        <p class="field-hint" style="margin-top:0">
+          Ask the LLM to suggest job-title keywords to include or exclude in
+          the prefilter. Suggestions appear below for review before you apply
+          them.
+        </p>
+
         <button type="button" id="import-pdf-btn" class="btn btn-import" disabled>
           Import
         </button>
 
         <div id="import-status" style="margin-top:0.75rem"></div>
+
+        {# Preview panel for prefilter suggestions — hidden until populated #}
+        <div id="import-prefilter-preview" style="display:none;margin-top:1rem">
+          <label class="settings-label">Suggested Title Filters</label>
+          <p class="field-hint" style="margin-top:0">
+            Review the suggestions below. Click <strong>Apply to Config</strong>
+            to merge them into your prefilter settings, or dismiss to ignore.
+          </p>
+          <div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:0.75rem">
+            <div style="flex:1;min-width:10rem">
+              <p style="font-size:0.8rem;color:var(--score-high-text);font-family:monospace;margin:0 0 0.35rem">
+                INCLUDE
+              </p>
+              <ul id="import-pf-include" style="margin:0;padding:0;list-style:none"></ul>
+            </div>
+            <div style="flex:1;min-width:10rem">
+              <p style="font-size:0.8rem;color:var(--score-low-text);font-family:monospace;margin:0 0 0.35rem">
+                EXCLUDE
+              </p>
+              <ul id="import-pf-exclude" style="margin:0;padding:0;list-style:none"></ul>
+            </div>
+          </div>
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+            <button type="button" id="import-pf-apply" class="btn btn-save"
+                    style="font-size:0.85rem;padding:0.35rem 0.9rem">
+              Apply to Config
+            </button>
+            <button type="button" id="import-pf-dismiss" class="btn"
+                    style="font-size:0.85rem;padding:0.35rem 0.9rem">
+              Dismiss
+            </button>
+          </div>
+          <div id="import-pf-apply-status" style="margin-top:0.5rem"></div>
+        </div>
       </div>
     </div>
 
@@ -804,10 +852,20 @@
 {# ── PDF import JS ────────────────────────────────────────────── #}
 <script>
 (function () {
-  var fileInput = document.getElementById('import-pdf-file');
-  var importBtn = document.getElementById('import-pdf-btn');
-  var statusDiv = document.getElementById('import-status');
-  var fileNameSpan = document.getElementById('import-pdf-name');
+  var fileInput        = document.getElementById('import-pdf-file');
+  var importBtn        = document.getElementById('import-pdf-btn');
+  var statusDiv        = document.getElementById('import-status');
+  var fileNameSpan     = document.getElementById('import-pdf-name');
+  var suggestChk       = document.getElementById('import-suggest-filters');
+  var pfPreview        = document.getElementById('import-prefilter-preview');
+  var pfIncludeList    = document.getElementById('import-pf-include');
+  var pfExcludeList    = document.getElementById('import-pf-exclude');
+  var pfApplyBtn       = document.getElementById('import-pf-apply');
+  var pfDismissBtn     = document.getElementById('import-pf-dismiss');
+  var pfApplyStatus    = document.getElementById('import-pf-apply-status');
+
+  // Pending suggestions from the last import (populated when toggle is on).
+  var _pendingSuggestions = null;
 
   fileInput.addEventListener('change', function () {
     var hasFile = fileInput.files.length > 0;
@@ -825,6 +883,12 @@
     var formData = new FormData();
     formData.append('file', file);
     formData.append('mode', mode);
+    if (suggestChk && suggestChk.checked) {
+      formData.append('suggest_filters', '1');
+    }
+
+    // Hide any previous prefilter preview when starting a new import.
+    _hidePfPreview();
 
     importBtn.disabled = true;
     importBtn.textContent = 'Importing\u2026';
@@ -889,6 +953,94 @@
     noticeP.className = 'save-notice';
     noticeP.textContent = 'Profile pre-filled from resume (' + data.model_used + '). Review the fields below and click Save.';
     statusDiv.appendChild(noticeP);
+
+    // Show prefilter suggestions preview if the server returned them.
+    if (data.prefilter_suggestions) {
+      _showPfPreview(data.prefilter_suggestions);
+    }
+  }
+
+  /**
+   * Populate and reveal the prefilter suggestions preview panel.
+   *
+   * @param {Object} suggestions - title_include and title_exclude string arrays
+   */
+  function _showPfPreview(suggestions) {
+    _pendingSuggestions = suggestions;
+
+    function _buildList(el, items) {
+      el.innerHTML = '';
+      if (!items || !items.length) {
+        var empty = document.createElement('li');
+        empty.style.cssText = 'color:var(--text-muted);font-size:0.8rem;font-style:italic';
+        empty.textContent = '(none)';
+        el.appendChild(empty);
+        return;
+      }
+      items.forEach(function (term) {
+        var li = document.createElement('li');
+        li.style.cssText = 'font-family:monospace;font-size:0.85rem;color:var(--text-secondary);padding:0.15rem 0';
+        li.textContent = term;
+        el.appendChild(li);
+      });
+    }
+
+    _buildList(pfIncludeList, suggestions.title_include);
+    _buildList(pfExcludeList, suggestions.title_exclude);
+    pfApplyStatus.innerHTML = '';
+    pfPreview.style.display = '';
+  }
+
+  /** Hide the prefilter preview panel and clear pending suggestions. */
+  function _hidePfPreview() {
+    _pendingSuggestions = null;
+    if (pfPreview) pfPreview.style.display = 'none';
+    if (pfApplyStatus) pfApplyStatus.innerHTML = '';
+  }
+
+  // Dismiss button: hide preview without applying.
+  if (pfDismissBtn) {
+    pfDismissBtn.addEventListener('click', _hidePfPreview);
+  }
+
+  // Apply button: POST suggestions to the config endpoint.
+  if (pfApplyBtn) {
+    pfApplyBtn.addEventListener('click', function () {
+      if (!_pendingSuggestions) return;
+
+      pfApplyBtn.disabled = true;
+      pfApplyBtn.textContent = 'Applying\u2026';
+      pfApplyStatus.innerHTML = '';
+
+      fetch('/api/apply-prefilter-suggestions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(_pendingSuggestions),
+      })
+        .then(function (resp) { return resp.json().then(function (d) { return { ok: resp.ok, data: d }; }); })
+        .then(function (result) {
+          pfApplyBtn.disabled = false;
+          pfApplyBtn.textContent = 'Apply to Config';
+          var msgP = document.createElement('p');
+          if (result.ok && result.data.success) {
+            msgP.className = 'save-notice';
+            msgP.textContent = 'Prefilter updated. Save the profile form to persist all changes.';
+            _pendingSuggestions = null;
+          } else {
+            msgP.className = 'save-error';
+            msgP.textContent = result.data.error || 'Failed to apply suggestions.';
+          }
+          pfApplyStatus.appendChild(msgP);
+        })
+        .catch(function (err) {
+          pfApplyBtn.disabled = false;
+          pfApplyBtn.textContent = 'Apply to Config';
+          var msgP = document.createElement('p');
+          msgP.className = 'save-error';
+          msgP.textContent = 'Network error: ' + err.message;
+          pfApplyStatus.appendChild(msgP);
+        });
+    });
   }
 
   /**
