@@ -43,9 +43,9 @@ from typing import Optional
 _REPO_ROOT = os.path.join(os.path.dirname(__file__), "..")
 sys.path.insert(0, os.path.abspath(_REPO_ROOT))
 
-from ingest import _provider_model, _provider_name, scrape_description
+from ingest import _provider_model, _provider_name, scrape_description  # noqa: E402
 
-from scripts.eval_rubric import (
+from scripts.eval_rubric import (  # noqa: E402
     _build_chain,
     _first_available_provider,
     _load_profile,

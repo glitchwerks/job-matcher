@@ -34,19 +34,19 @@ from typing import Optional
 _REPO_ROOT = os.path.join(os.path.dirname(__file__), "..")
 sys.path.insert(0, os.path.abspath(_REPO_ROOT))
 
-import psycopg2
-import psycopg2.extras
+import psycopg2  # noqa: E402
+import psycopg2.extras  # noqa: E402
 
-from credentials import CredentialError, load_providers
-from ingest import (
+from credentials import CredentialError, load_providers  # noqa: E402
+from ingest import (  # noqa: E402
     _generate_location_notes,
     format_education_for_prompt,
     format_skills_for_prompt,
     _provider_model,
     _provider_name,
 )
-from providers import LLMProvider, build_provider_chain
-from providers.anthropic_provider import strip_fences
+from providers import LLMProvider, build_provider_chain  # noqa: E402
+from providers.anthropic_provider import strip_fences  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -828,7 +828,6 @@ def _print_summary(
     new_count = sum(
         1 for e in evaluated if e["new"] is not None
     )
-    db_count = total  # total listings attempted
     deal_pct = (
         round(deal_breaker_count / new_count * 100)
         if new_count > 0 else 0

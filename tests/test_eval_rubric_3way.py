@@ -12,7 +12,6 @@ Covers:
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
