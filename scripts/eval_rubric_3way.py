@@ -37,6 +37,19 @@ from pathlib import Path
 from typing import Optional
 
 # ---------------------------------------------------------------------------
+# Reconfigure stdout/stderr to UTF-8 before any print() executes.
+# On Windows, sys.stdout defaults to cp1252 when redirected to a file,
+# which raises UnicodeEncodeError on em dashes and other non-Latin-1 chars
+# from LLM responses or job titles (see Issue #244).
+# ---------------------------------------------------------------------------
+try:
+    from _utf8_stdout import reconfigure_utf8_stdout  # direct execution
+except ImportError:
+    from scripts._utf8_stdout import reconfigure_utf8_stdout  # imported as pkg
+
+reconfigure_utf8_stdout()
+
+# ---------------------------------------------------------------------------
 # Ensure repo root is on sys.path so local modules resolve when running
 # the script directly (e.g. ``python scripts/eval_rubric_3way.py``).
 # ---------------------------------------------------------------------------

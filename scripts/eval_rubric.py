@@ -28,6 +28,22 @@ import sys
 from typing import Optional
 
 # ---------------------------------------------------------------------------
+# Reconfigure stdout/stderr to UTF-8 before any print() executes.
+# On Windows, sys.stdout defaults to cp1252 when redirected to a file,
+# which raises UnicodeEncodeError on em dashes and other non-Latin-1 chars
+# from LLM responses or job titles (see Issue #244).
+# The try/except handles two valid call sites: direct script execution
+# (where _utf8_stdout is importable by name) and import from tests
+# (where the scripts package is on sys.path).
+# ---------------------------------------------------------------------------
+try:
+    from _utf8_stdout import reconfigure_utf8_stdout  # direct execution
+except ImportError:
+    from scripts._utf8_stdout import reconfigure_utf8_stdout  # imported as pkg
+
+reconfigure_utf8_stdout()
+
+# ---------------------------------------------------------------------------
 # Ensure repo root is on sys.path so local modules resolve when running
 # the script directly (e.g. ``python scripts/eval_rubric.py``).
 # ---------------------------------------------------------------------------
