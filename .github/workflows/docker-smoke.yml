@@ -40,15 +40,18 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # The compose env files only need POSTGRES_* credentials.
+      # The compose env files only need POSTGRES_* credentials and SECRET_KEY.
       # DATABASE_URL, FLASK_DEBUG, etc. are set in the compose environment: block.
       # Use printf to avoid heredoc indentation issues inside YAML run blocks.
+      # SECRET_KEY is generated fresh per run — the value only needs to be non-empty
+      # and random; it is not persisted beyond this workflow execution.
       - name: Create test env files
         run: |
-          printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=jobmatcher_dev\n' \
-            "${{ env.POSTGRES_USER }}" "${{ env.POSTGRES_PASSWORD }}" > .env.dev
-          printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=jobmatcher_prod\n' \
-            "${{ env.POSTGRES_USER }}" "${{ env.POSTGRES_PASSWORD }}" > .env.prod
+          SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+          printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=jobmatcher_dev\nSECRET_KEY=%s\n' \
+            "${{ env.POSTGRES_USER }}" "${{ env.POSTGRES_PASSWORD }}" "$SECRET_KEY" > .env.dev
+          printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=jobmatcher_prod\nSECRET_KEY=%s\n' \
+            "${{ env.POSTGRES_USER }}" "${{ env.POSTGRES_PASSWORD }}" "$SECRET_KEY" > .env.prod
 
       # Create config directories and populate them from example files so the
       # Flask app has valid (if empty) config on first boot.
