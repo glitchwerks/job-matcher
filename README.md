@@ -117,6 +117,16 @@ The script is **idempotent** — safe to re-run at any time without clobbering e
 
 After the script runs, open `config/providers.json` (or use the `/settings` UI) to add your LLM API keys, and edit `config/profile.json` to match your skills.
 
+> **Important — set `SECRET_KEY` in `.env.dev` before starting Docker:**
+> Flask uses `SECRET_KEY` to sign session cookies. If it is not set, a new
+> random key is generated on every container restart, which invalidates all
+> existing sessions and breaks CSRF protection on pages such as the PDF-import
+> "Apply to Config" button. Generate a stable key once and add it to `.env.dev`:
+> ```powershell
+> python -c "import secrets; print(secrets.token_hex(32))"
+> # Paste the output as SECRET_KEY=<value> in .env.dev
+> ```
+
 ### VS Code tasks
 
 All common workflows are available as VS Code tasks. Open the Command Palette (`Ctrl+Shift+P`) and run **Tasks: Run Task**, or use `Ctrl+Shift+B` to trigger the default build task.
