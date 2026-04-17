@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import sys
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import patch
 
 import pytest
 
