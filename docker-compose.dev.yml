@@ -27,6 +27,7 @@ services:
 
   web:
     image: ghcr.io/cbeaulieu-gt/job-matcher-pr:${APP_VERSION:-latest}
+    build: .
     env_file: .env.dev
     depends_on:
       db:
