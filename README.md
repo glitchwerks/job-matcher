@@ -399,6 +399,8 @@ After the script completes:
 - **Dev** (port 5000): `http://<vm-ip>:5000/settings` — configure dev API keys
 - **Prod** (port 5001): `http://<vm-ip>:5001/settings` — configure prod API keys
 
+> **Fresh clone without GHCR access:** if you are starting the dev stack manually (outside `docker-setup.sh`), pass `--build` on the first run — `docker compose -p job-matcher-pr-dev --env-file .env.dev -f docker-compose.dev.yml up -d --build` — so compose builds the web image from the local Dockerfile instead of pulling from GHCR (which requires auth). Subsequent `up -d` calls reuse the cached build.
+
 ### Ops commands
 
 ```bash

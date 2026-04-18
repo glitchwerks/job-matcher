@@ -85,7 +85,7 @@ Results include a `model_used` field stored as `"provider/model"` per listing. S
 ## Deployment
 
 **Docker (active deployment path):**
-- Dev stack (port 5000): `docker compose -p job-matcher-pr-dev --env-file .env.dev -f docker-compose.dev.yml up -d`
+- Dev stack (port 5000): `docker compose -p job-matcher-pr-dev --env-file .env.dev -f docker-compose.dev.yml up -d --build` (use `--build` on first run if you lack GHCR access; subsequent runs can drop it)
 - Prod stack (port 5001): `docker compose -p job-matcher-pr-prod --env-file .env.prod -f docker-compose.prod.yml up -d`
 - Credentials: copy `.env.dev.example` → `.env.dev` and `.env.prod.example` → `.env.prod`
 - Config/logs: dev uses `./config-dev` and `./logs-dev`; prod uses `./config` and `./logs`
