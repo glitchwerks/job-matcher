@@ -423,15 +423,19 @@ docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml exec web python
 
 **Web container exits immediately with `env: 'bash\r': No such file or directory`**
 
-This means the shell scripts in `scripts/` were checked out with CRLF line endings (common on Windows with `core.autocrlf=true`). The repo now ships a `.gitattributes` that forces LF on `.sh` files. If you cloned before that was added, re-run:
+This means the shell scripts in `scripts/` were checked out with CRLF line endings (common on Windows with `core.autocrlf=true`). The repo now ships a `.gitattributes` that forces LF on `.sh` files — future checkouts will be clean. If you cloned before that was added, pick the option that fits your workflow:
+
+**Option 1 — rebuild the Docker image (recommended, non-destructive):** the Dockerfile strips CR bytes from scripts at build time, so a forced rebuild is all you need:
 
 ```powershell
-# Re-materialize all tracked files under the new .gitattributes rules.
-# Does NOT discard uncommitted local edits.
-git rm --cached -r .
-git checkout -- .
+docker compose -p job-matcher-pr-dev --env-file .env.dev `
+    -f docker-compose.dev.yml up -d --build --force-recreate
 ```
 
-to refresh the working tree against the new attributes. The Dockerfile also strips CR bytes from scripts during build as a safety net.
+**Option 2 — refresh the working copy** (only needed if you run scripts natively, outside Docker):
 
-> **Warning:** If you have uncommitted changes you want to keep, commit or stash them first — `git checkout -- .` will leave *tracked* files alone but any uncommitted local edits to those files will be overwritten.
+```powershell
+# WARNING: discards uncommitted changes to tracked files.
+# Commit or stash first if you have work in progress.
+git checkout HEAD -- .
+```
