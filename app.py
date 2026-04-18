@@ -1655,28 +1655,30 @@ def _parse_import_response(raw: str) -> dict | None:
 
     If ``prefilter_suggestions`` is present its ``title_include`` and
     ``title_exclude`` arrays are validated to be disjoint (case-insensitive).
-    If they overlap the entire response is rejected (returns ``None``) so the
-    caller surfaces an error rather than silently writing conflicting filters.
+    Validation failures in the suggestions section drop only that key — the
+    core profile data is still returned so the caller does not 502 the whole
+    request because of an optional field.  Only a failure to parse the
+    top-level JSON at all causes a ``None`` return.
 
     Each pattern string must be ≤ ``_MAX_PATTERN_LEN`` characters and each list
-    must contain ≤ ``_MAX_PATTERNS_PER_LIST`` items.  Over-limit responses are
-    rejected outright — not silently truncated — to prevent the LLM from
-    bloating the config.
+    must contain ≤ ``_MAX_PATTERNS_PER_LIST`` items.  Over-limit or invalid
+    suggestions are dropped with a warning rather than rejecting the whole
+    response.
 
     Args:
         raw: Raw text response from the LLM.
 
     Returns:
-        Parsed dict with all expected keys, or ``None`` if parsing fails or
-        ``prefilter_suggestions`` fails any validation check.
+        Parsed dict with all expected keys, or ``None`` if the top-level JSON
+        itself cannot be parsed.
     """
     try:
         cleaned = strip_fences(raw)
         data = json.loads(cleaned)
     except (json.JSONDecodeError, ValueError):
-        app.logger.warning(
+        app.logger.error(
             "[import] _parse_import_response: failed to parse LLM "
-            "response (first 500 chars): %r",
+            "response as JSON — raw body (first 500 chars): %r",
             raw[:500],
         )
         return None
@@ -1686,52 +1688,54 @@ def _parse_import_response(raw: str) -> dict | None:
     data.setdefault("preferred_industries", [])
     data.setdefault("location_center", None)
 
-    # Validate prefilter_suggestions when present.
+    # Validate prefilter_suggestions when present.  Any validation failure
+    # drops only this optional key so the core profile is still returned.
     if "prefilter_suggestions" in data:
         pf = data["prefilter_suggestions"]
         if isinstance(pf, dict):
             inc = [str(s).lower() for s in pf.get("title_include", [])]
             exc = [str(s).lower() for s in pf.get("title_exclude", [])]
 
-            # Enforce per-list length cap.  Reject rather than truncate so the
+            # Enforce per-list length cap.  Drop rather than truncate so the
             # LLM cannot silently bloat the config.
             if len(inc) > _MAX_PATTERNS_PER_LIST or len(exc) > _MAX_PATTERNS_PER_LIST:
                 app.logger.warning(
                     "[import] _parse_import_response: prefilter_suggestions "
                     "list too long (include=%d, exclude=%d, max=%d) — "
-                    "rejecting response.",
+                    "dropping suggestions; profile data preserved.",
                     len(inc),
                     len(exc),
                     _MAX_PATTERNS_PER_LIST,
                 )
-                return None
-
-            # Enforce per-pattern length cap.
-            over_len = [s for s in inc + exc if len(s) > _MAX_PATTERN_LEN]
-            if over_len:
-                app.logger.warning(
-                    "[import] _parse_import_response: prefilter_suggestions "
-                    "contains patterns exceeding max length (%d chars): %r — "
-                    "rejecting response.",
-                    _MAX_PATTERN_LEN,
-                    over_len[:5],
-                )
-                return None
-
-            overlap = set(inc) & set(exc)
-            if overlap:
-                app.logger.warning(
-                    "[import] _parse_import_response: prefilter_suggestions "
-                    "title_include/title_exclude overlap — rejecting response. "
-                    "Overlapping terms: %r",
-                    overlap,
-                )
-                return None
-            # Normalise to lowercase lists in-place.
-            data["prefilter_suggestions"] = {
-                "title_include": inc,
-                "title_exclude": exc,
-            }
+                del data["prefilter_suggestions"]
+            else:
+                # Enforce per-pattern length cap.
+                over_len = [s for s in inc + exc if len(s) > _MAX_PATTERN_LEN]
+                if over_len:
+                    app.logger.warning(
+                        "[import] _parse_import_response: prefilter_suggestions "
+                        "contains patterns exceeding max length (%d chars): %r — "
+                        "dropping suggestions; profile data preserved.",
+                        _MAX_PATTERN_LEN,
+                        over_len[:5],
+                    )
+                    del data["prefilter_suggestions"]
+                else:
+                    overlap = set(inc) & set(exc)
+                    if overlap:
+                        app.logger.warning(
+                            "[import] _parse_import_response: prefilter_suggestions "
+                            "title_include/title_exclude overlap — dropping suggestions; "
+                            "profile data preserved. Overlapping terms: %r",
+                            overlap,
+                        )
+                        del data["prefilter_suggestions"]
+                    else:
+                        # Normalise to lowercase lists in-place.
+                        data["prefilter_suggestions"] = {
+                            "title_include": inc,
+                            "title_exclude": exc,
+                        }
         else:
             # Unexpected type — drop the key rather than passing bad data.
             del data["prefilter_suggestions"]

@@ -993,12 +993,14 @@
     _buildList(pfIncludeList, suggestions.title_include);
     _buildList(pfExcludeList, suggestions.title_exclude);
     pfApplyStatus.innerHTML = '';
+    if (pfApplyBtn) pfApplyBtn.disabled = false;
     pfPreview.style.display = '';
   }
 
   /** Hide the prefilter preview panel and clear pending suggestions. */
   function _hidePfPreview() {
     _pendingSuggestions = null;
+    if (pfApplyBtn) { pfApplyBtn.disabled = true; pfApplyBtn.textContent = 'Apply to Config'; }
     if (pfPreview) pfPreview.style.display = 'none';
     if (pfApplyStatus) pfApplyStatus.innerHTML = '';
   }
@@ -1008,10 +1010,18 @@
     pfDismissBtn.addEventListener('click', _hidePfPreview);
   }
 
+  // Apply button starts disabled — enabled only when suggestions are pending.
+  if (pfApplyBtn) pfApplyBtn.disabled = true;
+
   // Apply button: POST suggestions to the config endpoint.
   if (pfApplyBtn) {
     pfApplyBtn.addEventListener('click', function () {
-      if (!_pendingSuggestions) return;
+      console.debug('[apply-suggestions] clicked', { pending: !!_pendingSuggestions });
+      if (!_pendingSuggestions) {
+        // Should be unreachable: button is disabled whenever _pendingSuggestions
+        // is null.  Guard retained as a safety net.
+        return;
+      }
 
       pfApplyBtn.disabled = true;
       pfApplyBtn.textContent = 'Applying\u2026';
@@ -1029,18 +1039,21 @@
       })
         .then(function (resp) { return resp.json().then(function (d) { return { ok: resp.ok, data: d }; }); })
         .then(function (result) {
-          pfApplyBtn.disabled = false;
-          pfApplyBtn.textContent = 'Apply to Config';
-          var msgP = document.createElement('p');
           if (result.ok && result.data.success) {
+            // Hide the panel and clear state so a second click is impossible.
+            _hidePfPreview();
+            var msgP = document.createElement('p');
             msgP.className = 'save-notice';
             msgP.textContent = 'Patterns merged into config.json. They take effect on the next ingest run.';
-            _pendingSuggestions = null;
+            if (pfApplyStatus) pfApplyStatus.appendChild(msgP);
           } else {
+            pfApplyBtn.disabled = false;
+            pfApplyBtn.textContent = 'Apply to Config';
+            var msgP = document.createElement('p');
             msgP.className = 'save-error';
             msgP.textContent = result.data.error || 'Failed to apply suggestions.';
+            pfApplyStatus.appendChild(msgP);
           }
-          pfApplyStatus.appendChild(msgP);
         })
         .catch(function (err) {
           pfApplyBtn.disabled = false;

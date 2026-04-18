@@ -948,8 +948,8 @@ class TestParseImportResponsePrefilter:
         assert pf["title_include"] == ["engineer", "developer"]
         assert pf["title_exclude"] == ["manager", "director"]
 
-    def test_overlapping_suggestions_rejected(self):
-        """Overlapping include/exclude terms cause the whole response to be None."""
+    def test_overlapping_suggestions_dropped_profile_preserved(self):
+        """Overlapping include/exclude terms drop prefilter_suggestions; profile is returned."""
         raw = self._base_response(
             prefilter_suggestions={
                 "title_include": ["engineer", "manager"],
@@ -957,10 +957,14 @@ class TestParseImportResponsePrefilter:
             }
         )
         result = app_module._parse_import_response(raw)
-        assert result is None
+        # Core profile must be returned — not None — despite bad suggestions.
+        assert result is not None
+        assert result["seniority"] == "Senior"
+        # The malformed suggestions section must be absent.
+        assert "prefilter_suggestions" not in result
 
     def test_overlap_is_case_insensitive(self):
-        """Case difference does not prevent overlap detection."""
+        """Case-insensitive overlap still drops suggestions but preserves profile."""
         raw = self._base_response(
             prefilter_suggestions={
                 "title_include": ["Engineer"],
@@ -968,7 +972,9 @@ class TestParseImportResponsePrefilter:
             }
         )
         result = app_module._parse_import_response(raw)
-        assert result is None
+        assert result is not None
+        assert result["seniority"] == "Senior"
+        assert "prefilter_suggestions" not in result
 
     def test_suggestions_normalised_to_lowercase(self):
         """Returned title_include / title_exclude are always lowercase."""
@@ -1008,6 +1014,109 @@ class TestParseImportResponsePrefilter:
         result = app_module._parse_import_response(raw)
         assert result is not None
         assert "prefilter_suggestions" not in result
+
+    def test_list_too_long_drops_suggestions_profile_preserved(self):
+        """title_include list exceeding _MAX_PATTERNS_PER_LIST drops suggestions only."""
+        too_many = [f"term{i}" for i in range(app_module._MAX_PATTERNS_PER_LIST + 1)]
+        raw = self._base_response(
+            prefilter_suggestions={"title_include": too_many, "title_exclude": []}
+        )
+        result = app_module._parse_import_response(raw)
+        assert result is not None
+        assert result["seniority"] == "Senior"
+        assert "prefilter_suggestions" not in result
+
+    def test_pattern_too_long_drops_suggestions_profile_preserved(self):
+        """A pattern string exceeding _MAX_PATTERN_LEN drops suggestions only."""
+        long_pattern = "a" * (app_module._MAX_PATTERN_LEN + 1)
+        raw = self._base_response(
+            prefilter_suggestions={"title_include": [long_pattern], "title_exclude": []}
+        )
+        result = app_module._parse_import_response(raw)
+        assert result is not None
+        assert result["seniority"] == "Senior"
+        assert "prefilter_suggestions" not in result
+
+    def test_fence_wrapped_response_parsed_correctly(self):
+        """JSON wrapped in ```json fences is parsed; profile and suggestions both returned."""
+        payload = {
+            "primary_skills": [],
+            "education": [],
+            "seniority": "Mid-level",
+            "preferred_industries": [],
+            "location_center": None,
+            "prefilter_suggestions": {
+                "title_include": ["engineer"],
+                "title_exclude": ["intern"],
+            },
+        }
+        raw = "```json\n" + json.dumps(payload) + "\n```"
+        result = app_module._parse_import_response(raw)
+        assert result is not None
+        assert result["seniority"] == "Mid-level"
+        pf = result["prefilter_suggestions"]
+        assert pf["title_include"] == ["engineer"]
+        assert pf["title_exclude"] == ["intern"]
+
+    def test_truncated_json_returns_none(self):
+        """Truncated (unparseable) JSON returns None — core parse failure."""
+        raw = '{"seniority": "Senior", "prefilter_suggestions": {"title_include": ["eng'
+        result = app_module._parse_import_response(raw)
+        assert result is None
+
+    def test_missing_prefilter_suggestions_key_not_an_error(self):
+        """LLM response that omits prefilter_suggestions entirely is accepted."""
+        raw = json.dumps({
+            "primary_skills": [{"skill": "Python", "years": 3, "status": "active"}],
+            "education": [],
+            "seniority": "Senior",
+            "preferred_industries": [],
+            "location_center": None,
+        })
+        result = app_module._parse_import_response(raw)
+        assert result is not None
+        assert "prefilter_suggestions" not in result
+        assert result["seniority"] == "Senior"
+
+    def test_endpoint_returns_200_with_profile_when_suggestions_malformed(
+        self, client, tmp_providers_path, tmp_keys_path
+    ):
+        """When prefilter_suggestions is malformed the endpoint still returns 200 with profile.
+
+        Regression test for issue #271: validation failures in the optional
+        prefilter_suggestions block must NOT 502 the entire response.
+        """
+        long_text = "x" * 200
+        mock_provider = MagicMock()
+        # Simulate LLM returning overlapping suggestions (a common LLM variance).
+        raw_llm = json.dumps({
+            "primary_skills": [],
+            "education": [],
+            "seniority": "Senior",
+            "preferred_industries": [],
+            "location_center": None,
+            "prefilter_suggestions": {
+                "title_include": ["engineer", "manager"],
+                "title_exclude": ["manager"],  # overlap — would have caused old 502
+            },
+        })
+        with patch("app._extract_pdf_text", return_value=long_text), \
+             patch("app.build_provider_chain", return_value=[mock_provider]), \
+             patch("app.generate_with_fallback", return_value=(raw_llm, "anthropic/haiku")):
+            resp = client.post(
+                "/profile/import-pdf",
+                data={
+                    "file": (io.BytesIO(b"fake"), "resume.pdf"),
+                    "suggest_filters": "1",
+                },
+                content_type="multipart/form-data",
+            )
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["success"] is True
+        assert body["profile"]["seniority"] == "Senior"
+        # Malformed suggestions must be absent; profile is intact.
+        assert "prefilter_suggestions" not in body
 
 
 # ===========================================================================
@@ -1425,8 +1534,9 @@ class TestApplyPrefilterSuggestionsEndpoint:
     # Input validation: length / count limits (new — review item 2)
     # ------------------------------------------------------------------
 
-    def test_parse_rejects_pattern_over_max_length(self):
-        """_parse_import_response rejects a response where any pattern exceeds _MAX_PATTERN_LEN."""
+    def test_parse_drops_suggestions_when_pattern_over_max_length(self):
+        """_parse_import_response drops prefilter_suggestions (not the whole response) when
+        any pattern exceeds _MAX_PATTERN_LEN; core profile is preserved."""
         over_long = "x" * (app_module._MAX_PATTERN_LEN + 1)
         raw = json.dumps({
             "primary_skills": [],
@@ -1439,7 +1549,9 @@ class TestApplyPrefilterSuggestionsEndpoint:
                 "title_exclude": [],
             },
         })
-        assert app_module._parse_import_response(raw) is None
+        result = app_module._parse_import_response(raw)
+        assert result is not None
+        assert "prefilter_suggestions" not in result
 
     def test_parse_accepts_pattern_at_exact_max_length(self):
         """_parse_import_response accepts a pattern that is exactly _MAX_PATTERN_LEN chars."""
@@ -1459,8 +1571,9 @@ class TestApplyPrefilterSuggestionsEndpoint:
         assert result is not None
         assert exact in result["prefilter_suggestions"]["title_include"]
 
-    def test_parse_rejects_list_over_max_count(self):
-        """_parse_import_response rejects a response where a list exceeds _MAX_PATTERNS_PER_LIST."""
+    def test_parse_drops_suggestions_when_list_over_max_count(self):
+        """_parse_import_response drops prefilter_suggestions (not the whole response) when
+        a list exceeds _MAX_PATTERNS_PER_LIST; core profile is preserved."""
         too_many = [f"term{i}" for i in range(app_module._MAX_PATTERNS_PER_LIST + 1)]
         raw = json.dumps({
             "primary_skills": [],
@@ -1473,7 +1586,9 @@ class TestApplyPrefilterSuggestionsEndpoint:
                 "title_exclude": [],
             },
         })
-        assert app_module._parse_import_response(raw) is None
+        result = app_module._parse_import_response(raw)
+        assert result is not None
+        assert "prefilter_suggestions" not in result
 
     def test_parse_accepts_list_at_exact_max_count(self):
         """_parse_import_response accepts a list with exactly _MAX_PATTERNS_PER_LIST items."""
