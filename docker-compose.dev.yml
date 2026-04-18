@@ -26,6 +26,10 @@ services:
     restart: unless-stopped
 
   web:
+    # Local dev uses `build: .` so fresh clones don't need GHCR auth; compose
+    # builds from the Dockerfile and tags the result with the `image:` name,
+    # which keeps dev and prod on the same image name for parity. Use
+    # `docker compose up -d --build` on first run to force a rebuild.
     image: ghcr.io/cbeaulieu-gt/job-matcher-pr:${APP_VERSION:-latest}
     build: .
     env_file: .env.dev
