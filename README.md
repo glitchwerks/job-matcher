@@ -443,3 +443,26 @@ docker compose -p job-matcher-pr-prod -f docker-compose.prod.yml exec web python
 # Stop and remove stacks (interactive — prompts before deleting volumes)
 ./scripts/docker-teardown.sh
 ```
+
+---
+
+## Troubleshooting
+
+**Web container exits immediately with `env: 'bash\r': No such file or directory`**
+
+This means the shell scripts in `scripts/` were checked out with CRLF line endings (common on Windows with `core.autocrlf=true`). The repo now ships a `.gitattributes` that forces LF on `.sh` files — future checkouts will be clean. If you cloned before that was added, pick the option that fits your workflow:
+
+**Option 1 — rebuild the Docker image (recommended, non-destructive):** the Dockerfile strips CR bytes from scripts at build time, so a forced rebuild is all you need:
+
+```powershell
+docker compose -p job-matcher-pr-dev --env-file .env.dev `
+    -f docker-compose.dev.yml up -d --build --force-recreate
+```
+
+**Option 2 — refresh the working copy** (only needed if you run scripts natively, outside Docker):
+
+```powershell
+# WARNING: discards uncommitted changes to tracked files.
+# Commit or stash first if you have work in progress.
+git checkout HEAD -- .
+```

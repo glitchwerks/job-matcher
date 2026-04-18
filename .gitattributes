@@ -1,0 +1,20 @@
+# Normalize all text files to LF in the repo; git checks out with native EOL on Windows.
+* text=auto
+
+# Files that MUST be LF regardless of platform (executed inside Linux containers or by POSIX shells).
+*.sh              text eol=lf
+*.bash            text eol=lf
+Dockerfile        text eol=lf
+Dockerfile.*      text eol=lf
+*.yml             text eol=lf
+*.yaml            text eol=lf
+*.sql             text eol=lf
+
+# Treat these as binary (no EOL conversion, no diff).
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
