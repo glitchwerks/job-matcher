@@ -20,13 +20,6 @@ from importlib.metadata import version as pkg_version, PackageNotFoundError
 
 from dotenv import load_dotenv
 
-# Load environment variables from a local .env file if present.
-# Precedence: parent-process env (shell, VSCode task, docker env_file) always
-# wins. This covers the native `python app.py` path where no external env
-# loader exists; under Docker, `env_file:` has already populated os.environ
-# before this runs, so load_dotenv(override=False) is a no-op.
-load_dotenv(override=False)
-
 from flask import Flask, render_template, make_response, request, jsonify, redirect, url_for, Response, session, stream_with_context, send_from_directory, abort
 
 import db
@@ -43,6 +36,13 @@ from providers.anthropic_provider import strip_fences
 from providers.base import _sanitise_detail
 from job_sources import get_sources
 from ingest import validate_search_config, ValidationIssue
+
+# Load environment variables from a local .env file if present.
+# Precedence: parent-process env (shell, VSCode task, docker env_file) always
+# wins. This covers the native `python app.py` path where no external env
+# loader exists; under Docker, `env_file:` has already populated os.environ
+# before this runs, so load_dotenv(override=False) is a no-op.
+load_dotenv(override=False)
 
 app = Flask(__name__)
 

@@ -33,13 +33,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load environment variables from a local .env file if present.
-# Precedence: parent-process env (shell, VSCode task, docker env_file) always
-# wins. This covers the native `python ingest.py` path where no external env
-# loader exists; under Docker, `env_file:` has already populated os.environ
-# before this runs, so load_dotenv(override=False) is a no-op.
-load_dotenv(override=False)
-
 import requests
 from bs4 import BeautifulSoup
 from geopy.distance import geodesic
@@ -49,6 +42,13 @@ import db
 from job_sources import make_enabled_sources, get_required_search_fields
 from providers import build_provider_chain, LLMProvider
 from credentials import CredentialError, load_providers
+
+# Load environment variables from a local .env file if present.
+# Precedence: parent-process env (shell, VSCode task, docker env_file) always
+# wins. This covers the native `python ingest.py` path where no external env
+# loader exists; under Docker, `env_file:` has already populated os.environ
+# before this runs, so load_dotenv(override=False) is a no-op.
+load_dotenv(override=False)
 
 _CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
 _DEFAULT_CONFIG_PATH = os.path.join(_CONFIG_DIR, "config.json")
