@@ -175,6 +175,8 @@ The app loads environment variables from a `.env` file at the repo root via
 Copy-Item .env.example .env
 # Edit .env — at minimum generate a SECRET_KEY:
 #   python -c "import secrets; print(secrets.token_hex(32))"
+# You also need DATABASE_URL pointing at your local Postgres — the .env.example
+# template includes a default that matches the Docker dev stack's credentials.
 ```
 
 Then run:
