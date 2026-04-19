@@ -4,6 +4,7 @@ config/keys.json
 config/profile.json
 config/providers.json
 config/providers.json.lock
+config-dev/
 
 # Database
 jobs.db
@@ -12,6 +13,7 @@ config/providers.demo.json
 
 # Ingest log files
 logs/
+logs-dev/
 
 # Python artifacts
 __pycache__/
@@ -40,7 +42,15 @@ build/
 # IDE
 .vscode/
 
+# GitHub API exports
+issues.json
+prs.json
+closed_prs.json
+
 # Tooling directories
 .claude/worktrees/
+.claude/agent-memory/
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
 .worktrees/
 .superpowers/
