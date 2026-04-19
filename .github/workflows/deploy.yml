@@ -84,6 +84,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Preflight — check dev env file exists
+        run: |
+          set -euo pipefail
+          ENV_FILE=/opt/job-matcher-pr/.env.dev
+          if [[ ! -f "${ENV_FILE}" ]]; then
+            echo "::error::${ENV_FILE} is missing. Run scripts/deploy-remote-linux.sh from a workstation to push it."
+            exit 1
+          fi
+
       - name: Deploy dev stack
         env:
           APP_VERSION: ${{ github.event.workflow_run.head_sha }}
@@ -115,6 +124,35 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Preflight — validate prod env file
+        run: |
+          set -euo pipefail
+          ENV_FILE=/opt/job-matcher-pr/.env.prod
+          COMPOSE_FILE=/opt/job-matcher-pr/docker-compose.prod.yml
+
+          # 1. File must exist. This is the class of failure that bit us in April 2026
+          #    when .env.prod was never created post-split — the stack came up with
+          #    the old docker-compose.yml's implicit defaults and port 5000 instead of 5001.
+          if [[ ! -f "${ENV_FILE}" ]]; then
+            echo "::error::${ENV_FILE} is missing. Run scripts/deploy-remote-linux.sh from a workstation to push it."
+            exit 1
+          fi
+
+          # 2. Reject committed placeholders from .env.prod.example (changeme_prod,
+          #    changeme_generate_with_python_secrets_token_hex_32, etc.). These are
+          #    the values shipped in .example and indicate nobody ever edited the file.
+          if grep -E '^(POSTGRES_PASSWORD|SECRET_KEY|POSTGRES_USER|POSTGRES_DB)=changeme' "${ENV_FILE}" >/dev/null 2>&1; then
+            echo "::error::${ENV_FILE} still contains changeme_* placeholder values. Edit it before deploying."
+            grep -nE '^(POSTGRES_PASSWORD|SECRET_KEY|POSTGRES_USER|POSTGRES_DB)=changeme' "${ENV_FILE}" || true
+            exit 1
+          fi
+
+          # 3. `docker compose config` expands variable references and fails fast
+          #    on unresolved ${VAR} placeholders, missing required keys (SECRET_KEY's
+          #    :? syntax), or malformed YAML -- surfacing the problem as a CI error
+          #    instead of mid-`up -d` when containers are already being recreated.
+          docker compose -p job-matcher-pr-prod --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" config --quiet
 
       - name: Deploy prod stack
         env:
@@ -249,6 +287,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Preflight — check dev env file exists
+        run: |
+          set -euo pipefail
+          ENV_FILE=/opt/job-matcher-pr/.env.dev
+          if [[ ! -f "${ENV_FILE}" ]]; then
+            echo "::error::${ENV_FILE} is missing. Run scripts/deploy-remote-linux.sh from a workstation to push it."
+            exit 1
+          fi
+
       - name: Deploy dev stack
         env:
           APP_VERSION: ${{ github.sha }}
@@ -279,6 +326,25 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Preflight — validate prod env file
+        run: |
+          set -euo pipefail
+          ENV_FILE=/opt/job-matcher-pr/.env.prod
+          COMPOSE_FILE=/opt/job-matcher-pr/docker-compose.prod.yml
+
+          if [[ ! -f "${ENV_FILE}" ]]; then
+            echo "::error::${ENV_FILE} is missing. Run scripts/deploy-remote-linux.sh from a workstation to push it."
+            exit 1
+          fi
+
+          if grep -E '^(POSTGRES_PASSWORD|SECRET_KEY|POSTGRES_USER|POSTGRES_DB)=changeme' "${ENV_FILE}" >/dev/null 2>&1; then
+            echo "::error::${ENV_FILE} still contains changeme_* placeholder values. Edit it before deploying."
+            grep -nE '^(POSTGRES_PASSWORD|SECRET_KEY|POSTGRES_USER|POSTGRES_DB)=changeme' "${ENV_FILE}" || true
+            exit 1
+          fi
+
+          docker compose -p job-matcher-pr-prod --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" config --quiet
 
       - name: Deploy prod stack
         env:

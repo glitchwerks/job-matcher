@@ -421,6 +421,17 @@ cd /opt/job-matcher-pr
 sudo ./scripts/docker-setup.sh
 ```
 
+### Updating a remote server after `.env.*.example` changes
+
+Live `.env.prod` / `.env.dev` files are **not** in git — the deployed server keeps its own. When `.env.*.example` gains a new required field (a new `SECRET_KEY`, a renamed DB, etc.), the live file on the server won't automatically pick it up, and the next GHA-triggered deploy will either fail (missing variable) or silently run with the previous config.
+
+Two ways to push the update:
+
+- **From a workstation:** edit `.env.prod` locally, then run `./scripts/deploy-remote-linux.sh <host>`. Step 4 will prompt before overwriting the remote live file, and chmod 600 it after copying.
+- **On the server directly:** SSH in, diff `.env.prod` against `.env.prod.example` (`diff .env.prod .env.prod.example`), and add any new keys by hand. Recreate the stack (`docker compose ... down && ... up -d`) to pick up the new values — compose freezes env vars at container creation time.
+
+The `deploy-prod` GHA job runs a preflight check (`docker compose config`) before each deploy and will fail the run with a `::error::` message if the live `.env.prod` is missing, still contains `changeme_*` placeholders, or leaves any compose variable unresolved.
+
 After the script completes:
 
 - **Dev** (port 5000): `http://<vm-ip>:5000/settings` — configure dev API keys

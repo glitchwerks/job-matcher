@@ -274,13 +274,73 @@ for ENV_EXAMPLE in .env.prod.example .env.dev.example; do
     fi
 done
 
+# --- Live .env files (opt-in, with overwrite confirmation + chmod 600) ---
+#
+# The remote only runs `docker compose pull && up -d` during deploys; it never
+# invents its own env values. When `.env.*.example` gains new required fields
+# (e.g. the 2026-04-06 dev/prod split added SECRET_KEY and renamed POSTGRES_DB),
+# the server silently drifts unless someone copies the updated live file up.
+# This block fixes that: if a live `.env.prod` / `.env.dev` exists locally, we
+# scp it to the remote -- with an interactive confirmation if the remote already
+# has a live file so we never silently clobber a password that's in use.
+#
+# Files are chmod 600 on the remote so the secrets aren't world-readable.
+for LIVE_ENV in .env.prod .env.dev; do
+    LOCAL_LIVE="${LOCAL_PROJECT_ROOT}/${LIVE_ENV}"
+    REMOTE_LIVE="${REMOTE_PATH}/${LIVE_ENV}"
+
+    if [[ ! -f "${LOCAL_LIVE}" ]]; then
+        # No local live file -> nothing to push. The .example already landed above.
+        continue
+    fi
+
+    # Pre-push sanity check: catch unedited local copies before they hit the wire.
+    # The GHA preflight will reject this server-side, but failing fast here saves
+    # the round trip and is a clearer error for the operator at their workstation.
+    if grep -qE '^(POSTGRES_PASSWORD|SECRET_KEY)=changeme' "${LOCAL_LIVE}"; then
+        echo ""
+        warn "Local ${LIVE_ENV} still contains 'changeme_*' placeholder values:"
+        grep -nE '^(POSTGRES_PASSWORD|SECRET_KEY)=changeme' "${LOCAL_LIVE}" || true
+        if [[ "${LIVE_ENV}" == ".env.prod" ]]; then
+            read -r -p "Push anyway? The prod GHA deploy will reject this file. [y/N] " PUSH_ANYWAY
+        else
+            read -r -p "Push anyway? Not recommended for deployed environments. [y/N] " PUSH_ANYWAY
+        fi
+        echo ""
+        if [[ ! "${PUSH_ANYWAY}" =~ ^[Yy]$ ]]; then
+            warn "Skipped ${LIVE_ENV} -- remote unchanged."
+            continue
+        fi
+    fi
+
+    # Check whether the remote already has a live file and confirm overwrite.
+    # shellcheck disable=SC2029  # ${REMOTE_LIVE} and ${SSH_TARGET} intentionally expand client-side
+    if ssh "${SSH_TARGET}" "[[ -f '${REMOTE_LIVE}' ]]" 2>/dev/null; then
+        echo ""
+        warn "Remote already has a live ${LIVE_ENV} at ${REMOTE_PATH}."
+        warn "Overwriting will replace the credentials the running stack is using."
+        read -r -p "Overwrite remote ${LIVE_ENV} with the local copy? [y/N] " CONFIRM_OVERWRITE
+        echo ""
+        if [[ ! "${CONFIRM_OVERWRITE}" =~ ^[Yy]$ ]]; then
+            warn "Skipped live ${LIVE_ENV} -- remote unchanged."
+            continue
+        fi
+    fi
+
+    scp -q "${LOCAL_LIVE}" "${SSH_TARGET}:${REMOTE_LIVE}"
+    # Tighten permissions so other users on the host can't read secrets.
+    # shellcheck disable=SC2029  # ${REMOTE_LIVE} and ${SSH_TARGET} intentionally expand client-side
+    ssh "${SSH_TARGET}" "chmod 600 '${REMOTE_LIVE}'"
+    ok "Copied live ${LIVE_ENV} (chmod 600)"
+done
+
 # --- Fix line endings (Windows → Unix) ---
 # scp from a Windows workstation copies files with CRLF line endings.
 # Bash on the remote will choke on \r in shell scripts (e.g. "set -euo pipefail\r"
 # becomes ": invalid option name"). Convert all text files to LF.
 step "Converting line endings to LF on remote..."
 # shellcheck disable=SC2029  # ${REMOTE_PATH} and ${SSH_TARGET} intentionally expand client-side
-ssh "${SSH_TARGET}" "cd '${REMOTE_PATH}' && sed -i 's/\r\$//' docker-compose.*.yml scripts/*.sh config/*.json .env*.example 2>/dev/null || true"
+ssh "${SSH_TARGET}" "cd '${REMOTE_PATH}' && sed -i 's/\r\$//' docker-compose.*.yml scripts/*.sh config/*.json .env*.example .env.prod .env.dev 2>/dev/null || true"
 ok "Line endings converted."
 
 ok "All deployment files copied to ${REMOTE_PATH}."
