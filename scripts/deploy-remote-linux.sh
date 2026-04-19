@@ -301,7 +301,11 @@ for LIVE_ENV in .env.prod .env.dev; do
         echo ""
         warn "Local ${LIVE_ENV} still contains 'changeme_*' placeholder values:"
         grep -nE '^(POSTGRES_PASSWORD|SECRET_KEY)=changeme' "${LOCAL_LIVE}" || true
-        read -r -p "Push anyway? The prod GHA deploy will reject this file. [y/N] " PUSH_ANYWAY
+        if [[ "${LIVE_ENV}" == ".env.prod" ]]; then
+            read -r -p "Push anyway? The prod GHA deploy will reject this file. [y/N] " PUSH_ANYWAY
+        else
+            read -r -p "Push anyway? Not recommended for deployed environments. [y/N] " PUSH_ANYWAY
+        fi
         echo ""
         if [[ ! "${PUSH_ANYWAY}" =~ ^[Yy]$ ]]; then
             warn "Skipped ${LIVE_ENV} -- remote unchanged."
