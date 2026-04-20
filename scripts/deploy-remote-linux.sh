@@ -344,12 +344,25 @@ for LIVE_ENV in .env.prod .env.dev; do
     # Defense-in-depth: enforce 600 on the staged file in case the remote umask is loose.
     # shellcheck disable=SC2029  # ${REMOTE_TMP} and ${SSH_TARGET} intentionally expand client-side
     ssh "${SSH_TARGET}" "chmod 600 '${REMOTE_TMP}'"
-    # Atomically place the file at the final destination with correct mode and ownership.
-    # ssh -tt allocates a pseudo-TTY so sudo can prompt for a password when passwordless
-    # sudo isn't configured (matches the pattern used at line ~205 for mkdir/chown).
-    # 2>&1 mixes stderr into the TTY stream so we can surface the failure reason.
+    # Prime sudo credentials. `ssh -tt` allocates a pseudo-TTY so sudo can
+    # prompt for a password when passwordless sudo isn't configured. `sudo -v`
+    # validates/caches credentials without running a command; subsequent
+    # `sudo -n` calls within the sudo timeout (default ~5-15min) succeed
+    # without re-prompting. This is split from the install call because
+    # `$(...)` capture conflicts with `ssh -tt` -- the prompt would be
+    # swallowed and sudo would hang on non-TTY stdin.
+    # shellcheck disable=SC2029  # ${SSH_TARGET} intentionally expands client-side
+    if ! ssh -tt "${SSH_TARGET}" "sudo -v"; then
+        warn "Could not obtain sudo on ${SSH_TARGET} -- skipped ${LIVE_ENV}."
+        ssh "${SSH_TARGET}" "rm -f '${REMOTE_TMP}'" 2>/dev/null || true
+        continue
+    fi
+
+    # Atomically place the file at the final destination with correct mode
+    # and ownership. Non-interactive (no -tt); `sudo -n` fails fast rather
+    # than prompting, so $(...) capture is safe here for surfacing errors.
     # shellcheck disable=SC2029  # ${REMOTE_TMP}, ${REMOTE_LIVE}, ${SSH_TARGET} intentionally expand client-side
-    if INSTALL_ERR=$(ssh -tt "${SSH_TARGET}" "sudo install -m 600 -o \"\$(id -un)\" -g \"\$(id -gn)\" '${REMOTE_TMP}' '${REMOTE_LIVE}' 2>&1"); then
+    if INSTALL_ERR=$(ssh "${SSH_TARGET}" "sudo -n install -m 600 -o \"\$(id -un)\" -g \"\$(id -gn)\" '${REMOTE_TMP}' '${REMOTE_LIVE}' 2>&1"); then
         ssh "${SSH_TARGET}" "rm -f '${REMOTE_TMP}'" 2>/dev/null || true
         ok "Copied live ${LIVE_ENV} (chmod 600)"
     else
