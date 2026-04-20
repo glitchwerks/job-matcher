@@ -344,31 +344,22 @@ for LIVE_ENV in .env.prod .env.dev; do
     # Defense-in-depth: enforce 600 on the staged file in case the remote umask is loose.
     # shellcheck disable=SC2029  # ${REMOTE_TMP} and ${SSH_TARGET} intentionally expand client-side
     ssh "${SSH_TARGET}" "chmod 600 '${REMOTE_TMP}'"
-    # Prime sudo credentials. `ssh -tt` allocates a pseudo-TTY so sudo can
-    # prompt for a password when passwordless sudo isn't configured. `sudo -v`
-    # validates/caches credentials without running a command; subsequent
-    # `sudo -n` calls within the sudo timeout (default ~5-15min) succeed
-    # without re-prompting. This is split from the install call because
-    # `$(...)` capture conflicts with `ssh -tt` -- the prompt would be
-    # swallowed and sudo would hang on non-TTY stdin.
-    # shellcheck disable=SC2029  # ${SSH_TARGET} intentionally expands client-side
-    if ! ssh -tt "${SSH_TARGET}" "sudo -v"; then
-        warn "Could not obtain sudo on ${SSH_TARGET} -- skipped ${LIVE_ENV}."
-        ssh "${SSH_TARGET}" "rm -f '${REMOTE_TMP}'" 2>/dev/null || true
-        continue
-    fi
-
     # Atomically place the file at the final destination with correct mode
-    # and ownership. Non-interactive (no -tt); `sudo -n` fails fast rather
-    # than prompting, so $(...) capture is safe here for surfacing errors.
+    # and ownership. One `ssh -tt` session handles sudo prompt + install +
+    # temp-file cleanup together so sudo's `tty_tickets` credential cache
+    # applies consistently. (A previous two-pass attempt -- `sudo -v` then
+    # `sudo -n install` in separate ssh sessions -- failed with "a password
+    # is required" because tty_tickets scopes cached credentials per-TTY,
+    # and the two ssh calls landed on different TTYs.) Output streams to
+    # the user's terminal so they see the sudo prompt and any install
+    # errors directly; we rely on the ssh exit code for success/failure
+    # rather than capturing stderr into a variable.
     # shellcheck disable=SC2029  # ${REMOTE_TMP}, ${REMOTE_LIVE}, ${SSH_TARGET} intentionally expand client-side
-    if INSTALL_ERR=$(ssh "${SSH_TARGET}" "sudo -n install -m 600 -o \"\$(id -un)\" -g \"\$(id -gn)\" '${REMOTE_TMP}' '${REMOTE_LIVE}' 2>&1"); then
-        ssh "${SSH_TARGET}" "rm -f '${REMOTE_TMP}'" 2>/dev/null || true
+    if ssh -tt "${SSH_TARGET}" "sudo install -m 600 -o \"\$(id -un)\" -g \"\$(id -gn)\" '${REMOTE_TMP}' '${REMOTE_LIVE}' && rm -f '${REMOTE_TMP}'"; then
         ok "Copied live ${LIVE_ENV} (chmod 600)"
     else
-        warn "sudo install failed for ${LIVE_ENV}: ${INSTALL_ERR}"
-        warn "Check sudo access and filesystem permissions on ${SSH_TARGET}."
-        # shellcheck disable=SC2029  # ${REMOTE_TMP} and ${SSH_TARGET} intentionally expand client-side
+        warn "sudo install failed for ${LIVE_ENV} (see output above for details)."
+        # shellcheck disable=SC2029
         ssh "${SSH_TARGET}" "rm -f '${REMOTE_TMP}'" 2>/dev/null || true
         continue
     fi
