@@ -862,7 +862,7 @@
         </h1>
 
         <p class="hero-sub anim-3">
-          Job Matcher is an open-source pipeline that fetches listings from nine
+          Job Matcher is an open-source pipeline that fetches listings from ten
           job boards, scores each one against your skills using an LLM, and
           surfaces ranked results in a local web UI. Your data never leaves your
           machine.
@@ -985,8 +985,9 @@
             <div>
               <p class="step-title">Review</p>
               <p class="step-body">
-                Browse a ranked feed in your browser. Expand any card to see
-                the full breakdown. Bookmark, dismiss, or mark as applied.
+                Browse a ranked feed in your browser — watch new results score
+                live via the side drawer. Expand any card for the full
+                breakdown, then bookmark, dismiss, or mark as applied.
                 Everything runs on localhost.
               </p>
             </div>
@@ -1076,6 +1077,30 @@
               <p class="feature-body">
                 Docker stack runs ingest daily via Ofelia. No Docker? Use cron
                 or Task Scheduler. Either way — fresh results every morning.
+              </p>
+            </div>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon" aria-hidden="true">&#9678;</div>
+            <div class="feature-content">
+              <p class="feature-title">Watch it score live</p>
+              <p class="feature-body">
+                A live drawer on the feed tails fetch &rarr; prefilter &rarr; scrape &rarr;
+                score over SSE, with tier-colored score tags as each listing lands.
+                No more tailing Docker logs to see what the pipeline is doing.
+              </p>
+            </div>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon" aria-hidden="true">&#128196;</div>
+            <div class="feature-content">
+              <p class="feature-title">Import your resume as a profile</p>
+              <p class="feature-body">
+                Drop in a PDF and the LLM extracts your skills into a profile.
+                Optionally get suggested title-include and title-exclude patterns
+                previewed alongside — nothing writes to config without your confirmation.
               </p>
             </div>
           </div>
