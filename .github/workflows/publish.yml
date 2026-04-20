@@ -58,6 +58,13 @@ jobs:
             git clone https://x-access-token:${{ secrets.PUBLIC_REPO_PAT }}@github.com/cbeaulieu-gt/job-matcher-pr.wiki.git wiki
             cd wiki
             git remote add public https://x-access-token:${{ secrets.PUBLIC_REPO_PAT }}@github.com/cbeaulieu-gt/job-matcher.wiki.git
+            # Rewrite private-repo URLs in wiki markdown so public readers see public links.
+            # Host-anchored pattern (github.com/...) avoids touching Docker project names
+            # like `-p job-matcher-pr-prod` or VM paths like `/opt/job-matcher-pr/`.
+            find . -name '*.md' -exec sed -i 's|github.com/cbeaulieu-gt/job-matcher-pr|github.com/cbeaulieu-gt/job-matcher|g' {} +
+            if ! git diff --quiet; then
+              git -c user.email=actions@github.com -c user.name="github-actions[bot]" commit -am "chore(mirror): rewrite private-repo URLs for public wiki"
+            fi
             # GitHub wiki repos always use `master` as the default branch —
             # this is not configurable and is separate from the code repo's
             # default branch setting.
@@ -74,6 +81,8 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           TITLE=$(gh release view "$TAG" --repo cbeaulieu-gt/job-matcher-pr --json name -q .name)
           BODY=$(gh release view "$TAG" --repo cbeaulieu-gt/job-matcher-pr --json body -q .body)
+          # Rewrite private-repo URLs so compare/releases/issues links resolve on the public mirror.
+          BODY="${BODY//github.com\/cbeaulieu-gt\/job-matcher-pr/github.com\/cbeaulieu-gt\/job-matcher}"
           if gh release view "$TAG" --repo cbeaulieu-gt/job-matcher --json name &>/dev/null; then
             echo "Release $TAG already exists on public repo — skipping"
           else
