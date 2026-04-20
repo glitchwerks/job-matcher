@@ -16,8 +16,9 @@
 #
 # Automatic trigger:
 #   - Any tag matching `v*` pushed to the private repo triggers this
-#     workflow, pushes main + tags, syncs the wiki, and copies the
-#     release notes to the public repo.
+#     workflow (in detached HEAD state at the tag ref), pushes main +
+#     tags, syncs the wiki, and copies the release notes to the public
+#     repo.
 
 name: Publish to public repo
 
@@ -44,7 +45,11 @@ jobs:
           # Force push is intentional — this is a one-way mirror workflow.
           # The public repo should never receive direct commits; it only
           # ever receives pushes from this workflow.
-          git push public main --force
+          # Use HEAD:refs/heads/main (not just 'main') because tag-push
+          # events check out in detached HEAD — there is no local 'main'
+          # branch to push from. HEAD:refs/heads/main works for both
+          # tag-push (detached) and workflow_dispatch (on main) triggers.
+          git push public HEAD:refs/heads/main --force
           git push public --tags --force
 
       - name: Sync wiki
