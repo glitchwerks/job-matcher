@@ -304,6 +304,20 @@ All buttons extend `.btn` (base). Add a modifier class for semantic variants.
 | `.btn-danger-confirm` | `--score-low-text` text + border, `--score-low-bg` bg | Final confirmation submit; starts `disabled`; inverts (red bg, dark text) on hover |
 | `.btn-clear-key` | `--text-muted` / `--border-subtle` → `--score-low-text` / `--score-low-border` on hover | Inline button next to configured password fields; signals "clear this key"; `--font-mono` 0.72rem; `padding: 4px 8px`; `flex-shrink: 0`; `border-radius: var(--radius-md)` |
 
+#### `.btn-save` in a horizontal flex row
+
+`.btn-save` carries `margin-top: 4px` and `align-self: flex-start` so it sits correctly as a standalone submit below a form field. When you place it in a horizontal flex row alongside another button (e.g. a Dismiss action), set `align-items: center` on the wrapper — otherwise the default `align-items: stretch` combined with `.btn-save`'s `margin-top` causes the sibling button to render ~4px taller than intended.
+
+```html
+<!-- Correct: wrapper uses align-items: center -->
+<div style="display: flex; gap: 8px; align-items: center;">
+  <button type="submit" class="btn btn-save">Apply</button>
+  <button type="button" class="btn btn-dismiss">Dismiss</button>
+</div>
+```
+
+See `templates/profile.html` (prefilter suggestions panel) for the reference pattern. Alternative: use a `.btn-primary` class without the `margin-top` if `.btn-save`'s standalone positioning semantics are not needed.
+
 ### Forms & Settings
 
 | Class | Element | Notes |
