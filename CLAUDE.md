@@ -97,6 +97,8 @@ Results include a `model_used` field stored as `"provider/model"` per listing. S
 
 **Env-file migration rule:** when `.env.prod.example` or `.env.dev.example` gains a new required field (a new `SECRET_KEY`-style variable, a renamed DB, etc.), the running server's live `.env.*` does **not** automatically pick it up. The `deploy-prod` GHA job now runs a preflight `docker compose config` + `changeme_*` grep against `/opt/job-matcher-pr/.env.prod` and will fail the run with `::error::` if the live file is missing, unedited, or still has unresolved compose variables — catch the drift at CI time instead of during a partial `up -d`.
 
+**Password encoding:** if `POSTGRES_PASSWORD` contains URI-reserved characters (`@`, `:`, `/`, `#`, `?`), percent-encode them — e.g. `p@ss` → `p%40ss`. Docker Compose interpolates `POSTGRES_PASSWORD` directly into `DATABASE_URL`; `db.py` auto-encodes the password at startup as a safety net, but encoding it in the env file is the authoritative fix and ensures other tools (e.g. `psql`, `pg_dump`) also work correctly.
+
 ## UI Development
 
 All UI work must follow `docs/STYLE_GUIDE.md`. Read it before touching any HTML or CSS.

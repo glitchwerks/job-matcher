@@ -23,16 +23,96 @@ immediately rather than at the first database call.
 """
 
 import json
+import logging
 import os
 import threading
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 import psycopg2
 import psycopg2.extras
 import psycopg2.pool
 
+logger = logging.getLogger(__name__)
+
+
 # ---------------------------------------------------------------------------
 # DATABASE_URL — required; no fallback to avoid committing credentials.
 # ---------------------------------------------------------------------------
+
+def _encode_database_url_password(url: str) -> str:
+    """Return *url* with its password component percent-encoded.
+
+    libpq's URI parser treats ``@``, ``:``, ``/``, ``#``, ``?``, and other
+    RFC 3986 reserved characters as structural delimiters, so a raw password
+    like ``p@ss:word`` silently breaks the connection string.
+
+    This function uses ``urllib.parse.urlsplit`` to extract the password, then
+    decodes it (in case it is already encoded) and re-encodes it.  The
+    decode-then-encode round-trip makes the operation **idempotent**: calling
+    it twice on the same URL always produces the same result.
+
+    **Limitation — ``/``, ``#``, ``?`` in passwords:**  These characters act
+    as URL structural delimiters and cause ``urlsplit`` itself to misparse the
+    URL *before* the password component can be extracted.  When the password
+    contains them the URL is already broken at the point this function runs
+    and cannot be automatically repaired.  Users must percent-encode such
+    characters manually in their ``.env`` file:
+    ``p/ss`` → ``p%2Fss``, ``p#ss`` → ``p%23ss``, ``p?ss`` → ``p%3Fss``.
+
+    Characters handled automatically: ``@`` (→ ``%40``), ``:`` (→ ``%3A``),
+    and any other non-delimiter reserved character that ``urlsplit`` can still
+    extract from the password field.
+
+    If the URL has no password component, or cannot be parsed (e.g. a DSN
+    key=value string), it is returned unchanged.
+
+    Args:
+        url: A ``postgresql://`` (or ``postgres://``) connection string.
+
+    Returns:
+        The same URL with its password component safely percent-encoded,
+        or the original string if no password was found / parsing failed.
+    """
+    try:
+        parsed = urlsplit(url)
+    except (ValueError, AttributeError) as exc:
+        logger.warning(
+            "Failed to URL-encode DATABASE_URL password (%s);"
+            " using raw value",
+            type(exc).__name__,
+        )
+        return url
+
+    if not parsed.password:
+        return url
+
+    # Decode first so that an already-encoded password is not double-encoded,
+    # then re-encode with an empty safe set so every reserved char is escaped.
+    raw_password = unquote(parsed.password)
+    encoded_password = quote(raw_password, safe="")
+
+    if encoded_password == parsed.password:
+        # Password was already correctly encoded — avoid reconstructing URL
+        # (preserves any unusual but valid original formatting).
+        return url
+
+    # Reconstruct netloc with the encoded password.
+    # urlsplit stores netloc as "user:password@host:port".  We rebuild it
+    # rather than using urlunsplit on parsed directly because SplitResult
+    # does not expose a setter for individual netloc parts.
+    user = parsed.username or ""
+    host = parsed.hostname or ""
+    port = f":{parsed.port}" if parsed.port else ""
+    netloc = f"{user}:{encoded_password}@{host}{port}"
+
+    return urlunsplit((
+        parsed.scheme,
+        netloc,
+        parsed.path,
+        parsed.query,
+        parsed.fragment,
+    ))
+
 
 _DATABASE_URL: str | None = os.environ.get("DATABASE_URL")
 if not _DATABASE_URL:
@@ -40,6 +120,11 @@ if not _DATABASE_URL:
         "DATABASE_URL environment variable is required. "
         "Set it in your .env file (see .env.example)."
     )
+
+# Percent-encode the password so URI-reserved characters (@ : / # ?) do not
+# confuse libpq's URL parser.  This is idempotent — already-encoded URLs are
+# left unchanged.
+_DATABASE_URL = _encode_database_url_password(_DATABASE_URL)
 
 # ---------------------------------------------------------------------------
 # Explicit allowlist for user-supplied sort keys → safe SQL ORDER BY clauses.
