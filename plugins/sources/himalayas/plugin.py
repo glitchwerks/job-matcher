@@ -25,11 +25,17 @@ logger = logging.getLogger("ingest.himalayas")
 _HIMALAYAS_URL = "https://himalayas.app/jobs/api"
 
 _JOB_TYPE_MAP: dict[str, str] = {
+    # Underscore-separated variants (standard API form)
     "FULL_TIME": "full_time",
     "PART_TIME": "part_time",
     "CONTRACT": "contract",
     "FREELANCE": "freelance",
     "INTERNSHIP": "internship",
+    # Space-separated variants (issue #239 — some API responses use spaces)
+    "FULL TIME": "full_time",
+    "PART TIME": "part_time",
+    # "CONTRACT" and "FREELANCE" are single-word; no space variant needed.
+    # "INTERNSHIP" is also single-word.
 }
 
 
@@ -84,19 +90,23 @@ def _parse_created_at(value: Optional[int | str]) -> Optional[str]:
 def _map_job_type(job_type: Optional[str]) -> Optional[str]:
     """Map a Himalayas ``jobType`` value to the canonical ``contract_time`` string.
 
-    Known values are mapped via ``_JOB_TYPE_MAP``; anything else is lower-cased
-    and returned as-is so that future API values degrade gracefully rather than
-    silently disappearing.
+    Known values are mapped via ``_JOB_TYPE_MAP`` (which covers both the
+    standard underscore form ``"FULL_TIME"`` and the space-separated form
+    ``"FULL TIME"`` seen in some API responses — issue #239).  Anything else
+    is lower-cased and has spaces replaced with underscores so that future
+    API values degrade gracefully to a usable snake_case token rather than
+    producing a string with spaces that fails downstream normalization.
 
     Args:
-        job_type: Himalayas job type string, e.g. ``"FULL_TIME"``.
+        job_type: Himalayas job type string, e.g. ``"FULL_TIME"`` or
+                  ``"Full Time"``.
 
     Returns:
         Canonical contract-time string, or ``None`` if *job_type* is falsy.
     """
     if not job_type:
         return None
-    return _JOB_TYPE_MAP.get(job_type, job_type.lower())
+    return _JOB_TYPE_MAP.get(job_type, job_type.lower().replace(" ", "_"))
 
 
 class HimalayasClient(JobSource):
