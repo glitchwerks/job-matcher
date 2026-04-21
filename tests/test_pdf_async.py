@@ -41,6 +41,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import app as app_module
 from app import app as flask_app
+import services.pdf_import as pdf_import_module
 
 
 # ===========================================================================
@@ -339,8 +340,10 @@ class TestPrunePdfJobs:
     def _reset_prune_timer(self):
         """Ensure prune rate-limiter doesn't block test assertions."""
         app_module._last_prune_time = 0.0
+        pdf_import_module._last_prune_time = 0.0
         yield
         app_module._last_prune_time = 0.0
+        pdf_import_module._last_prune_time = 0.0
 
     def test_prune_removes_old_complete_job(self):
         """Complete jobs created more than TTL seconds ago must be pruned."""
@@ -444,9 +447,9 @@ class TestRunPdfImportJob:
         llm_resp = json.dumps(_make_fake_llm_response())
 
         with (
-            mock.patch.object(app_module, "build_provider_chain", return_value=["stub"]),
+            mock.patch.object(pdf_import_module, "build_provider_chain", return_value=["stub"]),
             mock.patch.object(
-                app_module, "generate_with_fallback",
+                pdf_import_module, "generate_with_fallback",
                 return_value=(llm_resp, "anthropic/claude-haiku"),
             ),
         ):
@@ -465,7 +468,7 @@ class TestRunPdfImportJob:
         job_id = "worker-no-providers"
         self._setup_job(job_id)
 
-        with mock.patch.object(app_module, "build_provider_chain", return_value=[]):
+        with mock.patch.object(pdf_import_module, "build_provider_chain", return_value=[]):
             app_module._run_pdf_import_job(
                 job_id, "resume text", "fresh", {}, tmp_profile_path
             )
@@ -480,8 +483,8 @@ class TestRunPdfImportJob:
         self._setup_job(job_id)
 
         with (
-            mock.patch.object(app_module, "build_provider_chain", return_value=["stub"]),
-            mock.patch.object(app_module, "generate_with_fallback", return_value=None),
+            mock.patch.object(pdf_import_module, "build_provider_chain", return_value=["stub"]),
+            mock.patch.object(pdf_import_module, "generate_with_fallback", return_value=None),
         ):
             app_module._run_pdf_import_job(
                 job_id, "resume text", "fresh", {}, tmp_profile_path
@@ -497,9 +500,9 @@ class TestRunPdfImportJob:
         self._setup_job(job_id)
 
         with (
-            mock.patch.object(app_module, "build_provider_chain", return_value=["stub"]),
+            mock.patch.object(pdf_import_module, "build_provider_chain", return_value=["stub"]),
             mock.patch.object(
-                app_module, "generate_with_fallback",
+                pdf_import_module, "generate_with_fallback",
                 return_value=("not valid json {{{{", "x/y"),
             ),
         ):
@@ -524,8 +527,8 @@ class TestRunPdfImportJob:
             return (json.dumps(_make_fake_llm_response()), "x/y")
 
         with (
-            mock.patch.object(app_module, "build_provider_chain", return_value=["stub"]),
-            mock.patch.object(app_module, "generate_with_fallback", side_effect=fake_generate),
+            mock.patch.object(pdf_import_module, "build_provider_chain", return_value=["stub"]),
+            mock.patch.object(pdf_import_module, "generate_with_fallback", side_effect=fake_generate),
         ):
             app_module._run_pdf_import_job(
                 job_id, "resume text", "fresh", {}, tmp_profile_path
@@ -601,8 +604,10 @@ class TestJobTimeout:
     @pytest.fixture(autouse=True)
     def _reset_prune_timer(self):
         app_module._last_prune_time = 0.0
+        pdf_import_module._last_prune_time = 0.0
         yield
         app_module._last_prune_time = 0.0
+        pdf_import_module._last_prune_time = 0.0
 
     def test_stuck_running_job_gets_timed_out(self):
         """Running jobs older than _PDF_JOB_TIMEOUT_SECONDS are marked failed."""
@@ -661,6 +666,7 @@ class TestPruneRateLimit:
             }
         # Set last prune to now — next call should skip
         app_module._last_prune_time = _time.monotonic()
+        pdf_import_module._last_prune_time = _time.monotonic()
         app_module._prune_pdf_jobs()
         with app_module._pdf_jobs_lock:
             assert job_id in app_module._pdf_jobs  # not pruned because rate-limited
@@ -678,6 +684,7 @@ class TestPruneRateLimit:
             }
         # Set last prune to the past
         app_module._last_prune_time = 0.0
+        pdf_import_module._last_prune_time = 0.0
         app_module._prune_pdf_jobs()
         with app_module._pdf_jobs_lock:
             assert job_id not in app_module._pdf_jobs

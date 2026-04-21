@@ -174,14 +174,14 @@ class TestPdfExtraction:
         mock_reader = MagicMock()
         mock_reader.pages = [page1, page2]
 
-        with patch("app.PdfReader", return_value=mock_reader):
+        with patch("services.pdf_import.PdfReader", return_value=mock_reader):
             result = app_module._extract_pdf_text(b"fake")
 
         assert result == "Page one text. Page two text."
 
     def test_raises_value_error_when_pdf_unreadable(self):
         """ValueError is raised (not a raw exception) when PdfReader fails."""
-        with patch("app.PdfReader", side_effect=PdfReadError("corrupt")):
+        with patch("services.pdf_import.PdfReader", side_effect=PdfReadError("corrupt")):
             with pytest.raises(ValueError, match="Could not read PDF"):
                 app_module._extract_pdf_text(b"not a pdf")
 
@@ -192,7 +192,7 @@ class TestPdfExtraction:
         mock_reader = MagicMock()
         mock_reader.pages = [page]
 
-        with patch("app.PdfReader", return_value=mock_reader):
+        with patch("services.pdf_import.PdfReader", return_value=mock_reader):
             result = app_module._extract_pdf_text(b"fake")
 
         assert result == ""
