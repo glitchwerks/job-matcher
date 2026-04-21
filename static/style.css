@@ -1412,7 +1412,7 @@ body {
 @keyframes notice-fade-out {
   0%, 75% {
     opacity: 1;
-    max-height: 6rem;
+    max-height: 8rem;
     margin-bottom: 20px;
     padding-top: 7px;
     padding-bottom: 7px;
