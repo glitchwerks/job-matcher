@@ -167,6 +167,36 @@ class TestMapJobType:
     def test_empty_string_returns_none(self):
         assert _map_job_type("") is None
 
+    # --- Regression tests for issue #239 ------------------------------------
+    # The Himalayas API sometimes returns job types with spaces instead of
+    # underscores (e.g. "full time" instead of "full_time").  The downstream
+    # normalization layer expects snake_case, so spaces must be converted.
+
+    def test_space_separated_full_time_mapped_via_dict(self):
+        """Regression (#239): 'FULL TIME' maps to 'full_time' via _JOB_TYPE_MAP."""
+        assert _map_job_type("FULL TIME") == "full_time"
+
+    def test_space_separated_part_time_mapped_via_dict(self):
+        """Regression (#239): 'PART TIME' maps to 'part_time' via _JOB_TYPE_MAP."""
+        assert _map_job_type("PART TIME") == "part_time"
+
+    def test_space_separated_lowercase_fallback(self):
+        """Regression (#239): unmapped 'Full Time' falls back to 'full_time' via
+        .lower().replace(' ', '_') — not the dict, since the dict key is uppercase.
+        """
+        # 'Full Time' is not in _JOB_TYPE_MAP so the fallback path is exercised.
+        assert _map_job_type("Full Time") == "full_time"
+
+    def test_space_separated_unknown_value_gets_underscored(self):
+        """Regression (#239): an unmapped spaced value (e.g. 'FIXED TERM') is
+        normalised to snake_case via the fallback path.
+        """
+        assert _map_job_type("FIXED TERM") == "fixed_term"
+
+    def test_space_separated_part_time_lowercase_fallback(self):
+        """Regression (#239): 'Part Time' (mixed case, unmapped) becomes 'part_time'."""
+        assert _map_job_type("Part Time") == "part_time"
+
 
 # ---------------------------------------------------------------------------
 # HimalayasClient.normalise()
@@ -295,6 +325,31 @@ class TestHimalayasClientNormalise:
         raw = {**_RAW_JOB, "employmentType": "TEMPORARY"}
         result = client.normalise(raw)
         assert result["contract_time"] == "temporary"
+
+    def test_normalise_space_separated_full_time_normalised(self):
+        """Regression (#239): employmentType='full time' must produce 'full_time',
+        not 'full time', so downstream normalization does not reject the value.
+        """
+        client = self._client()
+        raw = {**_RAW_JOB, "employmentType": "full time"}
+        result = client.normalise(raw)
+        assert result["contract_time"] == "full_time"
+
+    def test_normalise_space_separated_part_time_normalised(self):
+        """Regression (#239): employmentType='part time' must produce 'part_time'."""
+        client = self._client()
+        raw = {**_RAW_JOB, "employmentType": "part time"}
+        result = client.normalise(raw)
+        assert result["contract_time"] == "part_time"
+
+    def test_normalise_uppercase_space_full_time_normalised(self):
+        """Regression (#239): employmentType='FULL TIME' must produce 'full_time'
+        via the explicit _JOB_TYPE_MAP entry (not the fallback path).
+        """
+        client = self._client()
+        raw = {**_RAW_JOB, "employmentType": "FULL TIME"}
+        result = client.normalise(raw)
+        assert result["contract_time"] == "full_time"
 
     def test_normalise_null_job_type_is_none(self):
         client = self._client()
