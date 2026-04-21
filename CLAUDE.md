@@ -91,8 +91,9 @@ Results include a `model_used` field stored as `"provider/model"` per listing. S
 - Config/logs: dev uses `./config-dev` and `./logs-dev`; prod uses `./config` and `./logs`
 - `scripts/docker-setup.sh` — one-time VM provisioning
 - `scripts/docker-status.sh` / `scripts/docker-teardown.sh` — ops helpers
-- **Log rotation:** all services use the `json-file` driver with `max-size: 10m` and `max-file: 3` (≤ 30 MB total per service), configured via a shared YAML anchor in each compose file.
 - `scripts/deploy-remote-linux.sh` — workstation-driven remote update. Pushes compose files, scripts, config examples, **and live `.env.prod` / `.env.dev`** (with overwrite confirmation + chmod 600). Run this after editing any `.env.*.example` schema to get the new required fields onto the server.
+
+**Log rotation:** all services use the `json-file` driver with `max-size: 10m` and `max-file: 3` (≤ 30 MB total per service), configured via a shared YAML anchor in each compose file.
 
 **Env-file migration rule:** when `.env.prod.example` or `.env.dev.example` gains a new required field (a new `SECRET_KEY`-style variable, a renamed DB, etc.), the running server's live `.env.*` does **not** automatically pick it up. The `deploy-prod` GHA job now runs a preflight `docker compose config` + `changeme_*` grep against `/opt/job-matcher-pr/.env.prod` and will fail the run with `::error::` if the live file is missing, unedited, or still has unresolved compose variables — catch the drift at CI time instead of during a partial `up -d`.
 
