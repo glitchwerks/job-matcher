@@ -43,7 +43,7 @@ from pypdf.errors import PdfReadError
 
 from providers import build_provider_chain, generate_with_fallback
 from providers.anthropic_provider import strip_fences
-from services.profile_store import _PROFILE_PATH, load_profile  # noqa: F401
+from services.profile_store import load_profile
 
 _logger = logging.getLogger(__name__)
 
