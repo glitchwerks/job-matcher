@@ -34,9 +34,25 @@ from app import app as flask_app
 
 @pytest.fixture()
 def tmp_providers_path(tmp_path, monkeypatch):
-    """Point _PROVIDERS_PATH at a temp file for full isolation."""
+    """Point _PROVIDERS_PATH at a temp file for full isolation.
+
+    Also clears credential env vars so load_providers() cannot fall back to
+    environment-supplied credentials when the temp file is absent.  Without
+    this, a caller shell that exports ADZUNA_APP_ID / ADZUNA_APP_KEY (or any
+    LLM key) causes _load_providers_safe() to return real credentials even
+    though the temp providers.json does not exist — making tests that expect a
+    422 (missing credentials) receive a 200 instead.
+    """
     path = str(tmp_path / "providers.json")
     monkeypatch.setattr(app_module, "_PROVIDERS_PATH", path)
+    for env_var in (
+        "ADZUNA_APP_ID",
+        "ADZUNA_APP_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GOOGLE_API_KEY",
+    ):
+        monkeypatch.delenv(env_var, raising=False)
     return path
 
 
