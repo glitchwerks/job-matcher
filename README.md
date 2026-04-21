@@ -4,6 +4,17 @@ A locally-run job search tool that aggregates listings from multiple sources (Ad
 
 ---
 
+## Features
+
+- **Multi-source ingestion** — pulls from ten job boards (Adzuna, Jooble, JSearch, Jobicy, Himalayas, USAJobs, Remotive, RemoteOK, Arbeitnow, The Muse) with keyword, salary, and contract-type pre-filtering before any LLM call
+- **LLM scoring with BYOK** — score listings with Anthropic, OpenAI, or Google Gemini; automatic provider failover on auth or transient errors
+- **Live ingest drawer** — watch fetch, pre-filter, scrape, and score happen in real time from the feed page via Server-Sent Events; tier-colored score tags and per-stage counters update as each listing is processed
+- **PDF Profile Import** — upload a resume on `/settings` and let the LLM extract a skills profile; optionally request suggested `title_include` / `title_exclude` patterns, review a diff before anything writes to disk
+- **Administration tab** (`/admin`) — scheduled ingest run history, downloadable ingest logs, dependency versions, and CSRF-gated Clear Database action
+- **Scheduled ingest** — runs automatically via Ofelia (Docker), cron (macOS / Linux), or Windows Task Scheduler
+
+---
+
 ## Prerequisites
 
 - Python 3.11+
@@ -244,6 +255,10 @@ At the end of each run a summary line is printed:
 Run complete: 120 fetched | 74 pre-filtered | 12 dupes skipped | 34 scored (0 failed) | 2 scrape fallbacks | ~42,000 tok | ~$0.0034
 ```
 
+### Watching progress live
+
+When the web UI is running, open the feed page and click **Run Ingest** to launch the ingest drawer. It tails the pipeline in real time over Server-Sent Events — each listing appears as it is processed, with tier-colored score tags (green / amber / red) and per-stage counters (fetched, filtered, duped, scored). For headless or Docker runs where the UI is not open, `docker logs job-matcher-pr-dev-web-1 -f` streams the same output to the terminal.
+
 In Docker deployments, the PostgreSQL database is created automatically by Docker Compose via `DATABASE_URL`. For local development runs (`python ingest.py`), a SQLite file `jobs.db` is created automatically on the first run.
 
 ---
@@ -265,6 +280,7 @@ Then open the web UI in your browser.
 - **Bookmarks** (`/bookmarks`) — listings you have saved for later review
 - **Applied** (`/applied`) — listings you have marked as applied; excluded from the main feed
 - **Stats** (`/stats`) — cumulative token usage and estimated API cost, broken down by day
+- **Admin** (`/admin`) — scheduled ingest runs, downloadable logs, dependency versions, and CSRF-gated Clear Database
 
 Each listing card shows the score, matched and missing skills, concerns, and the LLM's one-sentence verdict alongside the job title, company, location, salary, and a link to the original posting. Bookmark and dismiss actions update instantly without a page reload.
 
@@ -340,6 +356,10 @@ Example `location` block:
 > **Migrating from the old flat location fields?** The flat fields `location_preference`, `location_center`, `location_radius_km`, and `location_geocode_fallback` are no longer read. Update your `config/profile.json` to use the nested `location` block shown above.
 
 Changes to `config/profile.json` take effect on the next ingestion run. Previously scored listings are not rescored automatically.
+
+### Importing from a PDF resume
+
+Go to `/settings` and use the **Import from PDF** panel to upload your resume. The LLM reads the PDF and extracts a structured skills profile. Before anything is written you are shown a diff of the proposed changes to `config/profile.json` so you can review and deselect individual skills. If you also enable **Suggest title filters**, the LLM proposes `title_include` and `title_exclude` patterns based on your experience; these are previewed against your current filter settings before being applied to `config/config.json`. Nothing lands without explicit confirmation — click **Apply** only when you are satisfied with the preview.
 
 ---
 
@@ -417,18 +437,25 @@ For full documentation — stack architecture, environment variables, CI/CD pipe
 sudo git clone https://github.com/cbeaulieu-gt/job-matcher-pr.git /opt/job-matcher-pr
 cd /opt/job-matcher-pr
 
-# One-time setup: creates directories, copies config examples, starts both stacks
+# One-time VM provisioning: creates directories, copies config examples, starts both stacks
 sudo ./scripts/docker-setup.sh
 ```
 
-### Updating a remote server after `.env.*.example` changes
+### Pushing updates to a remote server
 
-Live `.env.prod` / `.env.dev` files are **not** in git — the deployed server keeps its own. When `.env.*.example` gains a new required field (a new `SECRET_KEY`, a renamed DB, etc.), the live file on the server won't automatically pick it up, and the next GHA-triggered deploy will either fail (missing variable) or silently run with the previous config.
+`scripts/deploy-remote-linux.sh` is the recommended path for pushing updates from a workstation to a remote VM. Run it after any code change, `.env.*.example` schema addition, or config-example update:
 
-Two ways to push the update:
+```bash
+./scripts/deploy-remote-linux.sh <host>
+```
 
-- **From a workstation:** edit `.env.prod` locally, then run `./scripts/deploy-remote-linux.sh <host>`. Step 4 will prompt before overwriting the remote live file, and chmod 600 it after copying.
-- **On the server directly:** SSH in, diff `.env.prod` against `.env.prod.example` (`diff .env.prod .env.prod.example`), and add any new keys by hand. Recreate the stack (`docker compose ... down && ... up -d`) to pick up the new values — compose freezes env vars at container creation time.
+The script pushes compose files, helper scripts, and config examples over SSH, then prompts before overwriting the live `.env.prod` / `.env.dev` files and chmod 600s them after copying. It handles sudo and TTY requirements automatically.
+
+If you prefer to update the server directly, SSH in and diff `.env.prod` against `.env.prod.example` (`diff .env.prod .env.prod.example`), add any new keys by hand, then recreate the stack (`docker compose ... down && ... up -d`) to pick up the changes — compose freezes env vars at container creation time.
+
+### `.env.*.example` schema drift
+
+Live `.env.prod` / `.env.dev` files are **not** in git — the deployed server keeps its own. When `.env.*.example` gains a new required field, the live file on the server won't automatically pick it up, and the next GHA-triggered deploy will either fail (missing variable) or silently run with the previous config.
 
 The `deploy-prod` GHA job runs a preflight check (`docker compose config`) before each deploy and will fail the run with a `::error::` message if the live `.env.prod` is missing, still contains `changeme_*` placeholders, or leaves any compose variable unresolved.
 
