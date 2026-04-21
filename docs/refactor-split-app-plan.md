@@ -3,6 +3,7 @@
 **Status**: refreshed plan, superseding the original write-up in GitHub Issue #261.
 **Source of truth**: this document — Issue #261 body predates recent churn.
 **Scope**: no behavioural change. Pure relocation + blueprint registration.
+**Line numbers pinned to**: `app.py` at commit `9c38c68` (3116 lines). If `app.py` has changed since, re-verify with `git blame` before starting a phase.
 
 ---
 
@@ -86,7 +87,7 @@ Late import (line 275): `job_sources.auto_register.ensure_plugins_registered`.
 | 2579–2580 | `SCHEDULE_WARN_HOURS`, `SCHEDULE_CRITICAL_HOURS` | `web/admin.py` |
 | 2786 | `_VALIDATE_TIMEOUT_SECONDS` | `services/provider_schemas.py` |
 
-### Routes (24 total)
+### Routes (28 total)
 
 | Line | Method | Path | Handler | Phase |
 |---|---|---|---|---|
@@ -177,7 +178,9 @@ Every phase's PR must end with a green `pytest` run.
 
 **Goal**: create `services/` + `web/` with empty modules; wire `web/__init__.py::create_app()` to simply return the existing `app` object.
 **Files changed**: `services/__init__.py` (new, empty), `web/__init__.py` (new, re-exports `app`), `app.py` (unchanged — still contains everything).
-**Exit criteria**: `pytest` fully green; `from web import create_app` returns the same Flask instance as `from app import app`.
+**Exit criteria**:
+- [ ] `pytest` fully green; `from web import create_app` returns the same Flask instance as `from app import app`.
+- [ ] Verified line numbers in `docs/refactor-split-app-plan.md` match the `app.py` at the pinned SHA (or updated the plan).
 
 ## Phase 1 — Filters + security/CSRF + startup guards
 
@@ -236,7 +239,7 @@ Every phase's PR must end with a green `pytest` run.
 
 **Test coverage**: `tests/test_pdf_async.py`, `tests/test_profile_import.py`. Both exercise via HTTP.
 
-**Risk**: Medium. The `ThreadPoolExecutor` is a module-level singleton — moving it changes process-level resource ownership. Ensure the executor is created exactly once at import time and not per-request. Uses `app.logger` in two `warning()` / `error()` calls (1703, 1726, 1738, 1749) — replace with stdlib `logging.getLogger(__name__)` since services cannot import Flask.
+**Risk**: Medium. The `ThreadPoolExecutor` is a module-level singleton — moving it changes process-level resource ownership. Ensure the executor is created exactly once at import time and not per-request. Uses `app.logger` in four `warning()` / `error()` calls (1703, 1726, 1738, 1749) — replace with stdlib `logging.getLogger(__name__)` since services cannot import Flask.
 
 ## Phase 4 — `services/provider_schemas.py` + `services/ingest_control.py`
 
@@ -306,6 +309,16 @@ Every phase's PR must end with a green `pytest` run.
 - Update `README.md` + `CLAUDE.md` architecture section.
 
 **Risk**: Low. Last phase; almost entirely documentation. The one gotcha is the `--demo` path — it mutates the module-level `_PROFILE_PATH` / `_PROVIDERS_PATH`, which after the split live in `services.profile_store`. The demo override must assign into `services.profile_store._PROFILE_PATH` (mutate the module attribute) rather than rebinding a local name.
+
+```python
+# WRONG — only rebinds the local name
+from services.profile_store import _PROFILE_PATH
+_PROFILE_PATH = demo_path  # does NOT affect services.profile_store._PROFILE_PATH
+
+# CORRECT — mutates the module attribute
+from services import profile_store
+profile_store._PROFILE_PATH = demo_path  # actually changes the module-level value
+```
 
 ---
 
