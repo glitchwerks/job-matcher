@@ -182,22 +182,38 @@ def create_app() -> Flask:
     app.context_processor(_demo_mode_processor)
 
     # ------------------------------------------------------------------
-    # 9. Register blueprints (Phase 5a).
+    # 9. Register blueprints (Phase 5a + 5b).
     # ------------------------------------------------------------------
-    # feed_bp and ingest_bp are registered with url_prefix="" so every
-    # URL path is unchanged from the monolithic layout.  Endpoint names
-    # become "feed.<func>" and "ingest.<func>", but no url_for() calls
-    # in app.py or templates reference these moved endpoints, so no
-    # url_for() strings need updating.
+    # All blueprints are registered with url_prefix="" so every URL path
+    # is byte-identical to the pre-refactor monolithic layout.
     #
-    # Remaining routes (settings, profile, admin) still live in app.py
-    # and are registered via @app.route() as a side-effect of app.py's
-    # module-level execution, which happens after create_app() returns.
+    # Phase 5a: feed_bp, ingest_bp
+    # Phase 5b: settings_bp, profile_bp, admin_bp
+    #
+    # Endpoint naming: blueprint-qualified names ("settings_bp.settings",
+    # "profile_bp.profile", etc.) — Flask always prepends the blueprint
+    # name even when the route uses an explicit endpoint= override (the
+    # override only renames the local function-name component, not the
+    # blueprint prefix). Inner url_for() calls in the moved handlers use
+    # the prefixed names.
+    #
+    # Templates were unaffected by the move: every template uses
+    # hard-coded URL paths in href/hx-get/hx-post/action attributes
+    # (~80 references, all unchanged because no URL changed). No
+    # template ever called url_for("settings") / url_for("profile") /
+    # etc., so the absence of bare-name endpoints is invisible to the
+    # rendered UI.
+    from web.admin import admin_bp  # noqa: PLC0415
     from web.feed import feed_bp  # noqa: PLC0415
     from web.ingest import ingest_bp  # noqa: PLC0415
+    from web.profile import profile_bp  # noqa: PLC0415
+    from web.settings import settings_bp  # noqa: PLC0415
 
     app.register_blueprint(feed_bp, url_prefix="")
     app.register_blueprint(ingest_bp, url_prefix="")
+    app.register_blueprint(settings_bp, url_prefix="")
+    app.register_blueprint(profile_bp, url_prefix="")
+    app.register_blueprint(admin_bp, url_prefix="")
 
     # ------------------------------------------------------------------
     # 10. Database initialisation and plugin registration.

@@ -19,6 +19,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import app as app_module
+import web.settings as _settings_module
 from db import _lookup_pricing
 from app import app as flask_app
 from credentials import save_providers
@@ -32,9 +33,10 @@ from job_sources import SOURCES, make_enabled_sources, JobSource
 
 @pytest.fixture()
 def tmp_providers_path(tmp_path, monkeypatch):
-    """Isolated providers.json path; patch app._PROVIDERS_PATH."""
+    """Isolated providers.json path; patch app and web.settings bindings."""
     path = str(tmp_path / "providers.json")
     monkeypatch.setattr(app_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_PROVIDERS_PATH", path)
     return path
 
 
@@ -42,6 +44,7 @@ def tmp_providers_path(tmp_path, monkeypatch):
 def tmp_keys_path(tmp_path, monkeypatch):
     path = str(tmp_path / "keys.json")
     monkeypatch.setattr(app_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_KEYS_PATH", path)
     return path
 
 
@@ -49,6 +52,7 @@ def tmp_keys_path(tmp_path, monkeypatch):
 def tmp_config_path(tmp_path, monkeypatch):
     path = str(tmp_path / "config.json")
     monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(_settings_module, "_CONFIG_PATH", path)
     return path
 
 

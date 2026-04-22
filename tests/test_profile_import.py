@@ -120,25 +120,43 @@ def client():
 
 @pytest.fixture()
 def tmp_profile_path(tmp_path, monkeypatch):
-    """Point _PROFILE_PATH at a temp file for isolation."""
+    """Point _PROFILE_PATH at a temp file for isolation.
+
+    Patches both app_module (for direct attribute access in unit tests)
+    and web.profile (so the HTTP endpoint reads the same temp path).
+    """
+    import web.profile as profile_module  # noqa: PLC0415
     path = str(tmp_path / "profile.json")
     monkeypatch.setattr(app_module, "_PROFILE_PATH", path)
+    monkeypatch.setattr(profile_module, "_PROFILE_PATH", path)
     return path
 
 
 @pytest.fixture()
 def tmp_providers_path(tmp_path, monkeypatch):
-    """Point _PROVIDERS_PATH at a temp file so no real credentials are read."""
+    """Point _PROVIDERS_PATH at a temp file so no real credentials are read.
+
+    Patches both app_module and web.profile so the HTTP endpoint reads
+    the same temp path.
+    """
+    import web.profile as profile_module  # noqa: PLC0415
     path = str(tmp_path / "providers.json")
     monkeypatch.setattr(app_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(profile_module, "_PROVIDERS_PATH", path)
     return path
 
 
 @pytest.fixture()
 def tmp_keys_path(tmp_path, monkeypatch):
-    """Prevent legacy key migration from triggering during tests."""
+    """Prevent legacy key migration from triggering during tests.
+
+    Patches both app_module and web.profile so the HTTP endpoint reads
+    the same temp path.
+    """
+    import web.profile as profile_module  # noqa: PLC0415
     path = str(tmp_path / "keys.json")
     monkeypatch.setattr(app_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(profile_module, "_KEYS_PATH", path)
     return path
 
 
@@ -476,7 +494,7 @@ class TestImportEndpoint:
     def test_returns_400_when_pdf_unreadable(self, client, tmp_providers_path, tmp_keys_path):
         """When _extract_pdf_text raises ValueError, endpoint returns 400."""
         data = {"file": (io.BytesIO(b"garbage"), "resume.pdf")}
-        with patch("app._extract_pdf_text", side_effect=ValueError("Could not read PDF: bad")):
+        with patch("web.profile._extract_pdf_text", side_effect=ValueError("Could not read PDF: bad")):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
         assert resp.status_code == 400
         body = resp.get_json()
@@ -485,7 +503,7 @@ class TestImportEndpoint:
     def test_returns_422_when_extracted_text_too_short(self, client, tmp_providers_path, tmp_keys_path):
         """Fewer than 50 meaningful characters after extraction returns 422."""
         data = {"file": (io.BytesIO(b"fake pdf"), "resume.pdf")}
-        with patch("app._extract_pdf_text", return_value="too short"):
+        with patch("web.profile._extract_pdf_text", return_value="too short"):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
         assert resp.status_code == 422
         body = resp.get_json()
@@ -495,8 +513,8 @@ class TestImportEndpoint:
         """Empty provider chain returns 503."""
         data = {"file": (io.BytesIO(b"fake"), "resume.pdf")}
         long_text = "x" * 200
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[]):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[]):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
         assert resp.status_code == 503
         body = resp.get_json()
@@ -507,9 +525,9 @@ class TestImportEndpoint:
         data = {"file": (io.BytesIO(b"fake"), "resume.pdf")}
         long_text = "x" * 200
         mock_provider = MagicMock()
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=None):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=None):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
         assert resp.status_code == 502
         body = resp.get_json()
@@ -520,10 +538,10 @@ class TestImportEndpoint:
         data = {"file": (io.BytesIO(b"fake"), "resume.pdf")}
         long_text = "x" * 200
         mock_provider = MagicMock()
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=("not json at all", "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=None):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=("not json at all", "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=None):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
         assert resp.status_code == 502
         body = resp.get_json()
@@ -543,10 +561,10 @@ class TestImportEndpoint:
             "preferred_industries": ["fintech"],
             "location_center": "Miami, FL",
         }
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/claude-haiku")), \
-             patch("app._parse_import_response", return_value=parsed_response):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/claude-haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed_response):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
         assert resp.status_code == 200
         body = resp.get_json()
@@ -583,10 +601,10 @@ class TestImportEndpoint:
             "preferred_industries": ["healthtech"],
             "location_center": "Austin, TX",  # should be ignored since current has location
         }
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed_response), "openai/gpt-4o")), \
-             patch("app._parse_import_response", return_value=parsed_response):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed_response), "openai/gpt-4o")), \
+             patch("web.profile._parse_import_response", return_value=parsed_response):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
 
         assert resp.status_code == 200
@@ -642,11 +660,11 @@ class TestImportEndpoint:
             captured_prompts.append(prompt)
             return prompt
 
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed_response), "openai/gpt-4o")), \
-             patch("app._parse_import_response", return_value=parsed_response), \
-             patch("app._build_import_prompt", side_effect=spy_build):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed_response), "openai/gpt-4o")), \
+             patch("web.profile._parse_import_response", return_value=parsed_response), \
+             patch("web.profile._build_import_prompt", side_effect=spy_build):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
 
         assert resp.status_code == 200
@@ -670,10 +688,10 @@ class TestImportEndpoint:
             "preferred_industries": [],
             "location_center": None,
         }
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed_response):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed_response):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
 
         assert resp.status_code == 200
@@ -692,10 +710,10 @@ class TestImportEndpoint:
             "preferred_industries": [],
             "location_center": None,
         }
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed_response):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed_response):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
 
         assert resp.status_code == 200
@@ -714,10 +732,10 @@ class TestImportEndpoint:
             "preferred_industries": [],
             "location_center": None,
         }
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed_response):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed_response):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
 
         assert resp.status_code == 200
@@ -1100,9 +1118,9 @@ class TestParseImportResponsePrefilter:
                 "title_exclude": ["manager"],  # overlap — would have caused old 502
             },
         })
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(raw_llm, "anthropic/haiku")):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(raw_llm, "anthropic/haiku")):
             resp = client.post(
                 "/profile/import-pdf",
                 data={
@@ -1249,10 +1267,10 @@ class TestImportEndpointSuggestFilters:
         long_text = "x" * 200
         mock_provider = MagicMock()
         parsed = self._llm_response_with_suggestions()
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed):
             resp = client.post(
                 "/profile/import-pdf",
                 data={"file": (io.BytesIO(b"fake"), "resume.pdf")},
@@ -1272,10 +1290,10 @@ class TestImportEndpointSuggestFilters:
             include=["engineer", "developer"],
             exclude=["manager", "director"],
         )
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed):
             resp = client.post(
                 "/profile/import-pdf",
                 data={
@@ -1307,11 +1325,11 @@ class TestImportEndpointSuggestFilters:
             captured.append({"suggest_filters": suggest_filters})
             return original_build(resume_text, suggest_filters=suggest_filters)
 
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed), \
-             patch("app._build_import_prompt", side_effect=spy_build):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed), \
+             patch("web.profile._build_import_prompt", side_effect=spy_build):
             client.post(
                 "/profile/import-pdf",
                 data={
@@ -1344,11 +1362,11 @@ class TestImportEndpointSuggestFilters:
             captured.append({"suggest_filters": suggest_filters})
             return original_build(resume_text, suggest_filters=suggest_filters)
 
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed), \
-             patch("app._build_import_prompt", side_effect=spy_build):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed), \
+             patch("web.profile._build_import_prompt", side_effect=spy_build):
             client.post(
                 "/profile/import-pdf",
                 data={"file": (io.BytesIO(b"fake"), "resume.pdf")},
@@ -1371,10 +1389,10 @@ class TestImportEndpointSuggestFilters:
             "location_center": None,
             # no prefilter_suggestions key
         }
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed):
             resp = client.post(
                 "/profile/import-pdf",
                 data={
@@ -1401,6 +1419,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         """Point _CONFIG_PATH at a temp file for isolation."""
         path = str(tmp_path / "config.json")
         monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        import web.profile as _profile_module
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         return path
 
     def _write_config(self, path: str, cfg: dict) -> None:
@@ -1475,6 +1495,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         client, token = client_with_csrf
         path = str(tmp_path / "config.json")
         monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        import web.profile as _profile_module
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         self._write_config(path, {})
         resp = self._post_suggestions(client, ["engineer"], [], csrf_token=token)
         assert resp.status_code == 200
@@ -1518,6 +1540,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         client, token = client_with_csrf
         path = str(tmp_path / "config.json")
         monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        import web.profile as _profile_module
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         self._write_config(path, {})
         resp = self._post_suggestions(
             client,
@@ -1619,6 +1643,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         client, token = client_with_csrf
         path = str(tmp_path / "config.json")
         monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        import web.profile as _profile_module
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         self._write_config(
             path,
             {"prefilter": {"title_include": ["Engineer"], "title_exclude": []}},
@@ -1646,6 +1672,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         client, token = client_with_csrf
         path = str(tmp_path / "config.json")
         monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        import web.profile as _profile_module
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         self._write_config(path, {})
         resp = self._post_suggestions(client, ["engineer"], ["director"], csrf_token=token)
         assert resp.status_code == 200
@@ -1660,6 +1688,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         client, token = client_with_csrf
         path = str(tmp_path / "config.json")
         monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        import web.profile as _profile_module
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         self._write_config(
             path,
             {"prefilter": {"title_include": ["staff"], "title_exclude": ["intern"]}},
@@ -1679,6 +1709,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         client, token = client_with_csrf
         path = str(tmp_path / "config.json")
         monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        import web.profile as _profile_module
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         self._write_config(
             path,
             {
@@ -1703,6 +1735,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         client, token = client_with_csrf
         path = str(tmp_path / "config_missing.json")
         monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        import web.profile as _profile_module
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         # path never created — doesn't exist
         resp = self._post_suggestions(client, ["engineer"], [], csrf_token=token)
         assert resp.status_code == 500
@@ -1713,6 +1747,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         client, token = client_with_csrf
         path = str(tmp_path / "config.json")
         monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        import web.profile as _profile_module
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         self._write_config(
             path,
             {"prefilter": {"title_include": ["engineer"], "title_exclude": []}},
@@ -1747,8 +1783,10 @@ class TestApplyPrefilterSuggestionsEndpoint:
         The POST must return 200, not 403, proving the CSRF guard is satisfied
         when the correct browser-flow token is used.
         """
+        import web.profile as _profile_module
         config_path = str(tmp_path / "config.json")
         monkeypatch.setattr(app_module, "_CONFIG_PATH", config_path)
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", config_path)
         self._write_config(config_path, {})
 
         with flask_app.test_client() as c:

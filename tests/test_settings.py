@@ -14,6 +14,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import app as app_module
+import web.profile as _profile_module
+import web.settings as _settings_module
 from app import app as flask_app
 from providers.anthropic_provider import AnthropicProvider
 from providers.openai_provider import OpenAIProvider
@@ -29,6 +31,7 @@ def tmp_keys_path(tmp_path, monkeypatch):
     """Point _KEYS_PATH at a temp file so legacy migration never touches keys.json."""
     path = str(tmp_path / "keys.json")
     monkeypatch.setattr(app_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_KEYS_PATH", path)
     return path
 
 
@@ -37,6 +40,7 @@ def tmp_providers_path(tmp_path, monkeypatch):
     """Point _PROVIDERS_PATH at a temp file so tests don't touch providers.json."""
     path = str(tmp_path / "providers.json")
     monkeypatch.setattr(app_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_PROVIDERS_PATH", path)
     return path
 
 
@@ -218,6 +222,8 @@ def tmp_config_path(tmp_path, monkeypatch):
     """Point _CONFIG_PATH at a temp file so tests don't touch the real config.json."""
     path = str(tmp_path / "config.json")
     monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(_settings_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
     return path
 
 

@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import ingest
 import web.ingest as web_ingest_module
+import web.settings as _settings_module
 from ingest import (
     ValidationIssue,
     _is_search_field_empty,
@@ -494,12 +495,14 @@ class TestSettingsSearchWarningBanner:
             }, fh)
         monkeypatch.setattr(app_module, "_PROVIDERS_PATH", providers_path)
         monkeypatch.setattr(app_module, "_CONFIG_PATH", config_path)
+        monkeypatch.setattr(_settings_module, "_PROVIDERS_PATH", providers_path)
+        monkeypatch.setattr(_settings_module, "_CONFIG_PATH", config_path)
         with flask_app.test_client() as c:
-            yield c, app_module
+            yield c, _settings_module
 
     def test_no_banner_when_no_issues(self, client):
-        c, app_module = client
-        with patch.object(app_module, "_get_search_validation_issues",
+        c, settings_mod = client
+        with patch.object(settings_mod, "_get_search_validation_issues",
                           return_value=[]):
             resp = c.get("/settings")
         assert resp.status_code == 200
@@ -510,14 +513,14 @@ class TestSettingsSearchWarningBanner:
         assert '<div class="config-warn-banner"' not in html
 
     def test_banner_present_when_issues_exist(self, client):
-        c, app_module = client
+        c, settings_mod = client
         fake_issues = [
             ValidationIssue(
                 source_key="adzuna",
                 missing_fields=["country", "what"],
             )
         ]
-        with patch.object(app_module, "_get_search_validation_issues",
+        with patch.object(settings_mod, "_get_search_validation_issues",
                           return_value=fake_issues):
             resp = c.get("/settings")
         assert resp.status_code == 200
@@ -529,11 +532,11 @@ class TestSettingsSearchWarningBanner:
         assert "what" in html
 
     def test_tab_badge_present_when_issues_exist(self, client):
-        c, app_module = client
+        c, settings_mod = client
         fake_issues = [
             ValidationIssue(source_key="adzuna", missing_fields=["country"])
         ]
-        with patch.object(app_module, "_get_search_validation_issues",
+        with patch.object(settings_mod, "_get_search_validation_issues",
                           return_value=fake_issues):
             resp = c.get("/settings")
         html = resp.get_data(as_text=True)
@@ -541,11 +544,11 @@ class TestSettingsSearchWarningBanner:
         assert "tab-warn-badge" in html
 
     def test_warning_links_to_search_tab(self, client):
-        c, app_module = client
+        c, settings_mod = client
         fake_issues = [
             ValidationIssue(source_key="adzuna", missing_fields=["country"])
         ]
-        with patch.object(app_module, "_get_search_validation_issues",
+        with patch.object(settings_mod, "_get_search_validation_issues",
                           return_value=fake_issues):
             resp = c.get("/settings")
         html = resp.get_data(as_text=True)

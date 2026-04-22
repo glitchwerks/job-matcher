@@ -14,7 +14,6 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import app as app_module
 from app import app as flask_app
 
 
@@ -32,10 +31,11 @@ def client():
 
 @pytest.fixture()
 def log_dir(tmp_path, monkeypatch):
-    """Redirect LOG_DIR in both paths module and app module to a temp directory."""
+    """Redirect LOG_DIR in paths module and web.admin to a temp directory."""
     import paths
+    import web.admin as admin_module  # noqa: PLC0415
     monkeypatch.setattr(paths, "LOG_DIR", tmp_path)
-    monkeypatch.setattr(app_module, "LOG_DIR", tmp_path)
+    monkeypatch.setattr(admin_module, "LOG_DIR", tmp_path)
     return tmp_path
 
 
@@ -111,9 +111,10 @@ class TestAdminLogsList:
     def test_missing_log_dir_returns_empty(self, client, tmp_path, monkeypatch):
         """When LOG_DIR does not exist, the response contains 'No logs yet' (no error)."""
         import paths
+        import web.admin as admin_module  # noqa: PLC0415
         nonexistent = tmp_path / "does_not_exist"
         monkeypatch.setattr(paths, "LOG_DIR", nonexistent)
-        monkeypatch.setattr(app_module, "LOG_DIR", nonexistent)
+        monkeypatch.setattr(admin_module, "LOG_DIR", nonexistent)
 
         with patch("db.get_listing_count", return_value=0):
             resp = client.get("/admin/logs")

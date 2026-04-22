@@ -40,6 +40,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import app as app_module
+import web.profile as _profile_module
 from app import app as flask_app
 import services.pdf_import as pdf_import_module
 
@@ -90,6 +91,7 @@ def client():
 def tmp_providers_path(tmp_path, monkeypatch):
     path = str(tmp_path / "providers.json")
     monkeypatch.setattr(app_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_profile_module, "_PROVIDERS_PATH", path)
     return path
 
 
@@ -97,6 +99,7 @@ def tmp_providers_path(tmp_path, monkeypatch):
 def tmp_keys_path(tmp_path, monkeypatch):
     path = str(tmp_path / "keys.json")
     monkeypatch.setattr(app_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_profile_module, "_KEYS_PATH", path)
     return path
 
 
@@ -104,6 +107,7 @@ def tmp_keys_path(tmp_path, monkeypatch):
 def tmp_profile_path(tmp_path, monkeypatch):
     path = str(tmp_path / "profile.json")
     monkeypatch.setattr(app_module, "_PROFILE_PATH", path)
+    monkeypatch.setattr(_profile_module, "_PROFILE_PATH", path)
     return path
 
 
@@ -121,14 +125,14 @@ class TestImportPdfSync:
             "file": (io.BytesIO(_make_minimal_pdf_bytes()), "resume.pdf"),
         }
         with (
-            mock.patch.object(app_module, "_extract_pdf_text", return_value=text),
-            mock.patch.object(app_module, "build_provider_chain", return_value=["stub"]),
+            mock.patch.object(_profile_module, "_extract_pdf_text", return_value=text),
+            mock.patch.object(_profile_module, "build_provider_chain", return_value=["stub"]),
             mock.patch.object(
-                app_module,
+                _profile_module,
                 "generate_with_fallback",
                 return_value=(json.dumps(_make_fake_llm_response()), "anthropic/claude-haiku"),
             ),
-            mock.patch.object(app_module, "_load_providers_safe", return_value={}),
+            mock.patch.object(_profile_module, "_load_providers_safe", return_value={}),
         ):
             return client.post(
                 "/profile/import-pdf",
@@ -187,9 +191,9 @@ class TestImportPdfAsync:
             "file": (io.BytesIO(_make_minimal_pdf_bytes()), "big_resume.pdf"),
         }
         with (
-            mock.patch.object(app_module, "_extract_pdf_text", return_value=text),
-            mock.patch.object(app_module, "_load_providers_safe", return_value={}),
-            mock.patch.object(app_module, "_pdf_executor") as mock_executor,
+            mock.patch.object(_profile_module, "_extract_pdf_text", return_value=text),
+            mock.patch.object(_profile_module, "_load_providers_safe", return_value={}),
+            mock.patch.object(_profile_module, "_pdf_executor") as mock_executor,
         ):
             return client.post(
                 "/profile/import-pdf",
@@ -564,8 +568,8 @@ class TestConcurrencyLimit:
             "file": (io.BytesIO(_make_minimal_pdf_bytes()), "big.pdf"),
         }
         with (
-            mock.patch.object(app_module, "_extract_pdf_text", return_value=text),
-            mock.patch.object(app_module, "_load_providers_safe", return_value={}),
+            mock.patch.object(_profile_module, "_extract_pdf_text", return_value=text),
+            mock.patch.object(_profile_module, "_load_providers_safe", return_value={}),
         ):
             resp = client.post(
                 "/profile/import-pdf", data=data, content_type="multipart/form-data"
@@ -583,9 +587,9 @@ class TestConcurrencyLimit:
             "file": (io.BytesIO(_make_minimal_pdf_bytes()), "big.pdf"),
         }
         with (
-            mock.patch.object(app_module, "_extract_pdf_text", return_value=text),
-            mock.patch.object(app_module, "_load_providers_safe", return_value={}),
-            mock.patch.object(app_module, "_pdf_executor") as mock_exec,
+            mock.patch.object(_profile_module, "_extract_pdf_text", return_value=text),
+            mock.patch.object(_profile_module, "_load_providers_safe", return_value={}),
+            mock.patch.object(_profile_module, "_pdf_executor") as mock_exec,
         ):
             resp = client.post(
                 "/profile/import-pdf", data=data, content_type="multipart/form-data"
