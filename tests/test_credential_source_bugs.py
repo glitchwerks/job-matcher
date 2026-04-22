@@ -332,10 +332,11 @@ class TestIssue282ConfigWarningsFalsePositive:
             "llm": {},
             "job_sources": {},  # no adzuna entry
         })
-        monkeypatch.setattr(app_module, "_PROVIDERS_PATH", tmp_providers_path)
 
         from app import _config_warnings
-        warnings = _config_warnings()
+        # After Issue #326: _config_warnings now lives in services.provider_schemas and
+        # requires providers_path= explicitly (no app-global fallback).
+        warnings = _config_warnings(providers_path=tmp_providers_path)
 
         assert warnings == [], f"Expected no warnings, got: {warnings}"
 
@@ -350,10 +351,9 @@ class TestIssue282ConfigWarningsFalsePositive:
                 "adzuna": {"enabled": False, "app_id": "", "app_key": ""},
             },
         })
-        monkeypatch.setattr(app_module, "_PROVIDERS_PATH", tmp_providers_path)
 
         from app import _config_warnings
-        warnings = _config_warnings()
+        warnings = _config_warnings(providers_path=tmp_providers_path)
 
         assert warnings == []
 
@@ -368,10 +368,9 @@ class TestIssue282ConfigWarningsFalsePositive:
                 "adzuna": {"enabled": True, "app_id": "", "app_key": ""},
             },
         })
-        monkeypatch.setattr(app_module, "_PROVIDERS_PATH", tmp_providers_path)
 
         from app import _config_warnings
-        warnings = _config_warnings()
+        warnings = _config_warnings(providers_path=tmp_providers_path)
 
         assert len(warnings) == 1
         assert "Adzuna" in warnings[0]
@@ -387,10 +386,9 @@ class TestIssue282ConfigWarningsFalsePositive:
                 "adzuna": {"enabled": True, "app_id": "real-id", "app_key": "real-key"},
             },
         })
-        monkeypatch.setattr(app_module, "_PROVIDERS_PATH", tmp_providers_path)
 
         from app import _config_warnings
-        warnings = _config_warnings()
+        warnings = _config_warnings(providers_path=tmp_providers_path)
 
         assert warnings == []
 

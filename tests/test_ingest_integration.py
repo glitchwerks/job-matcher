@@ -114,11 +114,15 @@ def _parse_sse_ids(text: str) -> list[str]:
 def _run_reader_synchronously(proc, queue: EventQueue, monkeypatch) -> None:
     """Run _stdout_reader in the current thread against *proc*, pushing into *queue*.
 
-    Monkeypatches app_module.event_queue so _stdout_reader uses our fresh queue.
+    Monkeypatches event_queue in all three namespaces that hold a reference:
+      - app_module.event_queue  (used by route handlers)
+      - ingest_events.event_queue  (module-level singleton)
+      - services.ingest_control.event_queue  (bound at import time via
+        ``from ingest_events import event_queue`` — must be patched separately)
     """
     monkeypatch.setattr(app_module, "event_queue", queue)
-    # Also patch ingest_events module-level reference used inside _stdout_reader
     monkeypatch.setattr("ingest_events.event_queue", queue)
+    monkeypatch.setattr("services.ingest_control.event_queue", queue)
     _stdout_reader(proc)
 
 
@@ -137,6 +141,7 @@ def fresh_queue(monkeypatch):
     q = EventQueue()
     monkeypatch.setattr(app_module, "event_queue", q)
     monkeypatch.setattr("ingest_events.event_queue", q)
+    monkeypatch.setattr("services.ingest_control.event_queue", q)
     yield q
 
 

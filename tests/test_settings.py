@@ -489,6 +489,10 @@ class TestLoadProvidersSafe:
 
     This replaces the old TestLoadKeys tests which covered the removed
     _load_keys() shim.
+
+    After Issue #326: _load_providers_safe now lives in services.provider_schemas
+    and requires explicit path arguments. Tests pass paths directly rather than
+    relying on monkeypatched app module globals.
     """
 
     def test_returns_empty_skeleton_when_no_file(
@@ -497,7 +501,11 @@ class TestLoadProvidersSafe:
         """When providers.json is absent and no migration sources exist, returns
         safe empty dict rather than raising."""
         assert not os.path.exists(tmp_providers_path)
-        result = app_module._load_providers_safe()
+        result = app_module._load_providers_safe(
+            providers_path=tmp_providers_path,
+            keys_path=tmp_keys_path,
+            config_path=tmp_config_path,
+        )
         assert "llm" in result
         assert "job_sources" in result
         assert "provider_order" in result
@@ -507,19 +515,29 @@ class TestLoadProvidersSafe:
     ):
         with open(tmp_providers_path, "w") as f:
             f.write("not valid json {{{{")
-        result = app_module._load_providers_safe()
+        result = app_module._load_providers_safe(
+            providers_path=tmp_providers_path,
+            keys_path=tmp_keys_path,
+        )
         assert result["llm"] == {}
         assert result["job_sources"] == {}
 
     def test_loads_existing_providers_json(self, tmp_providers_path, tmp_keys_path):
         _write_providers(tmp_providers_path, anthropic_key="sk-x")
-        result = app_module._load_providers_safe()
+        result = app_module._load_providers_safe(
+            providers_path=tmp_providers_path,
+            keys_path=tmp_keys_path,
+        )
         assert result["llm"]["anthropic"]["api_key"] == "sk-x"
 
     def test_never_raises(self, tmp_providers_path, tmp_keys_path, tmp_config_path):
         """_load_providers_safe() must never propagate CredentialError."""
         assert not os.path.exists(tmp_providers_path)
-        result = app_module._load_providers_safe()
+        result = app_module._load_providers_safe(
+            providers_path=tmp_providers_path,
+            keys_path=tmp_keys_path,
+            config_path=tmp_config_path,
+        )
         assert isinstance(result, dict)
 
 
@@ -1005,7 +1023,10 @@ class TestValidateWithTimeout:
         import time
 
         # Reduce timeout to 0.05 s so the test completes quickly.
-        monkeypatch.setattr(app_module, "_VALIDATE_TIMEOUT_SECONDS", 0.05)
+        # Patch the authoritative location (services/provider_schemas.py) —
+        # _validate_with_timeout is now defined there (Issue #326 consolidation).
+        import services.provider_schemas as _provider_schemas
+        monkeypatch.setattr(_provider_schemas, "_VALIDATE_TIMEOUT_SECONDS", 0.05)
 
         def _hanging_validator(k, m):
             time.sleep(10)  # much longer than the patched timeout
@@ -1072,7 +1093,10 @@ class TestValidateKeysTimeout:
         import time
 
         # Reduce timeout so the test completes quickly.
-        monkeypatch.setattr(app_module, "_VALIDATE_TIMEOUT_SECONDS", 0.05)
+        # Patch the authoritative location (services/provider_schemas.py) —
+        # _validate_with_timeout is now defined there (Issue #326 consolidation).
+        import services.provider_schemas as _provider_schemas
+        monkeypatch.setattr(_provider_schemas, "_VALIDATE_TIMEOUT_SECONDS", 0.05)
 
         self._write_providers(tmp_providers_path)
 

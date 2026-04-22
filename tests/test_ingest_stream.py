@@ -26,6 +26,10 @@ def fresh_queue(monkeypatch):
     q = EventQueue(idle_grace=0)
     monkeypatch.setattr(app_module, "event_queue", q)
     monkeypatch.setattr("ingest_events.event_queue", q)
+    # ingest_control does `from ingest_events import event_queue` at import time,
+    # so patching ingest_events.event_queue alone does not affect the local binding
+    # in ingest_control. Patch both so _stdout_reader and _ingest_running use our queue.
+    monkeypatch.setattr("services.ingest_control.event_queue", q)
     yield q
 
 
@@ -160,7 +164,6 @@ class TestStdoutReader:
         """
         import io
         import logging
-        import app as app_module
         from app import _stdout_reader
 
         # Build a fake EventQueue that records pushed events
@@ -200,10 +203,14 @@ class TestStdoutReader:
             def kill(self):
                 pass
 
-        monkeypatch.setattr(app_module, "event_queue", FakeQueue())
-        monkeypatch.setattr("app.IngestEventParser", FakeParser)
+        fake_queue = FakeQueue()
+        monkeypatch.setattr("ingest_events.event_queue", fake_queue)
+        # ingest_control binds event_queue at import time via `from ingest_events import
+        # event_queue` — patch both so _stdout_reader uses our recording instance.
+        monkeypatch.setattr("services.ingest_control.event_queue", fake_queue)
+        monkeypatch.setattr("ingest_events.IngestEventParser", FakeParser)
 
-        with caplog.at_level(logging.ERROR, logger="app"):
+        with caplog.at_level(logging.ERROR, logger="services.ingest_control"):
             _stdout_reader(FakeProc())
 
         # 1. Reader did NOT exit after the exception — it continued and pushed

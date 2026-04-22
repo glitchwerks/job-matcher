@@ -2,6 +2,11 @@
 
 Uses Flask's built-in test client and monkeypatches the module-level
 _ingest_process handle so no real subprocess is ever spawned.
+
+Issue #326 consolidation: ingest globals now live in services/ingest_control.
+Tests patch ingest_control.* directly so mutations reach the module that owns
+the state; app_module.subprocess.Popen patches still work because ingest_trigger()
+calls subprocess.Popen via the app module's own subprocess reference.
 """
 
 import os
@@ -13,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import app as app_module
 from app import app as flask_app, _parse_ingest_summary
+from services import ingest_control
 
 
 # ---------------------------------------------------------------------------
@@ -25,14 +31,16 @@ def reset_ingest_process(monkeypatch):
 
     Resets _ingest_process, _ingest_log_file, and _ingest_just_completed
     so tests do not bleed state into one another.
+
+    Patches ingest_control.* — the authoritative location after Issue #326.
     """
-    monkeypatch.setattr(app_module, "_ingest_process", None)
-    monkeypatch.setattr(app_module, "_ingest_log_file", None)
-    monkeypatch.setattr(app_module, "_ingest_just_completed", False)
+    monkeypatch.setattr(ingest_control, "_ingest_process", None)
+    monkeypatch.setattr(ingest_control, "_ingest_log_file", None)
+    monkeypatch.setattr(ingest_control, "_ingest_just_completed", False)
     yield
-    monkeypatch.setattr(app_module, "_ingest_process", None)
-    monkeypatch.setattr(app_module, "_ingest_log_file", None)
-    monkeypatch.setattr(app_module, "_ingest_just_completed", False)
+    monkeypatch.setattr(ingest_control, "_ingest_process", None)
+    monkeypatch.setattr(ingest_control, "_ingest_log_file", None)
+    monkeypatch.setattr(ingest_control, "_ingest_just_completed", False)
 
 
 @pytest.fixture()
@@ -183,21 +191,21 @@ class TestIngestTrigger:
 class TestIngestTriggerConflict:
     def test_returns_409_when_already_running(self, client, monkeypatch):
         """Triggering while a process is running should return 409."""
-        monkeypatch.setattr(app_module, "_ingest_process", _make_mock_process())
+        monkeypatch.setattr(ingest_control, "_ingest_process", _make_mock_process())
         resp = client.post("/ingest/trigger")
         assert resp.status_code == 409
 
     def test_409_body_is_json_error(self, client, monkeypatch):
         """The 409 response body should be JSON with an 'error' key."""
         import json
-        monkeypatch.setattr(app_module, "_ingest_process", _make_mock_process())
+        monkeypatch.setattr(ingest_control, "_ingest_process", _make_mock_process())
         resp = client.post("/ingest/trigger")
         data = json.loads(resp.data)
         assert data.get("error") == "already running"
 
     def test_no_second_popen_when_already_running(self, client, monkeypatch):
         """A second call while running must not spawn another subprocess."""
-        monkeypatch.setattr(app_module, "_ingest_process", _make_mock_process())
+        monkeypatch.setattr(ingest_control, "_ingest_process", _make_mock_process())
         popen_calls = []
         monkeypatch.setattr(
             app_module.subprocess,
@@ -225,26 +233,26 @@ class TestIngestStatus:
 
     def test_running_returns_running_partial(self, client, monkeypatch):
         """While a process is active the response should contain the running indicator."""
-        monkeypatch.setattr(app_module, "_ingest_process", _make_mock_process())
+        monkeypatch.setattr(ingest_control, "_ingest_process", _make_mock_process())
         resp = client.get("/ingest/status")
         body = resp.data.decode()
         assert "Running" in body
 
     def test_running_partial_contains_polling_trigger(self, client, monkeypatch):
         """The running partial must carry hx-trigger so HTMX keeps polling."""
-        monkeypatch.setattr(app_module, "_ingest_process", _make_mock_process())
+        monkeypatch.setattr(ingest_control, "_ingest_process", _make_mock_process())
         resp = client.get("/ingest/status")
         body = resp.data.decode()
         assert "every 2s" in body
 
     def test_completed_process_resets_to_idle(self, client, monkeypatch):
         """Once poll() returns non-None the handle is cleared and idle HTML is returned."""
-        monkeypatch.setattr(app_module, "_ingest_process", _make_mock_process(exited=True))
+        monkeypatch.setattr(ingest_control, "_ingest_process", _make_mock_process(exited=True))
         resp = client.get("/ingest/status")
         body = resp.data.decode()
         assert "Run Ingestion" in body
-        # Handle must be cleared.
-        assert app_module._ingest_process is None
+        # Handle must be cleared in the authoritative module.
+        assert ingest_control._ingest_process is None
 
     def test_idle_poll_without_prior_run_has_no_hx_trigger(self, client):
         """An idle poll with no completed run must NOT carry HX-Trigger.
@@ -257,7 +265,7 @@ class TestIngestStatus:
 
     def test_running_response_has_no_hx_trigger_header(self, client, monkeypatch):
         """While still running, HX-Trigger must not be present."""
-        monkeypatch.setattr(app_module, "_ingest_process", _make_mock_process())
+        monkeypatch.setattr(ingest_control, "_ingest_process", _make_mock_process())
         resp = client.get("/ingest/status")
         assert "HX-Trigger" not in resp.headers
 
@@ -269,7 +277,7 @@ class TestIngestStatus:
         """
         # Simulate an exited process so _ingest_running() sets the flag.
         monkeypatch.setattr(
-            app_module, "_ingest_process", _make_mock_process(exited=True)
+            ingest_control, "_ingest_process", _make_mock_process(exited=True)
         )
         resp = client.get("/ingest/status")
         assert resp.headers.get("HX-Trigger") == "ingestComplete"
@@ -282,7 +290,7 @@ class TestIngestStatus:
         on every poll (bug #223).
         """
         monkeypatch.setattr(
-            app_module, "_ingest_process", _make_mock_process(exited=True)
+            ingest_control, "_ingest_process", _make_mock_process(exited=True)
         )
         # First poll — transition fires
         client.get("/ingest/status")
@@ -297,24 +305,25 @@ class TestIngestStatus:
 
 class TestIngestRunningHelper:
     def test_returns_false_when_no_handle(self, monkeypatch):
-        monkeypatch.setattr(app_module, "_ingest_process", None)
-        assert app_module._ingest_running() is False
+        monkeypatch.setattr(ingest_control, "_ingest_process", None)
+        assert ingest_control._ingest_running() is False
 
     def test_returns_true_while_running(self, monkeypatch):
-        monkeypatch.setattr(app_module, "_ingest_process", _make_mock_process())
-        assert app_module._ingest_running() is True
+        monkeypatch.setattr(ingest_control, "_ingest_process", _make_mock_process())
+        assert ingest_control._ingest_running() is True
 
     def test_returns_false_and_clears_handle_after_exit(self, monkeypatch):
-        monkeypatch.setattr(app_module, "_ingest_process", _make_mock_process(exited=True))
-        result = app_module._ingest_running()
+        monkeypatch.setattr(ingest_control, "_ingest_process", _make_mock_process(exited=True))
+        result = ingest_control._ingest_running()
         assert result is False
-        assert app_module._ingest_process is None
+        assert ingest_control._ingest_process is None
 
     def test_sets_last_run_after_exit(self, monkeypatch):
         """When process exits, _last_run should be populated from the event queue
         complete event (subprocess stdout is now piped through StdoutReader, not
         a temp file — summary is extracted from the queue instead)."""
         from ingest_events import EventQueue
+        import ingest_events
         summary_line = (
             "Run complete: 1 source(s) | 5 fetched | 10 pre-filtered | 2 dupes skipped | "
             "3 scored (0 failed) | 0 scrape fallbacks | ~500 tok | ~$0.0001"
@@ -329,28 +338,33 @@ class TestIngestRunningHelper:
             "detail": {"summary": summary_line},
             "timestamp": "2026-04-09T00:00:00+00:00",
         })
-        monkeypatch.setattr(app_module, "event_queue", q)
-        monkeypatch.setattr(app_module, "_ingest_process", _make_mock_process(exited=True))
-        monkeypatch.setattr(app_module, "_ingest_log_file", None)
-        monkeypatch.setattr(app_module, "_last_run", None)
-        app_module._ingest_running()
-        assert app_module._last_run is not None
-        assert app_module._last_run["new"] == 5
-        assert app_module._last_run["filtered"] == 10
-        assert app_module._last_run["errors"] == 0
+        # ingest_control._ingest_running() reads ingest_control.event_queue, which
+        # was bound at import time via `from ingest_events import event_queue`.
+        # Patch both the canonical module and the local binding so the function
+        # sees our seeded queue regardless of which reference it uses.
+        monkeypatch.setattr(ingest_events, "event_queue", q)
+        monkeypatch.setattr(ingest_control, "event_queue", q)
+        monkeypatch.setattr(ingest_control, "_ingest_process", _make_mock_process(exited=True))
+        monkeypatch.setattr(ingest_control, "_ingest_log_file", None)
+        monkeypatch.setattr(ingest_control, "_last_run", None)
+        ingest_control._ingest_running()
+        assert ingest_control._last_run is not None
+        assert ingest_control._last_run["new"] == 5
+        assert ingest_control._last_run["filtered"] == 10
+        assert ingest_control._last_run["errors"] == 0
 
     def test_log_file_read_error_sets_last_run_to_zeros(self, monkeypatch):
         """When the log file raises on read, _last_run should default to zeros."""
         bad_file = MagicMock()
         bad_file.seek.side_effect = OSError("seek failed")
-        monkeypatch.setattr(app_module, "_ingest_process", _make_mock_process(exited=True))
-        monkeypatch.setattr(app_module, "_ingest_log_file", bad_file)
-        monkeypatch.setattr(app_module, "_last_run", None)
-        app_module._ingest_running()
-        assert app_module._last_run is not None
-        assert app_module._last_run["new"] == 0
-        assert app_module._last_run["filtered"] == 0
-        assert app_module._last_run["errors"] == 0
+        monkeypatch.setattr(ingest_control, "_ingest_process", _make_mock_process(exited=True))
+        monkeypatch.setattr(ingest_control, "_ingest_log_file", bad_file)
+        monkeypatch.setattr(ingest_control, "_last_run", None)
+        ingest_control._ingest_running()
+        assert ingest_control._last_run is not None
+        assert ingest_control._last_run["new"] == 0
+        assert ingest_control._last_run["filtered"] == 0
+        assert ingest_control._last_run["errors"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -425,7 +439,7 @@ class TestIngestStatusLastRun:
             "errors": 0,
             "completed_at": datetime(2026, 3, 29, 12, 0, 0, tzinfo=timezone.utc),
         }
-        monkeypatch.setattr(app_module, "_last_run", sample_last_run)
+        monkeypatch.setattr(ingest_control, "_last_run", sample_last_run)
         resp = client.get("/ingest/status")
         body = resp.data.decode()
         assert "7 new" in body
@@ -433,7 +447,7 @@ class TestIngestStatusLastRun:
 
     def test_ingest_status_idle_no_last_run_section_when_none(self, client, monkeypatch):
         """When _last_run is None, the last-run paragraph should not appear."""
-        monkeypatch.setattr(app_module, "_last_run", None)
+        monkeypatch.setattr(ingest_control, "_last_run", None)
         resp = client.get("/ingest/status")
         body = resp.data.decode()
         assert "Last run" not in body

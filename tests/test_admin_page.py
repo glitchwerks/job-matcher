@@ -115,7 +115,7 @@ class TestNavHasAdminLink:
              patch("db.get_job_types", return_value=[]), \
              patch("db.get_last_fetch_time", return_value=None), \
              patch("app._config_warnings", return_value=[]), \
-             patch("app._ingest_running", return_value=False):
+             patch("services.ingest_control._ingest_running", return_value=False):
             resp = client.get("/")
         assert resp.status_code == 200
         assert 'href="/admin"' in resp.data.decode()

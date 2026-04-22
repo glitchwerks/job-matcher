@@ -245,6 +245,8 @@ Every phase's PR must end with a green `pytest` run.
 
 **Goal**: extract provider schema building, config warnings, runtime versions, key validation, and ingest subprocess control.
 
+**Status**: Landed in PR #325, then fully consolidated in Issue #326 (PR on branch `refactor/split-app-phase-4-consolidation`).
+
 **Inventory (refreshed)** — `services/provider_schemas.py`:
 - `get_runtime_versions` (314) + `RUNTIME_VERSIONS` (362) — *or* put in a new `services/runtime_info.py` if we want to keep it single-responsibility
 - `_config_warnings` (369)
@@ -268,6 +270,23 @@ Every phase's PR must end with a green `pytest` run.
 **Test coverage**: `tests/test_ingest_trigger.py`, `tests/test_ingest_stream.py`, `tests/test_ingest_integration.py`, `tests/test_settings_save.py`, `tests/test_credential_source_bugs.py`, `tests/test_reorder.py`. High coverage; this is the phase most likely to surface a regression early.
 
 **Risk**: Medium. The `_ingest_*` globals are shared mutable state touched from (a) the request thread that spawns the subprocess, (b) the `_stdout_reader` daemon thread, and (c) the request thread that polls `/ingest/status`. Moving the globals into a new module changes their identity — any code that imports `from app import _ingest_process` will see `None` forever. The fix is to re-export via `app.py` *and* to have `web/ingest.py` access these via `from services import ingest_control; ingest_control._ingest_process` (never a bare `from services.ingest_control import _ingest_process`, which captures the value at import time). Verify with `tests/test_ingest_trigger.py` which monkeypatches `app._ingest_process`.
+
+### Phase 4 deviation log (Issue #326 consolidation)
+
+**PR #325 (original Phase 4)** landed with a dual-copy architecture instead of pure extraction. Three tiers of duplication were introduced:
+
+- **Tier 3 (worst)**: Full function definitions in BOTH `app.py` AND `services/*` for `_validate_with_timeout`, `_stdout_reader`, `_ingest_running`. Tests exercised the `app.py` copies via monkeypatch; runtime would exercise the `services/*` copies — creating silent regression risk.
+- **Tier 2**: `app.py` wrappers for `_config_warnings`, `_get_search_validation_issues`, `_load_providers_safe` that delegated to services with path arg injection.
+- **Tier 1 (fine)**: Clean re-exports via `__all__` for `_parse_ingest_summary` and the path constants.
+
+**Issue #326 (this consolidation)** closed the gap:
+
+- Tier-3 function definitions removed from `app.py`. `app._validate_with_timeout`, `app._stdout_reader`, `app._ingest_running` are now aliases to the service implementations.
+- Tier-2 wrappers removed. Route handlers call `_config_warnings(providers_path=_PROVIDERS_PATH)` etc. directly; the module-level path name is read at call time so test monkeypatches on `app._PROVIDERS_PATH` continue to work.
+- Duplicate ingest globals removed from `app.py`. `app._ingest_process` etc. are now aliases to `ingest_control.*` at import time. Route handlers (`ingest_trigger`, `ingest_status`) access state exclusively via `ingest_control.*` to avoid the Python rebinding hazard.
+- Tests updated: `test_ingest_trigger.py` patches `ingest_control.*` instead of `app_module.*` for ingest globals. `test_settings.py` patches `services.provider_schemas._VALIDATE_TIMEOUT_SECONDS`. `test_ingest_stream.py` patches `ingest_events.IngestEventParser` (the local import source in `ingest_control._stdout_reader`).
+
+**`services/` is now the single source of truth** for all Phase 4 extractions. Phase 5 blueprints can safely import from `services.*` without the silent-regression risk that dual-copy created.
 
 ## Phase 5 — Split routes into blueprints
 
