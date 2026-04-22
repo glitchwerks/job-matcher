@@ -8,6 +8,26 @@ Flask app construction, startup guards, filter registration, and
 CSRF wiring have moved to ``web/__init__.py::create_app()``.  This
 module now calls ``create_app()`` at import time and re-exports the
 names that the test suite imports directly from ``app``.
+
+Phase 4 extraction note
+-----------------------
+``services/provider_schemas.py`` owns: ``get_runtime_versions``,
+``RUNTIME_VERSIONS``, ``_config_warnings``, ``_get_search_validation_issues``,
+``_mask_config_keys``, ``_build_llm_schemas``, ``_load_providers_safe``,
+``_validate_with_timeout`` + ``_VALIDATE_TIMEOUT_SECONDS``.
+
+``services/ingest_control.py`` owns: the canonical copies of the ingest
+subprocess state globals and helpers for Phase 5 blueprint use.
+
+This module keeps its own module-level copies of the ingest globals
+(``_ingest_process``, ``_ingest_lock``, etc.) and the ``_ingest_running``
+function so that the test suite's ``monkeypatch.setattr(app_module, ...)``
+patches continue to work without modification.  Phase 5 will migrate the
+route handlers to read from ``services.ingest_control`` directly.
+
+Re-exports in this module (test suite imports these from ``app``):
+    ``_build_llm_schemas``, ``_parse_ingest_summary``, ``_stdout_reader``,
+    ``_config_warnings``.
 """
 
 import json
@@ -18,19 +38,76 @@ import subprocess
 import sys
 import threading
 from datetime import datetime, timezone
-from importlib.metadata import version as pkg_version, PackageNotFoundError
 
 from flask import render_template, make_response, request, jsonify, redirect, url_for, Response, session, stream_with_context, send_from_directory, abort
 
 import db
-from credentials import CredentialError, load_providers, save_providers
+from credentials import save_providers
 from paths import LOG_DIR
 from ingest_events import IngestEventParser, event_queue
 
 from providers import _PROVIDER_CLASS_MAP, build_provider_chain, generate_with_fallback
 from providers.base import _sanitise_detail
 from job_sources import get_sources
-from ingest import validate_search_config, ValidationIssue
+
+# ---------------------------------------------------------------------------
+# Phase 4 service imports
+# ---------------------------------------------------------------------------
+# Phase 4 service imports — provider_schemas
+# ---------------------------------------------------------------------------
+# Path-independent helpers are imported directly; functions that read path
+# constants are wrapped below as thin delegators so that
+# monkeypatch.setattr(app_module, "_PROVIDERS_PATH", ...) in the test suite
+# affects the paths actually used at call time.
+import services.provider_schemas as _provider_schemas  # noqa: E402
+
+from services.provider_schemas import (  # noqa: E402
+    _VALIDATE_TIMEOUT_SECONDS,
+    RUNTIME_VERSIONS,
+    _build_llm_schemas,
+    _mask_config_keys,
+    get_runtime_versions,
+)
+
+# ingest_control — subprocess lifecycle, SSE state, stdout reader.
+# Imported as a module (not a bare `from`) so Phase 5 route handlers can
+# write to ingest_control._ingest_process without the binding hazard.
+from services import ingest_control  # noqa: E402
+
+# _parse_ingest_summary is a pure function — it has no module-global reads
+# so a simple alias works and tests that import it from ``app`` see the
+# same object as ingest_control._parse_ingest_summary.
+_parse_ingest_summary = ingest_control._parse_ingest_summary
+
+# _stdout_reader and _validate_with_timeout are defined as real functions
+# later in this file (after the profile_store imports) so that test patches
+# on app.IngestEventParser / app._VALIDATE_TIMEOUT_SECONDS take effect at
+# call time.  ingest_control.py holds the canonical Phase 5 copies.
+
+# ---------------------------------------------------------------------------
+# Public re-export declarations
+# ---------------------------------------------------------------------------
+# Names listed here are intentionally imported and re-exported from this
+# module so that existing call sites and test fixtures that import or patch
+# them on ``app_module`` continue to work without modification.  Listing
+# them in ``__all__`` suppresses ruff F401 "imported but unused" warnings
+# while making the re-export contract explicit.
+__all__ = [
+    # Provider schemas re-exports (Phase 4)
+    "_VALIDATE_TIMEOUT_SECONDS",
+    "_build_llm_schemas",
+    "_config_warnings",
+    "_get_search_validation_issues",
+    "_load_providers_safe",
+    "_mask_config_keys",
+    "get_runtime_versions",
+    "RUNTIME_VERSIONS",
+    # Ingest control re-exports (Phase 4)
+    "_parse_ingest_summary",
+    "_stdout_reader",
+    # Profile store path constants used by test fixtures via monkeypatch
+    "_KEYS_PATH",
+]
 
 # DEMO_MODE is read by web/__init__.py's context-processor closure at
 # request time.  The __main__ block may set it to True before the
@@ -83,133 +160,69 @@ CONFIG = load_config()
 
 
 # ---------------------------------------------------------------------------
-# Runtime version capture
+# Runtime version capture — moved to services/provider_schemas.py (Phase 4)
 # ---------------------------------------------------------------------------
-
-def get_runtime_versions() -> list[dict]:
-    """Return a list of {component, version} dicts for key runtime components.
-
-    Called once at startup and cached in RUNTIME_VERSIONS. Each package lookup
-    is wrapped in a try/except so a missing optional package (e.g. gunicorn)
-    never crashes the server — it surfaces as 'n/a' instead.
-
-    App version resolution order:
-      1. VERSION file in the same directory as this module.
-      2. Latest git tag via ``git describe --tags --abbrev=0``.
-      3. Fallback string "dev".
-    """
-    def _pkg(name: str) -> str:
-        try:
-            return pkg_version(name)
-        except PackageNotFoundError:
-            return "n/a"
-
-    # Python version — use the compact x.y.z form from version_info.
-    python_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-
-    # App version: VERSION file → git tag → "dev".
-    version_file = os.path.join(os.path.dirname(__file__), "VERSION")
-    if os.path.exists(version_file):
-        with open(version_file, "r", encoding="utf-8") as fh:
-            app_ver = fh.read().strip() or "dev"
-    else:
-        try:
-            result = subprocess.run(
-                ["git", "describe", "--tags", "--abbrev=0"],
-                capture_output=True,
-                text=True,
-                cwd=os.path.dirname(__file__) or ".",
-            )
-            app_ver = result.stdout.strip() if result.returncode == 0 else "dev"
-        except OSError:
-            app_ver = "dev"
-
-    return [
-        {"component": "App",          "version": app_ver},
-        {"component": "Python",       "version": python_ver},
-        {"component": "Flask",        "version": _pkg("flask")},
-        {"component": "anthropic",    "version": _pkg("anthropic")},
-        {"component": "beautifulsoup4", "version": _pkg("beautifulsoup4")},
-        {"component": "waitress",     "version": _pkg("waitress")},
-    ]
-
-
-RUNTIME_VERSIONS: list[dict] = get_runtime_versions()
-
+# get_runtime_versions, RUNTIME_VERSIONS imported above from
+# services.provider_schemas.
 
 # ---------------------------------------------------------------------------
-# Config warnings
+# Config warnings + search validation + provider loader (Phase 4)
 # ---------------------------------------------------------------------------
+# Implementation lives in services/provider_schemas.py.
+# Thin wrappers below pass the current module-level path globals so that
+# test fixtures using monkeypatch.setattr(app_module, "_PROVIDERS_PATH", ...)
+# affect the actual paths used at call time — without requiring any changes
+# to the test suite.
+
 
 def _config_warnings() -> list[str]:
-    """Return a list of human-readable warnings for missing/empty config.
+    """Return human-readable warnings for missing/empty Adzuna config.
 
-    Adzuna credentials are read from providers.json (via load_providers),
-    consistent with how make_enabled_sources resolves them.  A warning is
-    shown only when Adzuna is explicitly enabled (``enabled: true`` in
-    providers.json) but its credentials are missing — if the user has
-    disabled Adzuna or left it unconfigured, no warning is raised.
-    Env var overrides (ADZUNA_APP_ID / ADZUNA_APP_KEY) are also honoured.
+    Delegates to :func:`services.provider_schemas._config_warnings`, passing
+    the current ``_PROVIDERS_PATH`` module global so that test monkeypatches
+    on ``app._PROVIDERS_PATH`` are honoured at call time.
+
+    Returns:
+        List of human-readable warning strings (may contain HTML).
+        Empty list when there are no warnings.
     """
-    warnings = []
-    try:
-        providers = load_providers(providers_path=_PROVIDERS_PATH)
-    except CredentialError:
-        providers = {}
-
-    adzuna_src: dict = (providers.get("job_sources") or {}).get("adzuna") or {}
-
-    # Only warn when Adzuna is explicitly enabled but missing credentials.
-    # If there is no entry at all, or enabled=False, the source is not expected
-    # to run so showing "not configured" would be a false alarm.
-    adzuna_explicitly_enabled = adzuna_src.get("enabled", False)
-    if not adzuna_explicitly_enabled:
-        return warnings
-
-    adzuna_id  = str(adzuna_src.get("app_id",  "") or "").strip()
-    adzuna_key = str(adzuna_src.get("app_key", "") or "").strip()
-    # Also honour env var overrides (used in containerised / CI deployments).
-    if not adzuna_id:
-        adzuna_id = os.environ.get("ADZUNA_APP_ID", "").strip()
-    if not adzuna_key:
-        adzuna_key = os.environ.get("ADZUNA_APP_KEY", "").strip()
-    if not adzuna_id or not adzuna_key:
-        warnings.append(
-            "Adzuna is enabled but credentials are not configured — it will be skipped. "
-            "Add your App ID and App Key on the <a href=\"/settings\">Settings page</a>."
-        )
-    return warnings
+    return _provider_schemas._config_warnings(providers_path=_PROVIDERS_PATH)
 
 
-def _get_search_validation_issues() -> list[ValidationIssue]:
+def _get_search_validation_issues():
     """Return search-config validation issues for enabled sources.
 
-    Loads providers and config safely (returns empty list on any error) and
-    delegates to :func:`ingest.validate_search_config`.  Used by the
-    ``/settings`` GET render and the ``/api/ingest/preflight`` endpoint so
-    the same logic is never duplicated.
+    Delegates to :func:`services.provider_schemas._get_search_validation_issues`,
+    passing the current path globals so that test monkeypatches on
+    ``app._PROVIDERS_PATH`` / ``app._CONFIG_PATH`` are honoured at call time.
 
     Returns:
         List of :class:`ingest.ValidationIssue` objects.  Empty when all
         enabled sources have complete search configuration.
     """
-    try:
-        providers = load_providers(providers_path=_PROVIDERS_PATH)
-    except CredentialError:
-        providers = {}
+    return _provider_schemas._get_search_validation_issues(
+        providers_path=_PROVIDERS_PATH,
+        config_path=_CONFIG_PATH,
+    )
 
-    try:
-        config = load_config(_CONFIG_PATH)
-    except SystemExit as exc:
-        # config.json missing or malformed — treat as "no issues" so the
-        # /settings page can still render and the user can fix the file.
-        import logging as _logging
-        _logging.getLogger(__name__).warning(
-            "Could not load config for search validation: %s", exc
-        )
-        return []
 
-    return validate_search_config(config, providers)
+def _load_providers_safe() -> dict:
+    """Load providers.json and return a parsed dict with safe defaults.
+
+    Delegates to :func:`services.provider_schemas._load_providers_safe`,
+    passing the current path globals so that test monkeypatches on
+    ``app._PROVIDERS_PATH`` / ``app._KEYS_PATH`` / ``app._CONFIG_PATH``
+    are honoured at call time.
+
+    Returns:
+        ``providers.json``-shaped dict with ``provider_order``, ``llm``, and
+        ``job_sources`` keys guaranteed to be present.
+    """
+    return _provider_schemas._load_providers_safe(
+        providers_path=_PROVIDERS_PATH,
+        keys_path=_KEYS_PATH,
+        config_path=_CONFIG_PATH,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -468,39 +481,19 @@ def mark_listing_opened(listing_id: int):
     return oob_fragment, 200
 
 
-def _mask_config_keys(data: dict) -> dict:
-    """Return a deep copy of *data* with sensitive key values replaced by '***'.
-
-    Any key whose name (lowercased) ends in ``_api_key``, ``_app_key``, or
-    ``_app_id`` is considered sensitive.  The walk is recursive so nested dicts
-    (e.g. ``search`` or ``prefilter`` sub-objects) are handled too.
-
-    The original dict is never mutated — callers always receive a fresh copy.
-    This is display-only: the masked value is never written back to disk.
-    """
-    import copy
-
-    _SENSITIVE_SUFFIXES = ("_api_key", "_app_key", "_app_id")
-
-    def _walk(obj):
-        if isinstance(obj, dict):
-            result = {}
-            for k, v in obj.items():
-                if isinstance(k, str) and k.lower().endswith(_SENSITIVE_SUFFIXES):
-                    result[k] = "***"
-                else:
-                    result[k] = _walk(v)
-            return result
-        if isinstance(obj, list):
-            return [_walk(item) for item in obj]
-        return copy.deepcopy(obj)
-
-    return _walk(data)
-
+# ---------------------------------------------------------------------------
+# Credential masking — moved to services/provider_schemas.py (Phase 4)
+# ---------------------------------------------------------------------------
+# _mask_config_keys imported above from services.provider_schemas.
 
 # ---------------------------------------------------------------------------
 # Ingestion trigger — module-level handle prevents concurrent runs
 # ---------------------------------------------------------------------------
+# The canonical copies of these globals live in services/ingest_control.py
+# for Phase 5 blueprint use.  This module keeps its own copies so that
+# monkeypatch.setattr(app_module, "_ingest_process", ...) in the test suite
+# continues to affect the globals that _ingest_running() and ingest_trigger()
+# actually read, without requiring any changes to tests/test_ingest_trigger.py.
 
 # Protects concurrent access to _ingest_process and _last_run from waitress
 # thread-pool workers.  Any read-modify-write on these globals must hold this
@@ -530,56 +523,77 @@ _ingest_just_completed: bool = False
 # browser tab; 2 allows for tab duplication or a background monitoring process.
 MAX_SSE_CONNECTIONS: int = 2
 
-# Matches the summary line that ingest.py prints at the end of each run:
-#   Run complete: 2 source(s) | 25 fetched | 10 pre-filtered | 5 dupes skipped |
-#                7 scored (3 failed) | 0 scrape skipped | 0 scrape fallbacks | ~1,234 tok | ~$0.0012
-_INGEST_SUMMARY_RE = re.compile(
-    r"Run complete:\s*\d+\s*source\(s\)\s*\|"  # source count prefix
-    r"\s*(\d+)\s*fetched\s*\|"                  # group 1 = fetched
-    r".*?(\d+)\s*pre-filtered\s*\|"             # group 2 = pre-filtered
-    r".*?scored\s*\((\d+)\s*failed\)",           # group 3 = score-failed
-    re.IGNORECASE,
-)
+# ---------------------------------------------------------------------------
+# Summary parsing + stdout reader — moved to services/ingest_control.py (Phase 4)
+# ---------------------------------------------------------------------------
+# _INGEST_SUMMARY_RE, _parse_ingest_summary, _stdout_reader are re-exported
+# above via:
+#   _parse_ingest_summary = ingest_control._parse_ingest_summary
+#   _stdout_reader = ingest_control._stdout_reader
+# The _INGEST_SUMMARY_RE constant is internal to ingest_control and not
+# re-exported (no test or call site imports it directly from app).
+
+_INGEST_SUMMARY_RE = ingest_control._INGEST_SUMMARY_RE
 
 
-def _parse_ingest_summary(output: str) -> dict:
-    """Parse the summary line from ingest.py stdout and return a result dict.
+def _ingest_running() -> bool:
+    """Return True if an ingest subprocess is currently active.
 
-    Expected format (single line emitted by ingest.py ``run()``):
-      Run complete: 25 fetched | 10 pre-filtered | 5 dupes skipped |
-                    7 scored (3 failed) | 0 scrape skipped | 0 scrape fallbacks | ~1,234 tok | ~$0.0012
+    Acquires ``_ingest_lock`` before touching shared state so concurrent calls
+    from waitress worker threads are serialised.
 
-    Extracted fields:
-      new      — listings fetched from Adzuna this run
-      filtered — listings dropped by the pre-filter
-      errors   — listings that failed scoring
+    Polls the process exit code: if poll() returns None the process is still
+    running. If it has exited, read the temp log file to capture stdout, parse
+    the summary into ``_last_run``, reset the handle to None so a new run can
+    start, and set ``_ingest_just_completed`` so the next /ingest/status
+    response fires ``HX-Trigger: ingestComplete`` exactly once.
 
-    If the pattern is not found (e.g. the process was killed or produced no
-    output), all counts default to zero so the template always has a safe value.
+    Note: this function reads from ``app.py``'s own module-level globals so
+    that ``monkeypatch.setattr(app_module, "_ingest_process", mock)`` in the
+    test suite reaches the variables this function actually reads.  Phase 5
+    will migrate to ``ingest_control._ingest_running()`` when the route
+    handlers move to blueprints.
     """
-    m = _INGEST_SUMMARY_RE.search(output)
-    if m:
-        return {
-            "new": int(m.group(1)),
-            "filtered": int(m.group(2)),
-            "errors": int(m.group(3)),
-            "completed_at": datetime.now(timezone.utc),
-        }
-    return {"new": 0, "filtered": 0, "errors": 0, "completed_at": datetime.now(timezone.utc)}
+    global _ingest_process, _ingest_log_file, _last_run, _ingest_just_completed
+    with _ingest_lock:
+        if _ingest_process is None:
+            return False
+        if _ingest_process.poll() is not None:
+            # Process has exited — extract summary from event queue for
+            # backward compat.  Clean up legacy log file handle if present
+            # (no-op for new PIPE-based runs).
+            if _ingest_log_file is not None:
+                try:
+                    _ingest_log_file.close()
+                except (OSError, ValueError):
+                    pass
+                _ingest_log_file = None
+            _last_run = _parse_ingest_summary(event_queue.get_latest_summary())
+            _ingest_process = None
+            # Mark the running→idle transition so /ingest/status sends
+            # HX-Trigger: ingestComplete exactly once (not on every idle poll).
+            _ingest_just_completed = True
+            return False
+        return True
 
 
 def _stdout_reader(proc: subprocess.Popen) -> None:
-    """Daemon thread: reads ingest subprocess stdout line-by-line,
-    parses each into a structured event, and pushes to the global queue.
+    """Daemon thread: read ingest subprocess stdout and push events to the queue.
 
-    On exception: kills the subprocess and pushes an aborted event.
-    On EOF without a complete event: pushes an aborted event so SSE clients
-    disconnect cleanly rather than spinning forever.
+    Implementation note — kept in ``app.py`` (not moved to a re-export from
+    ``services/ingest_control.py``) so that ``monkeypatch.setattr("app.IngestEventParser",
+    FakeParser)`` in the test suite patches the parser class that this function
+    instantiates.  :mod:`services.ingest_control` holds the canonical Phase 5
+    copy; this copy is kept here for backward-compatible test patching only.
+
+    Args:
+        proc: Running :class:`subprocess.Popen` handle whose ``stdout`` is
+              opened in text mode with ``bufsize=1`` (line-buffered).
     """
     parser = IngestEventParser()
     saw_complete = False
     try:
-        # readline() returns '' (empty string, not '\n') at EOF — iter sentinel stops on that
+        # readline() returns '' at EOF — iter sentinel stops on that.
         for raw_line in iter(proc.stdout.readline, ""):
             line = raw_line.rstrip("\n")
             if not line:
@@ -587,7 +601,9 @@ def _stdout_reader(proc: subprocess.Popen) -> None:
             try:
                 event = parser.parse(line)
             except Exception:
-                app.logger.exception("IngestEventParser failed on line: %r", line)
+                app.logger.exception(
+                    "IngestEventParser failed on line: %r", line
+                )
                 continue
             if event is not None:
                 if event["type"] == "complete":
@@ -622,39 +638,54 @@ def _stdout_reader(proc: subprocess.Popen) -> None:
         })
 
 
-def _ingest_running() -> bool:
-    """Return True if an ingest subprocess is currently active.
+def _validate_with_timeout(
+    validator,
+    api_key: str,
+    model: str,
+) -> tuple:
+    """Run *validator(api_key, model)* in a daemon thread with a fixed timeout.
 
-    Acquires ``_ingest_lock`` before touching shared state so concurrent calls
-    from waitress worker threads are serialised.
+    Implementation note — defined here (not re-exported from
+    ``services/provider_schemas.py``) so that
+    ``monkeypatch.setattr(app_module, "_VALIDATE_TIMEOUT_SECONDS", N)`` in the
+    test suite takes effect at call time.  :mod:`services.provider_schemas`
+    holds the canonical Phase 5 copy; this copy is kept for backward-compatible
+    test patching only.
 
-    Polls the process exit code: if poll() returns None the process is still
-    running. If it has exited, read the temp log file to capture stdout, parse
-    the summary into ``_last_run``, reset the handle to None so a new run can
-    start, and set ``_ingest_just_completed`` so the next /ingest/status
-    response fires ``HX-Trigger: ingestComplete`` exactly once.
+    Returns the validator's ``(state, detail)`` tuple, or a synthetic
+    ``('unreachable', ...)`` tuple if the call does not complete within
+    :data:`_VALIDATE_TIMEOUT_SECONDS`.
+
+    Args:
+        validator: Callable ``(api_key, model) -> tuple[str, str | None]``.
+        api_key:   Provider API key string.
+        model:     Provider model name string.
+
+    Returns:
+        ``(state, detail)`` where *state* is one of: ``'valid'``,
+        ``'invalid_key'``, ``'unknown_model'``, ``'unreachable'``.
+        *detail* is ``None`` on success or a short error string on failure.
     """
-    global _ingest_process, _ingest_log_file, _last_run, _ingest_just_completed
-    with _ingest_lock:
-        if _ingest_process is None:
-            return False
-        if _ingest_process.poll() is not None:
-            # Process has exited — extract summary from event queue for
-            # backward compat.  Clean up legacy log file handle if present
-            # (no-op for new PIPE-based runs).
-            if _ingest_log_file is not None:
-                try:
-                    _ingest_log_file.close()
-                except (OSError, ValueError):
-                    pass
-                _ingest_log_file = None
-            _last_run = _parse_ingest_summary(event_queue.get_latest_summary())
-            _ingest_process = None
-            # Mark the running→idle transition so /ingest/status sends
-            # HX-Trigger: ingestComplete exactly once (not on every idle poll).
-            _ingest_just_completed = True
-            return False
-        return True
+    global _VALIDATE_TIMEOUT_SECONDS
+    result_holder: list[tuple] = []
+
+    def _target() -> None:
+        try:
+            result_holder.append(validator(api_key, model))
+        except Exception as exc:
+            result_holder.append(
+                ("unreachable", _sanitise_detail(str(exc), api_key))
+            )
+
+    t = threading.Thread(target=_target, daemon=True)
+    t.start()
+    t.join(timeout=_VALIDATE_TIMEOUT_SECONDS)
+    if t.is_alive():
+        return (
+            "unreachable",
+            f"Timed out after {_VALIDATE_TIMEOUT_SECONDS}s",
+        )
+    return result_holder[0] if result_holder else ("unreachable", None)
 
 
 def _render_ingest_idle() -> str:
@@ -844,97 +875,11 @@ def ingest_stream():
     )
 
 
-def _build_llm_schemas(
-    llm_section: dict,
-    provider_order: list[str],
-) -> list[tuple[str, dict, bool, dict, set]]:
-    """Build the ordered llm_schemas list for the settings template.
-
-    Returns a list of ``(provider_key, schema_dict, has_values, current_values,
-    populated_fields)`` tuples.  Providers in *provider_order* come first
-    (unknown/duplicate keys skipped), followed by any registry providers not
-    listed, in registry insertion order.
-
-    ``has_values`` is ``True`` only when every required field in the schema has
-    a non-blank stored value.  Checking all required fields (not just
-    ``api_key``) prevents a provider with a key but an empty model string from
-    falsely showing "● configured".
-
-    ``current_values`` maps non-password field names to their stored value (or
-    the field's ``default`` if not yet stored).  This dict is passed to the
-    template so that non-password inputs can be pre-populated, ensuring that
-    the placeholder default is actually submitted when the user saves without
-    explicitly editing the field.
-
-    ``populated_fields`` is a set of field names that have a non-empty stored
-    value.  The template uses this to conditionally render the Clear button
-    next to password fields — the button only appears when there is actually
-    something stored to clear.
-
-    Args:
-        llm_section:    The ``"llm"`` sub-dict from ``providers.json``.
-        provider_order: The ``provider_order`` list from ``providers.json``.
-    """
-    seen: set[str] = set()
-    schemas: list[tuple[str, dict, bool, dict, set]] = []
-
-    def _make_entry(key: str) -> tuple[str, dict, bool, dict, set]:
-        cls = _PROVIDER_CLASS_MAP[key]
-        schema = cls.settings_schema()
-        cfg = llm_section.get(key) or {}
-        has_values = all(
-            bool(cfg.get(f["name"], "").strip())
-            for f in schema["fields"]
-            if f.get("required")
-        )
-        current_values = {
-            f["name"]: cfg.get(f["name"]) or f.get("default") or ""
-            for f in schema["fields"]
-            if f.get("type") != "password"
-        }
-        populated_fields = {
-            f["name"] for f in schema["fields"]
-            if bool(cfg.get(f["name"], "").strip())
-        }
-        return (key, schema, has_values, current_values, populated_fields)
-
-    for key in provider_order:
-        if key in _PROVIDER_CLASS_MAP and key not in seen:
-            schemas.append(_make_entry(key))
-            seen.add(key)
-    for key in _PROVIDER_CLASS_MAP:
-        if key not in seen:
-            schemas.append(_make_entry(key))
-            seen.add(key)
-    return schemas
-
-
-def _load_providers_safe() -> dict:
-    """Load providers.json and return the parsed dict, or an empty skeleton on error.
-
-    Uses ``_PROVIDERS_PATH`` as the primary credential store.  Falls back to
-    migration from ``_KEYS_PATH`` / ``_CONFIG_PATH`` when ``providers.json`` is
-    absent.  Returns safe empty defaults when :exc:`CredentialError` is raised
-    so the settings UI always renders even before any credentials are configured.
-
-    Returns:
-        providers.json-shaped dict with ``provider_order``, ``llm``, and
-        ``job_sources`` keys guaranteed to be present.
-    """
-    try:
-        data = load_providers(
-            providers_path=_PROVIDERS_PATH,
-            keys_path=_KEYS_PATH,
-            config_path=_CONFIG_PATH,
-        )
-    except CredentialError:
-        data = {}
-
-    data.setdefault("provider_order", [])
-    data.setdefault("llm", {})
-    data.setdefault("job_sources", {})
-    return data
-
+# ---------------------------------------------------------------------------
+# Settings UI helpers — moved to services/provider_schemas.py (Phase 4)
+# ---------------------------------------------------------------------------
+# _build_llm_schemas, _load_providers_safe imported above from
+# services.provider_schemas.
 
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
@@ -1840,46 +1785,10 @@ def admin_schedule_state():
 
 
 # ---------------------------------------------------------------------------
-# Key validation
+# Key validation — moved to services/provider_schemas.py (Phase 4)
 # ---------------------------------------------------------------------------
-
-_VALIDATE_TIMEOUT_SECONDS = 5
-"""Per-provider timeout for key validation API calls."""
-
-
-def _validate_with_timeout(validator, api_key: str, model: str) -> tuple[str, str | None]:
-    """Run *validator(api_key, model)* in a daemon thread with a fixed timeout.
-
-    Returns the validator's ``(state, detail)`` tuple, or a synthetic
-    ``('unreachable', ...)`` tuple if the call does not complete within
-    ``_VALIDATE_TIMEOUT_SECONDS``.
-
-    Args:
-        validator: Callable ``(api_key, model) -> tuple[str, str | None]``.
-        api_key:   Provider API key string.
-        model:     Provider model name string.
-
-    Returns:
-        ``(state, detail)`` where *state* is one of: ``'valid'``,
-        ``'invalid_key'``, ``'unknown_model'``, ``'unreachable'``.
-        *detail* is ``None`` on success or a short error string on failure.
-    """
-    result_holder: list[tuple[str, str | None]] = []
-
-    def _target() -> None:
-        try:
-            result_holder.append(validator(api_key, model))
-        except Exception as exc:
-            result_holder.append(("unreachable", _sanitise_detail(str(exc), api_key)))
-
-    t = threading.Thread(target=_target, daemon=True)
-    t.start()
-    t.join(timeout=_VALIDATE_TIMEOUT_SECONDS)
-    if t.is_alive():
-        # Thread is still blocked (network hang) — treat as unreachable.
-        return ("unreachable", f"Timed out after {_VALIDATE_TIMEOUT_SECONDS}s")
-    return result_holder[0] if result_holder else ("unreachable", None)
-
+# _VALIDATE_TIMEOUT_SECONDS, _validate_with_timeout imported above from
+# services.provider_schemas.
 
 @app.route("/api/apply-prefilter-suggestions", methods=["POST"])
 def apply_prefilter_suggestions():
