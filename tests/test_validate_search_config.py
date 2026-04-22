@@ -38,6 +38,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import ingest
+import web.ingest as web_ingest_module
 from ingest import (
     ValidationIssue,
     _is_search_field_empty,
@@ -425,7 +426,7 @@ class TestIngestPreflightRoute:
 
     def test_preflight_ok_when_no_issues(self, client):
         c, app_module = client
-        with patch.object(app_module, "_get_search_validation_issues", return_value=[]):
+        with patch.object(web_ingest_module, "_get_search_validation_issues", return_value=[]):
             resp = c.get("/api/ingest/preflight")
         assert resp.status_code == 200
         body = resp.get_json()
@@ -439,7 +440,7 @@ class TestIngestPreflightRoute:
                 missing_fields=["country", "what"],
             )
         ]
-        with patch.object(app_module, "_get_search_validation_issues",
+        with patch.object(web_ingest_module, "_get_search_validation_issues",
                           return_value=fake_issues):
             resp = c.get("/api/ingest/preflight")
         assert resp.status_code == 422
@@ -456,7 +457,7 @@ class TestIngestPreflightRoute:
             ValidationIssue(source_key="adzuna", missing_fields=["country"]),
             ValidationIssue(source_key="other", missing_fields=["query"]),
         ]
-        with patch.object(app_module, "_get_search_validation_issues",
+        with patch.object(web_ingest_module, "_get_search_validation_issues",
                           return_value=fake_issues):
             resp = c.get("/api/ingest/preflight")
         assert resp.status_code == 422
@@ -704,7 +705,7 @@ class TestIngestPreflightServerError:
     def test_preflight_200_with_no_issues(self, client):
         """Baseline: clean config returns 200."""
         c, app_module = client
-        with patch.object(app_module, "_get_search_validation_issues", return_value=[]):
+        with patch.object(web_ingest_module, "_get_search_validation_issues", return_value=[]):
             resp = c.get("/api/ingest/preflight")
         assert resp.status_code == 200
         assert resp.get_json()["ok"] is True
@@ -713,7 +714,7 @@ class TestIngestPreflightServerError:
         """Baseline: issues present returns 422."""
         c, app_module = client
         fake = [ValidationIssue(source_key="adzuna", missing_fields=["country"])]
-        with patch.object(app_module, "_get_search_validation_issues", return_value=fake):
+        with patch.object(web_ingest_module, "_get_search_validation_issues", return_value=fake):
             resp = c.get("/api/ingest/preflight")
         assert resp.status_code == 422
         body = resp.get_json()

@@ -3,10 +3,11 @@
 Uses Flask's built-in test client and monkeypatches the module-level
 _ingest_process handle so no real subprocess is ever spawned.
 
-Issue #326 consolidation: ingest globals now live in services/ingest_control.
-Tests patch ingest_control.* directly so mutations reach the module that owns
-the state; app_module.subprocess.Popen patches still work because ingest_trigger()
-calls subprocess.Popen via the app module's own subprocess reference.
+Phase 5a extraction: ingest_trigger() now lives in web/ingest.py.
+Subprocess patches therefore target web.ingest.subprocess.Popen so the
+replacement is visible inside the blueprint handler.  Ingest-state
+globals are still patched on ingest_control.* as the authoritative
+location.
 """
 
 import os
@@ -16,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import app as app_module
+import web.ingest as web_ingest_module
 from app import app as flask_app, _parse_ingest_summary
 from services import ingest_control
 
@@ -87,7 +88,7 @@ class TestIngestTrigger:
             spawned.append(cmd)
             return _make_mock_process()
 
-        monkeypatch.setattr(app_module.subprocess, "Popen", mock_popen)
+        monkeypatch.setattr(web_ingest_module.subprocess, "Popen", mock_popen)
         resp = client.post("/ingest/trigger")
         assert resp.status_code == 202
         assert len(spawned) == 1
@@ -95,7 +96,7 @@ class TestIngestTrigger:
     def test_response_is_html_partial(self, client, monkeypatch):
         """202 response body should be the running HTML partial."""
         monkeypatch.setattr(
-            app_module.subprocess, "Popen", lambda *a, **kw: _make_mock_process()
+            web_ingest_module.subprocess, "Popen", lambda *a, **kw: _make_mock_process()
         )
         resp = client.post("/ingest/trigger")
         body = resp.data.decode()
@@ -110,7 +111,7 @@ class TestIngestTrigger:
             spawned.append(cmd)
             return _make_mock_process()
 
-        monkeypatch.setattr(app_module.subprocess, "Popen", mock_popen)
+        monkeypatch.setattr(web_ingest_module.subprocess, "Popen", mock_popen)
         client.post("/ingest/trigger")
         assert "--hours" in spawned[0]
         assert "25" in spawned[0]
@@ -123,7 +124,7 @@ class TestIngestTrigger:
             spawned.append(cmd)
             return _make_mock_process()
 
-        monkeypatch.setattr(app_module.subprocess, "Popen", mock_popen)
+        monkeypatch.setattr(web_ingest_module.subprocess, "Popen", mock_popen)
         client.post("/ingest/trigger", data={"hours": "48"})
         assert "48" in spawned[0]
 
@@ -135,7 +136,7 @@ class TestIngestTrigger:
             spawned.append(cmd)
             return _make_mock_process()
 
-        monkeypatch.setattr(app_module.subprocess, "Popen", mock_popen)
+        monkeypatch.setattr(web_ingest_module.subprocess, "Popen", mock_popen)
         client.post("/ingest/trigger", data={"rescore": "1"})
         assert "--rescore" in spawned[0]
 
@@ -147,7 +148,7 @@ class TestIngestTrigger:
             spawned.append(cmd)
             return _make_mock_process()
 
-        monkeypatch.setattr(app_module.subprocess, "Popen", mock_popen)
+        monkeypatch.setattr(web_ingest_module.subprocess, "Popen", mock_popen)
         client.post("/ingest/trigger")
         assert "--rescore" not in spawned[0]
 
@@ -159,7 +160,7 @@ class TestIngestTrigger:
             spawned.append(cmd)
             return _make_mock_process()
 
-        monkeypatch.setattr(app_module.subprocess, "Popen", mock_popen)
+        monkeypatch.setattr(web_ingest_module.subprocess, "Popen", mock_popen)
         client.post("/ingest/trigger", data={"hours": "not-a-number"})
         assert "25" in spawned[0]
 
@@ -171,7 +172,7 @@ class TestIngestTrigger:
             spawned.append(cmd)
             return _make_mock_process()
 
-        monkeypatch.setattr(app_module.subprocess, "Popen", mock_popen)
+        monkeypatch.setattr(web_ingest_module.subprocess, "Popen", mock_popen)
         client.post("/ingest/trigger")
         assert spawned[0][0] == sys.executable
 
@@ -179,7 +180,7 @@ class TestIngestTrigger:
         """If Popen raises OSError (e.g. executable not found), the route returns 500."""
         def failing_popen(cmd, **kwargs):
             raise OSError("python not found")
-        monkeypatch.setattr(app_module.subprocess, "Popen", failing_popen)
+        monkeypatch.setattr(web_ingest_module.subprocess, "Popen", failing_popen)
         resp = client.post("/ingest/trigger")
         assert resp.status_code == 500
 
@@ -208,7 +209,7 @@ class TestIngestTriggerConflict:
         monkeypatch.setattr(ingest_control, "_ingest_process", _make_mock_process())
         popen_calls = []
         monkeypatch.setattr(
-            app_module.subprocess,
+            web_ingest_module.subprocess,
             "Popen",
             lambda *a, **kw: popen_calls.append(1) or _make_mock_process(),
         )

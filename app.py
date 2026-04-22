@@ -34,17 +34,23 @@ import json
 import os
 import re
 import secrets
-import subprocess
-import sys
-import threading
 from datetime import datetime, timezone
 
-from flask import render_template, make_response, request, jsonify, redirect, url_for, Response, session, stream_with_context, send_from_directory, abort
+from flask import (
+    abort,
+    jsonify,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    send_from_directory,
+    session,
+    url_for,
+)
 
 import db
 from credentials import save_providers
 from paths import LOG_DIR
-from ingest_events import event_queue
 
 from providers import _PROVIDER_CLASS_MAP, build_provider_chain, generate_with_fallback
 from job_sources import get_sources
@@ -204,252 +210,15 @@ CONFIG = load_config()
 
 
 # ---------------------------------------------------------------------------
-# Routes
+# Routes — feed and ingest routes extracted to web/ blueprints (Phase 5a)
 # ---------------------------------------------------------------------------
-
-@app.route("/")
-def feed():
-    """Main feed: listings scored at or above the configured threshold.
-
-    Accepts optional query params for filtering:
-      - min_score: float override for the score floor
-      - remote_only: "1" to restrict to remote listings
-      - search: text matched against title and company
-    """
-    threshold = CONFIG["scoring"]["threshold"]
-    if not isinstance(threshold, (int, float)) or threshold < 0:
-        threshold = 7.0
-
-    min_score_raw = request.args.get("min_score")
-    try:
-        min_score = float(min_score_raw) if min_score_raw else None
-    except ValueError:
-        min_score = None
-    remote_only = request.args.get("remote_only") == "1"
-    search = request.args.get("search", "").strip() or None
-    job_type = request.args.get("job_type", "").strip() or None
-    sort = request.args.get("sort", "").strip() or None
-
-    listings = db.get_feed(
-        threshold=threshold,
-        min_score=min_score,
-        remote_only=remote_only,
-        search=search,
-        job_type=job_type,
-        sort=sort,
-    )
-    job_types = db.get_job_types()
-    last_fetch_time = db.get_last_fetch_time()
-    new_count = sum(1 for listing in listings if listing["opened_at"] is None)
-    return render_template(
-        "index.html",
-        listings=listings,
-        view="feed",
-        threshold=threshold,
-        min_score=min_score,
-        remote_only=remote_only,
-        search=search,
-        job_type=job_type,
-        job_types=job_types,
-        sort=sort,
-        last_fetch_time=last_fetch_time,
-        new_count=new_count,
-        config_warnings=_config_warnings(providers_path=_PROVIDERS_PATH),
-        running=ingest_control._ingest_running(),
-    )
-
-
-@app.route("/feed/fragment")
-def feed_fragment():
-    """Feed content fragment — returns only the listing cards (or empty state).
-
-    Used by the ``ingestComplete`` HTMX listener to refresh just the
-    ``#feed-content`` container after an ingest run completes, without
-    reloading the full page (which would destroy the ingest drawer).
-
-    Accepts the same filter query params as ``/``:
-      - min_score, remote_only, search, job_type, sort
-    """
-    threshold = CONFIG["scoring"]["threshold"]
-    if not isinstance(threshold, (int, float)) or threshold < 0:
-        threshold = 7.0
-
-    min_score_raw = request.args.get("min_score")
-    try:
-        min_score = float(min_score_raw) if min_score_raw else None
-    except ValueError:
-        min_score = None
-    remote_only = request.args.get("remote_only") == "1"
-    search = request.args.get("search", "").strip() or None
-    job_type = request.args.get("job_type", "").strip() or None
-    sort = request.args.get("sort", "").strip() or None
-
-    listings = db.get_feed(
-        threshold=threshold,
-        min_score=min_score,
-        remote_only=remote_only,
-        search=search,
-        job_type=job_type,
-        sort=sort,
-    )
-    last_fetch_time = db.get_last_fetch_time()
-    new_count = sum(1 for listing in listings if listing["opened_at"] is None)
-    resp = make_response(
-        render_template(
-            "_feed_fragment.html",
-            listings=listings,
-            threshold=threshold,
-            new_count=new_count,
-            last_fetch_time=last_fetch_time,
-        ),
-        200,
-    )
-    resp.headers["Content-Type"] = "text/html"
-    return resp
-
-
-@app.route("/bookmarks")
-def bookmarks():
-    """Bookmarked listings only."""
-    listings = db.get_bookmarks()
-    return render_template(
-        "index.html",
-        listings=listings,
-        view="bookmarks",
-        config_warnings=_config_warnings(providers_path=_PROVIDERS_PATH),
-    )
-
-
-@app.route("/bookmark/<int:listing_id>", methods=["POST"])
-def toggle_bookmark(listing_id: int):
-    """Toggle the bookmarked state for a listing.
-
-    Delegates to db.toggle_bookmarked(), which performs the flip atomically
-    in a single SQL statement so rapid double-clicks cannot produce a net
-    no-op. Returns the re-rendered action button group as an HTMX partial.
-    """
-    listing = db.toggle_bookmarked(listing_id)
-    if listing is None:
-        return make_response("", 404)
-    return render_template("_actions.html", listing=listing)
-
-
-@app.route("/apply/<int:listing_id>", methods=["POST"])
-def toggle_apply(listing_id: int):
-    """Toggle the applied state for a listing.
-
-    Delegates to db.toggle_applied(), which performs the flip atomically
-    in a single SQL statement so rapid double-clicks cannot produce a net
-    no-op. Returns the re-rendered action button group as an HTMX partial.
-    """
-    listing = db.toggle_applied(listing_id)
-    if listing is None:
-        return make_response("", 404)
-    return render_template("_actions.html", listing=listing)
-
-
-@app.route("/applied")
-def applied():
-    """Applied listings — all listings marked as applied, most recent first."""
-    listings = db.get_applied()
-    return render_template(
-        "index.html",
-        listings=listings,
-        view="applied",
-        config_warnings=_config_warnings(providers_path=_PROVIDERS_PATH),
-    )
-
-
-@app.route("/snippets")
-def snippets():
-    """Snippet-scored listings — roles scored from short API descriptions rather than full JDs.
-
-    Accepts the same filter query params as the main feed: ``sort``, ``search``,
-    ``remote_only``, ``job_type``, and ``min_score``.
-    """
-    sort = request.args.get("sort", "").strip() or None
-    search = request.args.get("search", "").strip() or None
-    remote_only = request.args.get("remote_only") == "1"
-    job_type = request.args.get("job_type", "").strip() or None
-    raw_min_score = request.args.get("min_score", "").strip()
-    min_score: float | None = None
-    if raw_min_score:
-        try:
-            min_score = float(raw_min_score)
-        except ValueError:
-            min_score = None
-
-    threshold = CONFIG["scoring"]["threshold"]
-    if not isinstance(threshold, (int, float)) or threshold < 0:
-        threshold = 7.0
-    job_types = db.get_job_types()
-    listings = db.get_snippet_feed(
-        threshold=threshold,
-        min_score=min_score,
-        remote_only=remote_only,
-        search=search,
-        job_type=job_type,
-        sort=sort,
-    )
-    return render_template(
-        "snippets.html",
-        listings=listings,
-        view="snippets",
-        sort=sort,
-        search=search,
-        remote_only=remote_only,
-        job_type=job_type,
-        job_types=job_types,
-        threshold=threshold,
-        min_score=min_score,
-        config_warnings=_config_warnings(providers_path=_PROVIDERS_PATH),
-    )
-
-
-@app.route("/stats")
-def stats():
-    """API usage and cost statistics, plus runtime version information."""
-    data = db.get_usage_stats()
-    return render_template(
-        "stats.html",
-        stats=data,
-        view="stats",
-        config_warnings=_config_warnings(providers_path=_PROVIDERS_PATH),
-    )
-
-
-@app.route("/dismiss/<int:listing_id>", methods=["POST"])
-def dismiss(listing_id: int):
-    """Dismiss a listing.
-
-    Returns an empty 200 response. HTMX is configured to swap `outerHTML`
-    on the card element, replacing it with the empty string — this removes
-    the card from the DOM without a page reload.
-    """
-    db.set_dismissed(listing_id, 1)
-    return make_response("", 200)
-
-
-@app.route("/listings/<int:listing_id>/open", methods=["POST"])
-def mark_listing_opened(listing_id: int):
-    """Mark a listing as opened (first-time expand) and clear its New badge.
-
-    Called fire-and-forget by HTMX when the user expands a card for the first
-    time.  The operation is idempotent — if the listing is already marked
-    opened, the DB write is a no-op.
-
-    Returns an HTMX out-of-band swap fragment that removes the badge-new element
-    from the DOM immediately.  The CSS rule `.card-details[open] .badge-new` is
-    kept as a belt-and-suspenders fallback, but some browsers do not trigger a
-    style recalculation for <summary> descendants when <details> gains [open],
-    so relying solely on CSS is not reliable across all browsers.
-    """
-    db.mark_opened(listing_id)
-    # hx-swap-oob="outerHTML" replaces the target element entirely with the new
-    # element.  An empty <span> with the same id effectively removes the badge.
-    oob_fragment = f'<span id="badge-new-{listing_id}" hx-swap-oob="outerHTML"></span>'
-    return oob_fragment, 200
-
+# feed_bp (web/feed.py): /, /feed/fragment, /bookmarks, /bookmark/<id>,
+#   /apply/<id>, /applied, /snippets, /stats, /dismiss/<id>,
+#   /listings/<id>/open
+# ingest_bp (web/ingest.py): /ingest/trigger, /api/ingest/preflight,
+#   /ingest/status, /ingest/stream
+# Both blueprints are registered by web/__init__.py::create_app() with
+# url_prefix="" so all URL paths remain unchanged.
 
 # ---------------------------------------------------------------------------
 # Credential masking — moved to services/provider_schemas.py (Phase 4)
@@ -457,209 +226,14 @@ def mark_listing_opened(listing_id: int):
 # _mask_config_keys imported above from services.provider_schemas.
 
 # ---------------------------------------------------------------------------
-# Ingestion trigger — mutable globals live in services/ingest_control.py
+# Ingestion globals re-exported for test-import contract (Phase 4)
 # ---------------------------------------------------------------------------
-# All subprocess-state globals (_ingest_lock, _ingest_process, _ingest_log_file,
-# _last_run, _ingest_just_completed, MAX_SSE_CONNECTIONS) are re-exported from
-# ingest_control near the top of this file.  Route handlers access these via
-# ``ingest_control.*`` to avoid the Python rebinding hazard — a bare assignment
-# like ``_ingest_process = proc`` here would only rebind the local module-level
-# name, not the attribute in ingest_control.
-
 # _INGEST_SUMMARY_RE alias — kept for call-sites that import it from app.
 _INGEST_SUMMARY_RE = ingest_control._INGEST_SUMMARY_RE
 
-
-def _render_ingest_idle() -> str:
-    """Return the HTML partial for the idle 'Run Ingestion' button."""
-    return render_template(
-        "_ingest_trigger.html", running=False, last_run=ingest_control._last_run
-    )
-
-
-def _render_ingest_running() -> str:
-    """Return the HTML partial for the in-progress status element."""
-    return render_template("_ingest_trigger.html", running=True)
-
-
-@app.route("/ingest/trigger", methods=["POST"])
-def ingest_trigger():
-    """Spawn ingest.py as a background subprocess.
-
-    Returns 202 with the 'Running...' HTML partial when the process starts.
-    Returns 409 with a JSON error body if a run is already in progress — the
-    caller can check Content-Type to distinguish the two response shapes.
-
-    Uses sys.executable so the subprocess runs in the same virtualenv as the
-    app server, picking up all installed dependencies automatically.
-
-    stdout and stderr are merged and piped via subprocess.PIPE to a
-    StdoutReader daemon thread. The reader parses each line into a structured
-    event and pushes it to the global event queue for real-time SSE
-    consumption by /ingest/stream subscribers.
-    """
-    # Build command from optional UI parameters before taking the lock so the
-    # critical section stays as short as possible.
-    hours_raw = request.form.get("hours", "25").strip()
-    rescore = request.form.get("rescore") == "1"
-
-    try:
-        hours = int(hours_raw)
-    except (ValueError, TypeError):
-        hours = 25
-
-    cmd = [sys.executable, "ingest.py", "--hours", str(hours)]
-    if rescore:
-        cmd.append("--rescore")
-
-    with ingest_control._ingest_lock:
-        # Re-check inside the lock: another thread may have started a process
-        # between our pre-lock poll and now.
-        if (
-            ingest_control._ingest_process is not None
-            and ingest_control._ingest_process.poll() is None
-        ):
-            return jsonify({"error": "already running"}), 409
-
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,  # line-buffered
-                # Force unbuffered output from the child so log lines reach
-                # the parent pipe immediately even when stderr is not a tty.
-                env={**os.environ, "PYTHONUNBUFFERED": "1", "INGEST_TRIGGER": "manual_ui"},
-            )
-        except (OSError, PermissionError) as e:
-            return jsonify({"error": f"Failed to start ingestion: {e}"}), 500
-        event_queue.clear()
-
-        ingest_control._ingest_process = proc
-        ingest_control._ingest_log_file = None  # no longer used; kept for backward compat
-
-        reader = threading.Thread(
-            target=ingest_control._stdout_reader,
-            args=(proc,),
-            daemon=True,
-        )
-        reader.start()
-
-    resp = make_response(_render_ingest_running(), 202)
-    resp.headers["Content-Type"] = "text/html"
-    return resp
-
-
-@app.route("/api/ingest/preflight", methods=["GET"])
-def ingest_preflight():
-    """Pre-flight validation endpoint for the ingest drawer.
-
-    Returns a JSON object describing whether the current configuration is
-    valid enough to start an ingest run.  The ingest drawer calls this
-    before enabling the "Run Ingestion" button so users learn about
-    configuration gaps before submitting the form.
-
-    Returns:
-        200 with ``{"ok": true}`` when all enabled sources are fully
-        configured.
-        422 with ``{"ok": false, "issues": [...]}`` when one or more enabled
-        sources have missing or empty required search fields.  Each issue in
-        the list has the shape
-        ``{"source": "<key>", "missing_fields": ["country", ...]}``.
-    """
-    issues = _get_search_validation_issues(
-        providers_path=_PROVIDERS_PATH, config_path=_CONFIG_PATH
-    )
-    if not issues:
-        return jsonify({"ok": True})
-
-    return jsonify({
-        "ok": False,
-        "issues": [
-            {
-                "source": issue.source_key,
-                "missing_fields": issue.missing_fields,
-            }
-            for issue in issues
-        ],
-    }), 422
-
-
-@app.route("/ingest/status")
-def ingest_status():
-    """Poll endpoint — returns an HTML partial reflecting current ingest state.
-
-    While the process is running, returns the polling div so HTMX keeps
-    refreshing. Once it stops, returns the idle button.
-
-    ``HX-Trigger: ingestComplete`` is sent only on the running→idle transition
-    (i.e. the first idle response after a run finishes), not on every
-    subsequent idle poll. This prevents the ``ingestComplete`` listener from
-    firing repeatedly and causing an infinite refresh loop.
-    """
-    running = ingest_control._ingest_running()
-    html = _render_ingest_running() if running else _render_ingest_idle()
-    resp = make_response(html, 200)
-    resp.headers["Content-Type"] = "text/html"
-    if not running and ingest_control._ingest_just_completed:
-        # Consume the flag — subsequent idle polls will NOT carry this header.
-        ingest_control._ingest_just_completed = False
-        resp.headers["HX-Trigger"] = "ingestComplete"
-    return resp
-
-
-@app.route("/ingest/stream")
-def ingest_stream():
-    """SSE endpoint streaming real-time ingest events.
-
-    Yields events from the EventQueue in SSE wire format. Supports replay
-    via Last-Event-ID header (format: "{run_id}:{event_id}"). Returns 429
-    if max connections exceeded.
-    """
-    if event_queue.connection_count >= MAX_SSE_CONNECTIONS:
-        return jsonify({"error": "too many connections"}), 429
-
-    # Parse Last-Event-ID: "{run_id}:{event_id}" or just "{event_id}"
-    last_event_id_raw = request.headers.get("Last-Event-ID", "")
-    last_id = 0
-    if last_event_id_raw:
-        parts = last_event_id_raw.rsplit(":", 1)
-        if len(parts) == 2:
-            req_run_id, id_str = parts
-            try:
-                candidate_id = int(id_str)
-            except ValueError:
-                candidate_id = 0
-            # Stale run_id → replay from beginning
-            if req_run_id == event_queue.run_id:
-                last_id = candidate_id
-        else:
-            try:
-                last_id = int(parts[0])
-            except ValueError:
-                last_id = 0
-
-    def generate():
-        event_queue.connect()
-        try:
-            for event in event_queue.subscribe(last_id=last_id):
-                eid = event.get("id", 0)
-                run_id = event.get("run_id", event_queue.run_id)
-                data = json.dumps(event, separators=(",", ":"))
-                yield f"id: {run_id}:{eid}\ndata: {data}\n\n"
-        finally:
-            event_queue.disconnect()
-
-    return Response(
-        stream_with_context(generate()),
-        mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
+# ingest_trigger, ingest_preflight, ingest_status, ingest_stream, and the
+# two helper renderers (_render_ingest_idle, _render_ingest_running) have
+# moved to web/ingest.py (ingest_bp).  Registered by create_app() above.
 
 # ---------------------------------------------------------------------------
 # Settings UI helpers — moved to services/provider_schemas.py (Phase 4)

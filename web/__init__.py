@@ -182,15 +182,22 @@ def create_app() -> Flask:
     app.context_processor(_demo_mode_processor)
 
     # ------------------------------------------------------------------
-    # 9. Import routes as a side-effect (they decorate `app`).
+    # 9. Register blueprints (Phase 5a).
     # ------------------------------------------------------------------
-    # Routes in app.py use @app.route(...) where `app` is the module-
-    # level variable.  After this refactor, app.py does
-    # ``app = create_app()`` at module scope, so by the time the route
-    # decorators run they will bind to the instance returned here.
-    # We do NOT import app.py here — routes are already registered
-    # because app.py evaluates them when it is first imported by the
-    # caller.
+    # feed_bp and ingest_bp are registered with url_prefix="" so every
+    # URL path is unchanged from the monolithic layout.  Endpoint names
+    # become "feed.<func>" and "ingest.<func>", but no url_for() calls
+    # in app.py or templates reference these moved endpoints, so no
+    # url_for() strings need updating.
+    #
+    # Remaining routes (settings, profile, admin) still live in app.py
+    # and are registered via @app.route() as a side-effect of app.py's
+    # module-level execution, which happens after create_app() returns.
+    from web.feed import feed_bp  # noqa: PLC0415
+    from web.ingest import ingest_bp  # noqa: PLC0415
+
+    app.register_blueprint(feed_bp, url_prefix="")
+    app.register_blueprint(ingest_bp, url_prefix="")
 
     # ------------------------------------------------------------------
     # 10. Database initialisation and plugin registration.
