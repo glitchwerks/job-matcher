@@ -1,0 +1,46 @@
+{
+  "$comment": "Area-to-glob mapping used by context-switch-check (and future tooling) to detect when a new task touches a different concern than the previous one. Keep the number of areas small — this is coarse-grained routing, not per-directory categorisation.",
+  "areas": {
+    "backend": [
+      "app.py",
+      "web/**",
+      "services/**",
+      "db.py",
+      "credentials.py",
+      "paths.py",
+      "conftest.py",
+      "config/**",
+      "requirements*.txt"
+    ],
+    "ingest": [
+      "ingest.py",
+      "ingest_events.py",
+      "plugins/**",
+      "job_sources/**",
+      "providers/**",
+      "benchmark_index.py"
+    ],
+    "frontend": [
+      "templates/**",
+      "static/**"
+    ],
+    "infra": [
+      ".github/**",
+      "docker-compose*.yml",
+      "Dockerfile*",
+      "scripts/**",
+      ".env*"
+    ],
+    "tests": [
+      "tests/**"
+    ],
+    "docs": [
+      "docs/**",
+      "README.md",
+      "CLAUDE.md",
+      "CODE_OF_CONDUCT.md",
+      "CONTRIBUTING.md",
+      "SECURITY.md"
+    ]
+  }
+}
