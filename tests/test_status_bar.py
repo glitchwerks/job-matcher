@@ -38,7 +38,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest  # noqa: E402
 
-import app as app_module  # noqa: E402
+import services.profile_store as _profile_store_module  # noqa: E402
 from app import app as flask_app  # noqa: E402
 import db as db_module  # noqa: E402
 
@@ -63,8 +63,7 @@ def client(tmp_path, monkeypatch):
             },
             "scoring": {"threshold": 7.0},
         }, f)
-    monkeypatch.setattr(app_module, "_CONFIG_PATH", config_path)
-    monkeypatch.setattr(app_module, "CONFIG", json.loads(open(config_path).read()))
+    monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", config_path)
 
     # Stub db functions called by feed() so no real Postgres connection is made.
     monkeypatch.setattr(db_module, "get_feed", lambda **kw: [])

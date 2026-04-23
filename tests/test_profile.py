@@ -53,7 +53,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import app as app_module
+import services.profile_store as _profile_store_module
 from app import app as flask_app
 
 
@@ -64,33 +64,63 @@ from app import app as flask_app
 
 @pytest.fixture()
 def tmp_config_path(tmp_path, monkeypatch):
-    """Point _CONFIG_PATH at a temp file for isolation."""
+    """Point _CONFIG_PATH at a temp file for isolation.
+
+    Patches profile_store, web.profile, and web.settings so all HTTP
+    endpoints read/write the same temp path.
+    """
+    import web.profile as profile_module  # noqa: PLC0415
+    import web.settings as settings_module  # noqa: PLC0415
     path = str(tmp_path / "config.json")
-    monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(profile_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(settings_module, "_CONFIG_PATH", path)
     return path
 
 
 @pytest.fixture()
 def tmp_profile_path(tmp_path, monkeypatch):
-    """Point _PROFILE_PATH at a temp file for isolation."""
+    """Point _PROFILE_PATH at a temp file for isolation.
+
+    Patches profile_store and web.profile so the HTTP endpoint reads
+    the same temp path.
+    """
+    import web.profile as profile_module  # noqa: PLC0415
     path = str(tmp_path / "profile.json")
-    monkeypatch.setattr(app_module, "_PROFILE_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_PROFILE_PATH", path)
+    monkeypatch.setattr(profile_module, "_PROFILE_PATH", path)
     return path
 
 
 @pytest.fixture()
 def tmp_providers_path(tmp_path, monkeypatch):
-    """Point _PROVIDERS_PATH at a temp file so providers are isolated."""
+    """Point _PROVIDERS_PATH at a temp file so providers are isolated.
+
+    Patches profile_store, web.settings, and web.profile so all HTTP
+    endpoints read the same temp path.
+    """
+    import web.profile as profile_module  # noqa: PLC0415
+    import web.settings as settings_module  # noqa: PLC0415
     path = str(tmp_path / "providers.json")
-    monkeypatch.setattr(app_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(profile_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(settings_module, "_PROVIDERS_PATH", path)
     return path
 
 
 @pytest.fixture()
 def tmp_keys_path(tmp_path, monkeypatch):
-    """Point _KEYS_PATH at a temp file so legacy migration never triggers."""
+    """Point _KEYS_PATH at a temp file so legacy migration never triggers.
+
+    Patches profile_store, web.settings, and web.profile so all HTTP
+    endpoints read the same temp path.
+    """
+    import web.profile as profile_module  # noqa: PLC0415
+    import web.settings as settings_module  # noqa: PLC0415
     path = str(tmp_path / "keys.json")
-    monkeypatch.setattr(app_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(profile_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(settings_module, "_KEYS_PATH", path)
     return path
 
 

@@ -38,6 +38,9 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import ingest
+import services.profile_store as _profile_store_module
+import web.ingest as web_ingest_module
+import web.settings as _settings_module
 from ingest import (
     ValidationIssue,
     _is_search_field_empty,
@@ -425,7 +428,7 @@ class TestIngestPreflightRoute:
 
     def test_preflight_ok_when_no_issues(self, client):
         c, app_module = client
-        with patch.object(app_module, "_get_search_validation_issues", return_value=[]):
+        with patch.object(web_ingest_module, "_get_search_validation_issues", return_value=[]):
             resp = c.get("/api/ingest/preflight")
         assert resp.status_code == 200
         body = resp.get_json()
@@ -439,7 +442,7 @@ class TestIngestPreflightRoute:
                 missing_fields=["country", "what"],
             )
         ]
-        with patch.object(app_module, "_get_search_validation_issues",
+        with patch.object(web_ingest_module, "_get_search_validation_issues",
                           return_value=fake_issues):
             resp = c.get("/api/ingest/preflight")
         assert resp.status_code == 422
@@ -456,7 +459,7 @@ class TestIngestPreflightRoute:
             ValidationIssue(source_key="adzuna", missing_fields=["country"]),
             ValidationIssue(source_key="other", missing_fields=["query"]),
         ]
-        with patch.object(app_module, "_get_search_validation_issues",
+        with patch.object(web_ingest_module, "_get_search_validation_issues",
                           return_value=fake_issues):
             resp = c.get("/api/ingest/preflight")
         assert resp.status_code == 422
@@ -473,7 +476,6 @@ class TestSettingsSearchWarningBanner:
 
     @pytest.fixture()
     def client(self, tmp_path, monkeypatch):
-        import app as app_module
         from app import app as flask_app
         flask_app.config["TESTING"] = True
         # Point providers/config paths at temp files so tests are isolated.
@@ -491,14 +493,16 @@ class TestSettingsSearchWarningBanner:
                 },
                 "scoring": {"threshold": 7.0},
             }, fh)
-        monkeypatch.setattr(app_module, "_PROVIDERS_PATH", providers_path)
-        monkeypatch.setattr(app_module, "_CONFIG_PATH", config_path)
+        monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", providers_path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", config_path)
+        monkeypatch.setattr(_settings_module, "_PROVIDERS_PATH", providers_path)
+        monkeypatch.setattr(_settings_module, "_CONFIG_PATH", config_path)
         with flask_app.test_client() as c:
-            yield c, app_module
+            yield c, _settings_module
 
     def test_no_banner_when_no_issues(self, client):
-        c, app_module = client
-        with patch.object(app_module, "_get_search_validation_issues",
+        c, settings_mod = client
+        with patch.object(settings_mod, "_get_search_validation_issues",
                           return_value=[]):
             resp = c.get("/settings")
         assert resp.status_code == 200
@@ -509,14 +513,14 @@ class TestSettingsSearchWarningBanner:
         assert '<div class="config-warn-banner"' not in html
 
     def test_banner_present_when_issues_exist(self, client):
-        c, app_module = client
+        c, settings_mod = client
         fake_issues = [
             ValidationIssue(
                 source_key="adzuna",
                 missing_fields=["country", "what"],
             )
         ]
-        with patch.object(app_module, "_get_search_validation_issues",
+        with patch.object(settings_mod, "_get_search_validation_issues",
                           return_value=fake_issues):
             resp = c.get("/settings")
         assert resp.status_code == 200
@@ -528,11 +532,11 @@ class TestSettingsSearchWarningBanner:
         assert "what" in html
 
     def test_tab_badge_present_when_issues_exist(self, client):
-        c, app_module = client
+        c, settings_mod = client
         fake_issues = [
             ValidationIssue(source_key="adzuna", missing_fields=["country"])
         ]
-        with patch.object(app_module, "_get_search_validation_issues",
+        with patch.object(settings_mod, "_get_search_validation_issues",
                           return_value=fake_issues):
             resp = c.get("/settings")
         html = resp.get_data(as_text=True)
@@ -540,11 +544,11 @@ class TestSettingsSearchWarningBanner:
         assert "tab-warn-badge" in html
 
     def test_warning_links_to_search_tab(self, client):
-        c, app_module = client
+        c, settings_mod = client
         fake_issues = [
             ValidationIssue(source_key="adzuna", missing_fields=["country"])
         ]
-        with patch.object(app_module, "_get_search_validation_issues",
+        with patch.object(settings_mod, "_get_search_validation_issues",
                           return_value=fake_issues):
             resp = c.get("/settings")
         html = resp.get_data(as_text=True)
@@ -611,18 +615,16 @@ class TestGetSearchValidationIssuesSafeLoadConfig:
 
     @pytest.fixture()
     def client(self, tmp_path, monkeypatch):
-        import app as app_module
         from app import app as flask_app
         flask_app.config["TESTING"] = True
         providers_path = str(tmp_path / "providers.json")
         with open(providers_path, "w") as fh:
             json.dump({"job_sources": {}}, fh)
-        monkeypatch.setattr(app_module, "_PROVIDERS_PATH", providers_path)
-        return flask_app.test_client(), app_module
+        monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", providers_path)
+        return flask_app.test_client()
 
     def test_settings_renders_when_config_missing(self, tmp_path, monkeypatch):
         """GET /settings returns 200 even when config.json does not exist."""
-        import app as app_module
         from app import app as flask_app
         flask_app.config["TESTING"] = True
         # Point _CONFIG_PATH at a path that does not exist.
@@ -630,15 +632,16 @@ class TestGetSearchValidationIssuesSafeLoadConfig:
         providers_path = str(tmp_path / "providers.json")
         with open(providers_path, "w") as fh:
             json.dump({"job_sources": {}}, fh)
-        monkeypatch.setattr(app_module, "_CONFIG_PATH", missing_path)
-        monkeypatch.setattr(app_module, "_PROVIDERS_PATH", providers_path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", missing_path)
+        monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", providers_path)
+        monkeypatch.setattr(_settings_module, "_CONFIG_PATH", missing_path)
+        monkeypatch.setattr(_settings_module, "_PROVIDERS_PATH", providers_path)
         with flask_app.test_client() as c:
             resp = c.get("/settings")
         assert resp.status_code == 200
 
     def test_settings_renders_when_config_malformed(self, tmp_path, monkeypatch):
         """GET /settings returns 200 even when config.json is not valid JSON."""
-        import app as app_module
         from app import app as flask_app
         flask_app.config["TESTING"] = True
         bad_config = str(tmp_path / "config.json")
@@ -647,8 +650,10 @@ class TestGetSearchValidationIssuesSafeLoadConfig:
             fh.write("{this is: not json")
         with open(providers_path, "w") as fh:
             json.dump({"job_sources": {}}, fh)
-        monkeypatch.setattr(app_module, "_CONFIG_PATH", bad_config)
-        monkeypatch.setattr(app_module, "_PROVIDERS_PATH", providers_path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", bad_config)
+        monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", providers_path)
+        monkeypatch.setattr(_settings_module, "_CONFIG_PATH", bad_config)
+        monkeypatch.setattr(_settings_module, "_PROVIDERS_PATH", providers_path)
         with flask_app.test_client() as c:
             resp = c.get("/settings")
         assert resp.status_code == 200
@@ -659,15 +664,14 @@ class TestGetSearchValidationIssuesSafeLoadConfig:
         With no config to validate, no issues can be detected — the endpoint
         should not 500 or block the ingest button.
         """
-        import app as app_module
         from app import app as flask_app
         flask_app.config["TESTING"] = True
         missing_path = str(tmp_path / "config.json")
         providers_path = str(tmp_path / "providers.json")
         with open(providers_path, "w") as fh:
             json.dump({"job_sources": {}}, fh)
-        monkeypatch.setattr(app_module, "_CONFIG_PATH", missing_path)
-        monkeypatch.setattr(app_module, "_PROVIDERS_PATH", providers_path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", missing_path)
+        monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", providers_path)
         with flask_app.test_client() as c:
             resp = c.get("/api/ingest/preflight")
         assert resp.status_code == 200
@@ -688,7 +692,6 @@ class TestIngestPreflightServerError:
 
     @pytest.fixture()
     def client(self, tmp_path, monkeypatch):
-        import app as app_module
         from app import app as flask_app
         flask_app.config["TESTING"] = True
         providers_path = str(tmp_path / "providers.json")
@@ -697,24 +700,22 @@ class TestIngestPreflightServerError:
             json.dump({"job_sources": {}}, fh)
         with open(config_path, "w") as fh:
             json.dump({"search": {}, "scoring": {"threshold": 7.0}}, fh)
-        monkeypatch.setattr(app_module, "_PROVIDERS_PATH", providers_path)
-        monkeypatch.setattr(app_module, "_CONFIG_PATH", config_path)
-        yield flask_app.test_client(), app_module
+        monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", providers_path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", config_path)
+        yield flask_app.test_client()
 
     def test_preflight_200_with_no_issues(self, client):
         """Baseline: clean config returns 200."""
-        c, app_module = client
-        with patch.object(app_module, "_get_search_validation_issues", return_value=[]):
-            resp = c.get("/api/ingest/preflight")
+        with patch.object(web_ingest_module, "_get_search_validation_issues", return_value=[]):
+            resp = client.get("/api/ingest/preflight")
         assert resp.status_code == 200
         assert resp.get_json()["ok"] is True
 
     def test_preflight_422_with_issues(self, client):
         """Baseline: issues present returns 422."""
-        c, app_module = client
         fake = [ValidationIssue(source_key="adzuna", missing_fields=["country"])]
-        with patch.object(app_module, "_get_search_validation_issues", return_value=fake):
-            resp = c.get("/api/ingest/preflight")
+        with patch.object(web_ingest_module, "_get_search_validation_issues", return_value=fake):
+            resp = client.get("/api/ingest/preflight")
         assert resp.status_code == 422
         body = resp.get_json()
         assert body["ok"] is False

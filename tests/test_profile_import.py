@@ -102,7 +102,9 @@ from pypdf.errors import PdfReadError
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import app as app_module
+import services.pdf_import as _pdf_import_module
+import services.profile_store as _profile_store_module
+import web.profile as _profile_module
 from app import app as flask_app
 
 
@@ -120,25 +122,43 @@ def client():
 
 @pytest.fixture()
 def tmp_profile_path(tmp_path, monkeypatch):
-    """Point _PROFILE_PATH at a temp file for isolation."""
+    """Point _PROFILE_PATH at a temp file for isolation.
+
+    Patches both services.profile_store (canonical binding) and
+    web.profile (consumer binding) so both direct calls and HTTP
+    endpoints read the same temp path.
+    """
     path = str(tmp_path / "profile.json")
-    monkeypatch.setattr(app_module, "_PROFILE_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_PROFILE_PATH", path)
+    monkeypatch.setattr(_profile_module, "_PROFILE_PATH", path)
     return path
 
 
 @pytest.fixture()
 def tmp_providers_path(tmp_path, monkeypatch):
-    """Point _PROVIDERS_PATH at a temp file so no real credentials are read."""
+    """Point _PROVIDERS_PATH at a temp file so no real credentials are read.
+
+    Patches both services.profile_store (canonical binding) and
+    web.profile (consumer binding) so both direct calls and HTTP
+    endpoints read the same temp path.
+    """
     path = str(tmp_path / "providers.json")
-    monkeypatch.setattr(app_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_profile_module, "_PROVIDERS_PATH", path)
     return path
 
 
 @pytest.fixture()
 def tmp_keys_path(tmp_path, monkeypatch):
-    """Prevent legacy key migration from triggering during tests."""
+    """Prevent legacy key migration from triggering during tests.
+
+    Patches both services.profile_store (canonical binding) and
+    web.profile (consumer binding) so both direct calls and HTTP
+    endpoints read the same temp path.
+    """
     path = str(tmp_path / "keys.json")
-    monkeypatch.setattr(app_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_profile_module, "_KEYS_PATH", path)
     return path
 
 
@@ -174,16 +194,16 @@ class TestPdfExtraction:
         mock_reader = MagicMock()
         mock_reader.pages = [page1, page2]
 
-        with patch("app.PdfReader", return_value=mock_reader):
-            result = app_module._extract_pdf_text(b"fake")
+        with patch("services.pdf_import.PdfReader", return_value=mock_reader):
+            result = _pdf_import_module._extract_pdf_text(b"fake")
 
         assert result == "Page one text. Page two text."
 
     def test_raises_value_error_when_pdf_unreadable(self):
         """ValueError is raised (not a raw exception) when PdfReader fails."""
-        with patch("app.PdfReader", side_effect=PdfReadError("corrupt")):
+        with patch("services.pdf_import.PdfReader", side_effect=PdfReadError("corrupt")):
             with pytest.raises(ValueError, match="Could not read PDF"):
-                app_module._extract_pdf_text(b"not a pdf")
+                _pdf_import_module._extract_pdf_text(b"not a pdf")
 
     def test_returns_empty_string_for_pages_with_no_text(self):
         """Pages returning None from extract_text are treated as empty strings."""
@@ -192,8 +212,8 @@ class TestPdfExtraction:
         mock_reader = MagicMock()
         mock_reader.pages = [page]
 
-        with patch("app.PdfReader", return_value=mock_reader):
-            result = app_module._extract_pdf_text(b"fake")
+        with patch("services.pdf_import.PdfReader", return_value=mock_reader):
+            result = _pdf_import_module._extract_pdf_text(b"fake")
 
         assert result == ""
 
@@ -208,7 +228,7 @@ class TestImportPromptConstruction:
 
     def test_contains_resume_text(self):
         """Prompt embeds the resume text."""
-        prompt = app_module._build_import_prompt("my resume content")
+        prompt = _pdf_import_module._build_import_prompt("my resume content")
         assert "my resume content" in prompt
 
     def test_never_includes_existing_profile(self):
@@ -217,12 +237,12 @@ class TestImportPromptConstruction:
         The LLM's job is to extract from the resume only; _merge_import_result()
         handles merging deterministically in code after parsing.
         """
-        prompt = app_module._build_import_prompt("resume here")
+        prompt = _pdf_import_module._build_import_prompt("resume here")
         assert "EXISTING PROFILE" not in prompt
 
     def test_uses_fresh_prompt_template(self):
         """_build_import_prompt always uses _IMPORT_PROMPT_FRESH."""
-        prompt = app_module._build_import_prompt("some resume text")
+        prompt = _pdf_import_module._build_import_prompt("some resume text")
         # The fresh prompt asks for JSON only — verify the sentinel phrase is present
         assert "JSON only:" in prompt
 
@@ -246,7 +266,7 @@ class TestImportResponseParsing:
             "preferred_industries": ["fintech"],
             "location_center": "Miami, FL",
         })
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         assert result["seniority"] == "Senior"
         assert result["location_center"] == "Miami, FL"
@@ -254,19 +274,19 @@ class TestImportResponseParsing:
     def test_strips_markdown_fences_before_parsing(self):
         """JSON wrapped in ```json ... ``` code fences is parsed correctly."""
         raw = "```json\n{\"seniority\": \"Mid-level\"}\n```"
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         assert result["seniority"] == "Mid-level"
 
     def test_returns_none_for_malformed_json(self):
         """Non-JSON response returns None without raising."""
-        result = app_module._parse_import_response("sorry, I cannot extract that.")
+        result = _pdf_import_module._parse_import_response("sorry, I cannot extract that.")
         assert result is None
 
     def test_fills_defaults_for_missing_fields(self):
         """Missing keys are filled with empty defaults rather than raising KeyError."""
         raw = json.dumps({"seniority": "Junior"})
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         assert result["primary_skills"] == []
         assert result["education"] == []
@@ -276,7 +296,7 @@ class TestImportResponseParsing:
     def test_null_location_center_preserved(self):
         """Explicit null in the JSON is preserved as None in Python."""
         raw = json.dumps({"location_center": None})
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         assert result["location_center"] is None
 
@@ -299,7 +319,7 @@ class TestImportMergeLogic:
             "preferred_industries": [],
             "location_center": None,
         }
-        result = app_module._merge_import_result(current, imported)
+        result = _pdf_import_module._merge_import_result(current, imported)
         assert any(s.get("description") == "Go" for s in result["primary_skills"] if isinstance(s, dict))
 
     def test_existing_skills_are_preserved(self):
@@ -312,7 +332,7 @@ class TestImportMergeLogic:
             "preferred_industries": [],
             "location_center": None,
         }
-        result = app_module._merge_import_result(current, imported)
+        result = _pdf_import_module._merge_import_result(current, imported)
         assert any(s.get("description") == "Python" for s in result["primary_skills"] if isinstance(s, dict))
 
     def test_duplicate_skills_are_not_added(self):
@@ -325,7 +345,7 @@ class TestImportMergeLogic:
             "preferred_industries": [],
             "location_center": None,
         }
-        result = app_module._merge_import_result(current, imported)
+        result = _pdf_import_module._merge_import_result(current, imported)
         python_entries = [s for s in result["primary_skills"] if isinstance(s, dict) and "python" in s.get("description", "").lower()]
         assert len(python_entries) == 1
 
@@ -345,7 +365,7 @@ class TestImportMergeLogic:
             "preferred_industries": [],
             "location_center": None,
         }
-        result = app_module._merge_import_result(current, imported)
+        result = _pdf_import_module._merge_import_result(current, imported)
         edu_schools = [e["school"] for e in result["education"] if isinstance(e, dict)]
         assert "Stanford" in edu_schools
         assert "MIT" in edu_schools
@@ -361,7 +381,7 @@ class TestImportMergeLogic:
             "preferred_industries": [],
             "location_center": None,
         }
-        result = app_module._merge_import_result(current, imported)
+        result = _pdf_import_module._merge_import_result(current, imported)
         mit_entries = [e for e in result["education"] if isinstance(e, dict) and e.get("school") == "MIT"]
         assert len(mit_entries) == 1
 
@@ -375,7 +395,7 @@ class TestImportMergeLogic:
             "preferred_industries": [],
             "location_center": None,
         }
-        result = app_module._merge_import_result(current, imported)
+        result = _pdf_import_module._merge_import_result(current, imported)
         assert result["seniority"] == "Staff"
 
     def test_seniority_filled_from_import_when_empty(self):
@@ -388,7 +408,7 @@ class TestImportMergeLogic:
             "preferred_industries": [],
             "location_center": None,
         }
-        result = app_module._merge_import_result(current, imported)
+        result = _pdf_import_module._merge_import_result(current, imported)
         assert result["seniority"] == "Senior"
 
     def test_industries_are_merged_without_duplicates(self):
@@ -401,7 +421,7 @@ class TestImportMergeLogic:
             "preferred_industries": ["fintech", "healthtech"],
             "location_center": None,
         }
-        result = app_module._merge_import_result(current, imported)
+        result = _pdf_import_module._merge_import_result(current, imported)
         assert result["preferred_industries"].count("fintech") == 1
         assert "healthtech" in result["preferred_industries"]
 
@@ -415,7 +435,7 @@ class TestImportMergeLogic:
             "preferred_industries": [],
             "location_center": "Austin, TX",
         }
-        result = app_module._merge_import_result(current, imported)
+        result = _pdf_import_module._merge_import_result(current, imported)
         assert result["location_center"] == "New York, NY"
 
     def test_location_filled_from_import_when_absent(self):
@@ -428,7 +448,7 @@ class TestImportMergeLogic:
             "preferred_industries": [],
             "location_center": "Austin, TX",
         }
-        result = app_module._merge_import_result(current, imported)
+        result = _pdf_import_module._merge_import_result(current, imported)
         assert result["location_center"] == "Austin, TX"
 
     def test_handles_missing_keys_in_current_profile(self):
@@ -443,7 +463,7 @@ class TestImportMergeLogic:
             "preferred_industries": ["systems"],
             "location_center": None,
         }
-        result = app_module._merge_import_result(current, imported)
+        result = _pdf_import_module._merge_import_result(current, imported)
         assert any(s.get("description") == "Rust" for s in result["primary_skills"] if isinstance(s, dict))
         edu_schools = [e["school"] for e in result["education"] if isinstance(e, dict)]
         assert "CMU" in edu_schools
@@ -476,7 +496,7 @@ class TestImportEndpoint:
     def test_returns_400_when_pdf_unreadable(self, client, tmp_providers_path, tmp_keys_path):
         """When _extract_pdf_text raises ValueError, endpoint returns 400."""
         data = {"file": (io.BytesIO(b"garbage"), "resume.pdf")}
-        with patch("app._extract_pdf_text", side_effect=ValueError("Could not read PDF: bad")):
+        with patch("web.profile._extract_pdf_text", side_effect=ValueError("Could not read PDF: bad")):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
         assert resp.status_code == 400
         body = resp.get_json()
@@ -485,7 +505,7 @@ class TestImportEndpoint:
     def test_returns_422_when_extracted_text_too_short(self, client, tmp_providers_path, tmp_keys_path):
         """Fewer than 50 meaningful characters after extraction returns 422."""
         data = {"file": (io.BytesIO(b"fake pdf"), "resume.pdf")}
-        with patch("app._extract_pdf_text", return_value="too short"):
+        with patch("web.profile._extract_pdf_text", return_value="too short"):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
         assert resp.status_code == 422
         body = resp.get_json()
@@ -495,8 +515,8 @@ class TestImportEndpoint:
         """Empty provider chain returns 503."""
         data = {"file": (io.BytesIO(b"fake"), "resume.pdf")}
         long_text = "x" * 200
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[]):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[]):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
         assert resp.status_code == 503
         body = resp.get_json()
@@ -507,9 +527,9 @@ class TestImportEndpoint:
         data = {"file": (io.BytesIO(b"fake"), "resume.pdf")}
         long_text = "x" * 200
         mock_provider = MagicMock()
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=None):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=None):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
         assert resp.status_code == 502
         body = resp.get_json()
@@ -520,10 +540,10 @@ class TestImportEndpoint:
         data = {"file": (io.BytesIO(b"fake"), "resume.pdf")}
         long_text = "x" * 200
         mock_provider = MagicMock()
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=("not json at all", "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=None):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=("not json at all", "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=None):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
         assert resp.status_code == 502
         body = resp.get_json()
@@ -543,10 +563,10 @@ class TestImportEndpoint:
             "preferred_industries": ["fintech"],
             "location_center": "Miami, FL",
         }
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/claude-haiku")), \
-             patch("app._parse_import_response", return_value=parsed_response):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/claude-haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed_response):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
         assert resp.status_code == 200
         body = resp.get_json()
@@ -583,10 +603,10 @@ class TestImportEndpoint:
             "preferred_industries": ["healthtech"],
             "location_center": "Austin, TX",  # should be ignored since current has location
         }
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed_response), "openai/gpt-4o")), \
-             patch("app._parse_import_response", return_value=parsed_response):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed_response), "openai/gpt-4o")), \
+             patch("web.profile._parse_import_response", return_value=parsed_response):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
 
         assert resp.status_code == 200
@@ -635,18 +655,18 @@ class TestImportEndpoint:
 
         captured_prompts: list[str] = []
 
-        original_build = app_module._build_import_prompt
+        original_build = _pdf_import_module._build_import_prompt
 
         def spy_build(resume_text: str, suggest_filters: bool = False) -> str:
             prompt = original_build(resume_text, suggest_filters=suggest_filters)
             captured_prompts.append(prompt)
             return prompt
 
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed_response), "openai/gpt-4o")), \
-             patch("app._parse_import_response", return_value=parsed_response), \
-             patch("app._build_import_prompt", side_effect=spy_build):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed_response), "openai/gpt-4o")), \
+             patch("web.profile._parse_import_response", return_value=parsed_response), \
+             patch("web.profile._build_import_prompt", side_effect=spy_build):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
 
         assert resp.status_code == 200
@@ -670,10 +690,10 @@ class TestImportEndpoint:
             "preferred_industries": [],
             "location_center": None,
         }
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed_response):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed_response):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
 
         assert resp.status_code == 200
@@ -692,10 +712,10 @@ class TestImportEndpoint:
             "preferred_industries": [],
             "location_center": None,
         }
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed_response):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed_response):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
 
         assert resp.status_code == 200
@@ -714,10 +734,10 @@ class TestImportEndpoint:
             "preferred_industries": [],
             "location_center": None,
         }
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed_response):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed_response), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed_response):
             resp = client.post("/profile/import-pdf", data=data, content_type="multipart/form-data")
 
         assert resp.status_code == 200
@@ -745,7 +765,7 @@ class TestNormaliseEducation:
 
     def test_flat_string_with_degree_school_year(self):
         """'BS Computer Engineering, Georgia Institute of Technology, 2016' parses fully."""
-        result = app_module._normalise_education(
+        result = _pdf_import_module._normalise_education(
             ["BS Computer Engineering, Georgia Institute of Technology, 2016"]
         )
         assert len(result) == 1
@@ -757,7 +777,7 @@ class TestNormaliseEducation:
 
     def test_flat_string_with_dotted_degree(self):
         """'B.S. Computer Science, MIT, 2016' handles dots in degree abbreviation."""
-        result = app_module._normalise_education(["B.S. Computer Science, MIT, 2016"])
+        result = _pdf_import_module._normalise_education(["B.S. Computer Science, MIT, 2016"])
         assert len(result) == 1
         entry = result[0]
         assert "B.S." in entry["degree_type"]
@@ -767,7 +787,7 @@ class TestNormaliseEducation:
 
     def test_flat_string_masters(self):
         """'Master of Science in Data Science, Stanford University, 2020' handles long-form type."""
-        result = app_module._normalise_education(
+        result = _pdf_import_module._normalise_education(
             ["Master of Science in Data Science, Stanford University, 2020"]
         )
         assert len(result) == 1
@@ -779,14 +799,14 @@ class TestNormaliseEducation:
 
     def test_flat_string_no_year(self):
         """Flat string without a year leaves graduation_year as empty string."""
-        result = app_module._normalise_education(["BS Computer Science, Some University"])
+        result = _pdf_import_module._normalise_education(["BS Computer Science, Some University"])
         assert len(result) == 1
         assert result[0]["graduation_year"] == ""
         assert result[0]["school"] == "Some University"
 
     def test_flat_string_unparseable(self):
         """Completely unparseable string falls back: degree_field gets the whole text."""
-        result = app_module._normalise_education(["some random text"])
+        result = _pdf_import_module._normalise_education(["some random text"])
         assert len(result) == 1
         entry = result[0]
         assert entry["degree_field"] == "some random text"
@@ -796,7 +816,7 @@ class TestNormaliseEducation:
 
     def test_dict_missing_keys(self):
         """Dict with only some keys present — missing keys filled with empty strings."""
-        result = app_module._normalise_education([{"degree_field": "CS", "school": "MIT"}])
+        result = _pdf_import_module._normalise_education([{"degree_field": "CS", "school": "MIT"}])
         assert len(result) == 1
         entry = result[0]
         assert entry["degree_field"] == "CS"
@@ -812,7 +832,7 @@ class TestNormaliseEducation:
             "school": "MIT",
             "graduation_year": "2015",
         }
-        result = app_module._normalise_education([edu])
+        result = _pdf_import_module._normalise_education([edu])
         assert len(result) == 1
         assert result[0] == edu
 
@@ -822,7 +842,7 @@ class TestNormaliseEducation:
             "BS Computer Engineering, Georgia Tech, 2016",
             {"degree_type": "M.S.", "degree_field": "ML", "school": "Stanford", "graduation_year": "2018"},
         ]
-        result = app_module._normalise_education(entries)
+        result = _pdf_import_module._normalise_education(entries)
         assert len(result) == 2
         # Both entries must have all four keys
         for entry in result:
@@ -837,7 +857,7 @@ class TestNormaliseEducation:
 
     def test_flat_string_year_at_beginning(self):
         """Year appearing at the start of the string is still extracted correctly."""
-        result = app_module._normalise_education(["2016 BS Computer Science, MIT"])
+        result = _pdf_import_module._normalise_education(["2016 BS Computer Science, MIT"])
         assert result[0]["graduation_year"] == "2016"
         assert result[0]["degree_type"] == "BS"
         assert result[0]["school"] == "MIT"
@@ -853,44 +873,44 @@ class TestBuildImportPromptFilters:
 
     def test_toggle_off_prompt_identical_to_base(self):
         """When suggest_filters=False the prompt is byte-for-byte the base prompt."""
-        default_prompt = app_module._build_import_prompt("resume text")
-        explicit_off = app_module._build_import_prompt(
+        default_prompt = _pdf_import_module._build_import_prompt("resume text")
+        explicit_off = _pdf_import_module._build_import_prompt(
             "resume text", suggest_filters=False
         )
         assert default_prompt == explicit_off
 
     def test_toggle_off_does_not_contain_prefilter_section(self):
         """Prompt without toggle contains no mention of prefilter_suggestions."""
-        prompt = app_module._build_import_prompt("some resume", suggest_filters=False)
+        prompt = _pdf_import_module._build_import_prompt("some resume", suggest_filters=False)
         assert "prefilter_suggestions" not in prompt
 
     def test_toggle_on_contains_prefilter_section(self):
         """Prompt with suggest_filters=True mentions prefilter_suggestions."""
-        prompt = app_module._build_import_prompt("some resume", suggest_filters=True)
+        prompt = _pdf_import_module._build_import_prompt("some resume", suggest_filters=True)
         assert "prefilter_suggestions" in prompt
 
     def test_toggle_on_still_ends_with_json_only_sentinel(self):
         """Prompt with toggle still ends with the 'JSON only:' sentinel."""
-        prompt = app_module._build_import_prompt("some resume", suggest_filters=True)
+        prompt = _pdf_import_module._build_import_prompt("some resume", suggest_filters=True)
         assert prompt.rstrip().endswith("JSON only:")
 
     def test_toggle_on_contains_title_include_and_exclude(self):
         """Extended prompt explicitly names title_include and title_exclude."""
-        prompt = app_module._build_import_prompt("some resume", suggest_filters=True)
+        prompt = _pdf_import_module._build_import_prompt("some resume", suggest_filters=True)
         assert "title_include" in prompt
         assert "title_exclude" in prompt
 
     def test_toggle_on_still_contains_resume_text(self):
         """Resume text is injected into the extended prompt."""
-        prompt = app_module._build_import_prompt(
+        prompt = _pdf_import_module._build_import_prompt(
             "my special resume", suggest_filters=True
         )
         assert "my special resume" in prompt
 
     def test_toggle_on_prompt_differs_from_base(self):
         """The extended prompt is longer than the base prompt."""
-        base = app_module._build_import_prompt("resume text", suggest_filters=False)
-        extended = app_module._build_import_prompt(
+        base = _pdf_import_module._build_import_prompt("resume text", suggest_filters=False)
+        extended = _pdf_import_module._build_import_prompt(
             "resume text", suggest_filters=True
         )
         assert len(extended) > len(base)
@@ -902,7 +922,7 @@ class TestBuildImportPromptFilters:
         prompt extension must mention them in a negative/exclusion context
         (e.g. "Do NOT include ...") rather than as fields to extract.
         """
-        prompt = app_module._build_import_prompt("some resume", suggest_filters=True)
+        prompt = _pdf_import_module._build_import_prompt("some resume", suggest_filters=True)
         # The prompt must contain a "Do NOT" or equivalent exclusion instruction
         # covering the contract fields — not a positive extraction request.
         prompt_lower = prompt.lower()
@@ -942,7 +962,7 @@ class TestParseImportResponsePrefilter:
                 "title_exclude": ["manager", "director"],
             }
         )
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         pf = result["prefilter_suggestions"]
         assert pf["title_include"] == ["engineer", "developer"]
@@ -956,7 +976,7 @@ class TestParseImportResponsePrefilter:
                 "title_exclude": ["manager", "director"],
             }
         )
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         # Core profile must be returned — not None — despite bad suggestions.
         assert result is not None
         assert result["seniority"] == "Senior"
@@ -971,7 +991,7 @@ class TestParseImportResponsePrefilter:
                 "title_exclude": ["engineer"],
             }
         )
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         assert result["seniority"] == "Senior"
         assert "prefilter_suggestions" not in result
@@ -984,7 +1004,7 @@ class TestParseImportResponsePrefilter:
                 "title_exclude": ["Manager"],
             }
         )
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         pf = result["prefilter_suggestions"]
         assert pf["title_include"] == ["engineer", "developer"]
@@ -995,7 +1015,7 @@ class TestParseImportResponsePrefilter:
         raw = self._base_response(
             prefilter_suggestions={"title_include": [], "title_exclude": []}
         )
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         pf = result["prefilter_suggestions"]
         assert pf["title_include"] == []
@@ -1004,35 +1024,35 @@ class TestParseImportResponsePrefilter:
     def test_non_dict_suggestions_key_is_dropped(self):
         """A non-dict prefilter_suggestions value is silently dropped."""
         raw = self._base_response(prefilter_suggestions=["bad", "value"])
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         assert "prefilter_suggestions" not in result
 
     def test_absent_suggestions_key_is_fine(self):
         """Response without prefilter_suggestions is accepted without error."""
         raw = self._base_response()
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         assert "prefilter_suggestions" not in result
 
     def test_list_too_long_drops_suggestions_profile_preserved(self):
         """title_include list exceeding _MAX_PATTERNS_PER_LIST drops suggestions only."""
-        too_many = [f"term{i}" for i in range(app_module._MAX_PATTERNS_PER_LIST + 1)]
+        too_many = [f"term{i}" for i in range(_pdf_import_module._MAX_PATTERNS_PER_LIST + 1)]
         raw = self._base_response(
             prefilter_suggestions={"title_include": too_many, "title_exclude": []}
         )
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         assert result["seniority"] == "Senior"
         assert "prefilter_suggestions" not in result
 
     def test_pattern_too_long_drops_suggestions_profile_preserved(self):
         """A pattern string exceeding _MAX_PATTERN_LEN drops suggestions only."""
-        long_pattern = "a" * (app_module._MAX_PATTERN_LEN + 1)
+        long_pattern = "a" * (_pdf_import_module._MAX_PATTERN_LEN + 1)
         raw = self._base_response(
             prefilter_suggestions={"title_include": [long_pattern], "title_exclude": []}
         )
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         assert result["seniority"] == "Senior"
         assert "prefilter_suggestions" not in result
@@ -1051,7 +1071,7 @@ class TestParseImportResponsePrefilter:
             },
         }
         raw = "```json\n" + json.dumps(payload) + "\n```"
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         assert result["seniority"] == "Mid-level"
         pf = result["prefilter_suggestions"]
@@ -1061,7 +1081,7 @@ class TestParseImportResponsePrefilter:
     def test_truncated_json_returns_none(self):
         """Truncated (unparseable) JSON returns None — core parse failure."""
         raw = '{"seniority": "Senior", "prefilter_suggestions": {"title_include": ["eng'
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is None
 
     def test_missing_prefilter_suggestions_key_not_an_error(self):
@@ -1073,7 +1093,7 @@ class TestParseImportResponsePrefilter:
             "preferred_industries": [],
             "location_center": None,
         })
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         assert "prefilter_suggestions" not in result
         assert result["seniority"] == "Senior"
@@ -1100,9 +1120,9 @@ class TestParseImportResponsePrefilter:
                 "title_exclude": ["manager"],  # overlap — would have caused old 502
             },
         })
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(raw_llm, "anthropic/haiku")):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(raw_llm, "anthropic/haiku")):
             resp = client.post(
                 "/profile/import-pdf",
                 data={
@@ -1129,7 +1149,7 @@ class TestMergePrefilterSuggestions:
 
     def test_fresh_empty_prefilter_uses_suggestions_directly(self):
         """When existing prefilter is empty the suggestions become the result."""
-        result = app_module._merge_prefilter_suggestions(
+        result = _pdf_import_module._merge_prefilter_suggestions(
             {},
             {"title_include": ["engineer"], "title_exclude": ["director"]},
         )
@@ -1138,7 +1158,7 @@ class TestMergePrefilterSuggestions:
 
     def test_merge_adds_new_include_terms(self):
         """New include terms from suggestions are appended to existing ones."""
-        result = app_module._merge_prefilter_suggestions(
+        result = _pdf_import_module._merge_prefilter_suggestions(
             {"title_include": ["engineer"], "title_exclude": []},
             {"title_include": ["developer"], "title_exclude": []},
         )
@@ -1147,7 +1167,7 @@ class TestMergePrefilterSuggestions:
 
     def test_merge_does_not_duplicate_existing_include_terms(self):
         """Include terms already present are not added a second time."""
-        result = app_module._merge_prefilter_suggestions(
+        result = _pdf_import_module._merge_prefilter_suggestions(
             {"title_include": ["engineer"], "title_exclude": []},
             {"title_include": ["engineer", "developer"], "title_exclude": []},
         )
@@ -1156,7 +1176,7 @@ class TestMergePrefilterSuggestions:
 
     def test_dedup_is_case_insensitive(self):
         """Duplicate detection is case-insensitive; output is always lowercase."""
-        result = app_module._merge_prefilter_suggestions(
+        result = _pdf_import_module._merge_prefilter_suggestions(
             {"title_include": ["Engineer"], "title_exclude": []},
             {"title_include": ["engineer"], "title_exclude": []},
         )
@@ -1166,7 +1186,7 @@ class TestMergePrefilterSuggestions:
 
     def test_merge_adds_new_exclude_terms(self):
         """New exclude terms from suggestions are appended."""
-        result = app_module._merge_prefilter_suggestions(
+        result = _pdf_import_module._merge_prefilter_suggestions(
             {"title_include": [], "title_exclude": ["director"]},
             {"title_include": [], "title_exclude": ["manager"]},
         )
@@ -1175,7 +1195,7 @@ class TestMergePrefilterSuggestions:
 
     def test_other_prefilter_keys_preserved(self):
         """Keys other than title_include/exclude are passed through unchanged."""
-        result = app_module._merge_prefilter_suggestions(
+        result = _pdf_import_module._merge_prefilter_suggestions(
             {
                 "title_include": [],
                 "title_exclude": [],
@@ -1189,7 +1209,7 @@ class TestMergePrefilterSuggestions:
 
     def test_fresh_mode_replaces_include_with_suggestions(self):
         """In fresh mode (empty existing prefilter) suggestions become the lists."""
-        result = app_module._merge_prefilter_suggestions(
+        result = _pdf_import_module._merge_prefilter_suggestions(
             {},
             {"title_include": ["engineer", "developer"], "title_exclude": ["intern"]},
         )
@@ -1198,7 +1218,7 @@ class TestMergePrefilterSuggestions:
 
     def test_user_added_terms_never_removed(self):
         """User-added patterns are preserved even if absent from suggestions."""
-        result = app_module._merge_prefilter_suggestions(
+        result = _pdf_import_module._merge_prefilter_suggestions(
             {"title_include": ["staff", "principal"], "title_exclude": ["intern"]},
             {"title_include": ["engineer"], "title_exclude": ["manager"]},
         )
@@ -1212,7 +1232,7 @@ class TestMergePrefilterSuggestions:
 
     def test_empty_suggestions_leaves_existing_unchanged(self):
         """Empty suggestion arrays leave the existing prefilter intact."""
-        result = app_module._merge_prefilter_suggestions(
+        result = _pdf_import_module._merge_prefilter_suggestions(
             {"title_include": ["engineer"], "title_exclude": ["intern"]},
             {"title_include": [], "title_exclude": []},
         )
@@ -1249,10 +1269,10 @@ class TestImportEndpointSuggestFilters:
         long_text = "x" * 200
         mock_provider = MagicMock()
         parsed = self._llm_response_with_suggestions()
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed):
             resp = client.post(
                 "/profile/import-pdf",
                 data={"file": (io.BytesIO(b"fake"), "resume.pdf")},
@@ -1272,10 +1292,10 @@ class TestImportEndpointSuggestFilters:
             include=["engineer", "developer"],
             exclude=["manager", "director"],
         )
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed):
             resp = client.post(
                 "/profile/import-pdf",
                 data={
@@ -1301,17 +1321,17 @@ class TestImportEndpointSuggestFilters:
         parsed = self._llm_response_with_suggestions()
         captured: list[dict] = []
 
-        original_build = app_module._build_import_prompt
+        original_build = _pdf_import_module._build_import_prompt
 
         def spy_build(resume_text: str, suggest_filters: bool = False) -> str:
             captured.append({"suggest_filters": suggest_filters})
             return original_build(resume_text, suggest_filters=suggest_filters)
 
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed), \
-             patch("app._build_import_prompt", side_effect=spy_build):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed), \
+             patch("web.profile._build_import_prompt", side_effect=spy_build):
             client.post(
                 "/profile/import-pdf",
                 data={
@@ -1338,17 +1358,17 @@ class TestImportEndpointSuggestFilters:
         }
         captured: list[dict] = []
 
-        original_build = app_module._build_import_prompt
+        original_build = _pdf_import_module._build_import_prompt
 
         def spy_build(resume_text: str, suggest_filters: bool = False) -> str:
             captured.append({"suggest_filters": suggest_filters})
             return original_build(resume_text, suggest_filters=suggest_filters)
 
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed), \
-             patch("app._build_import_prompt", side_effect=spy_build):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed), \
+             patch("web.profile._build_import_prompt", side_effect=spy_build):
             client.post(
                 "/profile/import-pdf",
                 data={"file": (io.BytesIO(b"fake"), "resume.pdf")},
@@ -1371,10 +1391,10 @@ class TestImportEndpointSuggestFilters:
             "location_center": None,
             # no prefilter_suggestions key
         }
-        with patch("app._extract_pdf_text", return_value=long_text), \
-             patch("app.build_provider_chain", return_value=[mock_provider]), \
-             patch("app.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
-             patch("app._parse_import_response", return_value=parsed):
+        with patch("web.profile._extract_pdf_text", return_value=long_text), \
+             patch("web.profile.build_provider_chain", return_value=[mock_provider]), \
+             patch("web.profile.generate_with_fallback", return_value=(json.dumps(parsed), "anthropic/haiku")), \
+             patch("web.profile._parse_import_response", return_value=parsed):
             resp = client.post(
                 "/profile/import-pdf",
                 data={
@@ -1400,7 +1420,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
     def tmp_config_path(self, tmp_path, monkeypatch):
         """Point _CONFIG_PATH at a temp file for isolation."""
         path = str(tmp_path / "config.json")
-        monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         return path
 
     def _write_config(self, path: str, cfg: dict) -> None:
@@ -1474,7 +1495,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         """Request with a matching CSRF token succeeds (200)."""
         client, token = client_with_csrf
         path = str(tmp_path / "config.json")
-        monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         self._write_config(path, {})
         resp = self._post_suggestions(client, ["engineer"], [], csrf_token=token)
         assert resp.status_code == 200
@@ -1517,7 +1539,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         """Overlapping include/exclude terms return 400 (disjoint-set guard)."""
         client, token = client_with_csrf
         path = str(tmp_path / "config.json")
-        monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         self._write_config(path, {})
         resp = self._post_suggestions(
             client,
@@ -1537,7 +1560,7 @@ class TestApplyPrefilterSuggestionsEndpoint:
     def test_parse_drops_suggestions_when_pattern_over_max_length(self):
         """_parse_import_response drops prefilter_suggestions (not the whole response) when
         any pattern exceeds _MAX_PATTERN_LEN; core profile is preserved."""
-        over_long = "x" * (app_module._MAX_PATTERN_LEN + 1)
+        over_long = "x" * (_pdf_import_module._MAX_PATTERN_LEN + 1)
         raw = json.dumps({
             "primary_skills": [],
             "education": [],
@@ -1549,13 +1572,13 @@ class TestApplyPrefilterSuggestionsEndpoint:
                 "title_exclude": [],
             },
         })
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         assert "prefilter_suggestions" not in result
 
     def test_parse_accepts_pattern_at_exact_max_length(self):
         """_parse_import_response accepts a pattern that is exactly _MAX_PATTERN_LEN chars."""
-        exact = "x" * app_module._MAX_PATTERN_LEN
+        exact = "x" * _pdf_import_module._MAX_PATTERN_LEN
         raw = json.dumps({
             "primary_skills": [],
             "education": [],
@@ -1567,14 +1590,14 @@ class TestApplyPrefilterSuggestionsEndpoint:
                 "title_exclude": [],
             },
         })
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         assert exact in result["prefilter_suggestions"]["title_include"]
 
     def test_parse_drops_suggestions_when_list_over_max_count(self):
         """_parse_import_response drops prefilter_suggestions (not the whole response) when
         a list exceeds _MAX_PATTERNS_PER_LIST; core profile is preserved."""
-        too_many = [f"term{i}" for i in range(app_module._MAX_PATTERNS_PER_LIST + 1)]
+        too_many = [f"term{i}" for i in range(_pdf_import_module._MAX_PATTERNS_PER_LIST + 1)]
         raw = json.dumps({
             "primary_skills": [],
             "education": [],
@@ -1586,13 +1609,13 @@ class TestApplyPrefilterSuggestionsEndpoint:
                 "title_exclude": [],
             },
         })
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
         assert "prefilter_suggestions" not in result
 
     def test_parse_accepts_list_at_exact_max_count(self):
         """_parse_import_response accepts a list with exactly _MAX_PATTERNS_PER_LIST items."""
-        exact_count = [f"term{i}" for i in range(app_module._MAX_PATTERNS_PER_LIST)]
+        exact_count = [f"term{i}" for i in range(_pdf_import_module._MAX_PATTERNS_PER_LIST)]
         raw = json.dumps({
             "primary_skills": [],
             "education": [],
@@ -1604,9 +1627,9 @@ class TestApplyPrefilterSuggestionsEndpoint:
                 "title_exclude": [],
             },
         })
-        result = app_module._parse_import_response(raw)
+        result = _pdf_import_module._parse_import_response(raw)
         assert result is not None
-        assert len(result["prefilter_suggestions"]["title_include"]) == app_module._MAX_PATTERNS_PER_LIST
+        assert len(result["prefilter_suggestions"]["title_include"]) == _pdf_import_module._MAX_PATTERNS_PER_LIST
 
     # ------------------------------------------------------------------
     # Lowercase normalisation on merge (new — review item 4)
@@ -1618,7 +1641,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         """Existing mixed-case patterns and new suggestions are all lowercased on merge."""
         client, token = client_with_csrf
         path = str(tmp_path / "config.json")
-        monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         self._write_config(
             path,
             {"prefilter": {"title_include": ["Engineer"], "title_exclude": []}},
@@ -1645,7 +1669,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         """Suggestions are written to an empty config's prefilter block."""
         client, token = client_with_csrf
         path = str(tmp_path / "config.json")
-        monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         self._write_config(path, {})
         resp = self._post_suggestions(client, ["engineer"], ["director"], csrf_token=token)
         assert resp.status_code == 200
@@ -1659,7 +1684,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         """Suggestions are merged with existing prefilter without removing old terms."""
         client, token = client_with_csrf
         path = str(tmp_path / "config.json")
-        monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         self._write_config(
             path,
             {"prefilter": {"title_include": ["staff"], "title_exclude": ["intern"]}},
@@ -1678,7 +1704,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         """require_contract_time / type are not touched by apply."""
         client, token = client_with_csrf
         path = str(tmp_path / "config.json")
-        monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         self._write_config(
             path,
             {
@@ -1702,7 +1729,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         """Missing config.json returns 500."""
         client, token = client_with_csrf
         path = str(tmp_path / "config_missing.json")
-        monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         # path never created — doesn't exist
         resp = self._post_suggestions(client, ["engineer"], [], csrf_token=token)
         assert resp.status_code == 500
@@ -1712,7 +1740,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         """Applying suggestions that duplicate existing terms does not create dupes."""
         client, token = client_with_csrf
         path = str(tmp_path / "config.json")
-        monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", path)
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
         self._write_config(
             path,
             {"prefilter": {"title_include": ["engineer"], "title_exclude": []}},
@@ -1748,7 +1777,8 @@ class TestApplyPrefilterSuggestionsEndpoint:
         when the correct browser-flow token is used.
         """
         config_path = str(tmp_path / "config.json")
-        monkeypatch.setattr(app_module, "_CONFIG_PATH", config_path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", config_path)
+        monkeypatch.setattr(_profile_module, "_CONFIG_PATH", config_path)
         self._write_config(config_path, {})
 
         with flask_app.test_client() as c:

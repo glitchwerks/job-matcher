@@ -13,7 +13,10 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import app as app_module
+import services.profile_store as _profile_store_module
+import services.provider_schemas as _provider_schemas_module
+import web.profile as _profile_module
+import web.settings as _settings_module
 from app import app as flask_app
 from providers.anthropic_provider import AnthropicProvider
 from providers.openai_provider import OpenAIProvider
@@ -28,7 +31,8 @@ from providers.gemini_provider import GeminiProvider
 def tmp_keys_path(tmp_path, monkeypatch):
     """Point _KEYS_PATH at a temp file so legacy migration never touches keys.json."""
     path = str(tmp_path / "keys.json")
-    monkeypatch.setattr(app_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_KEYS_PATH", path)
     return path
 
 
@@ -36,7 +40,8 @@ def tmp_keys_path(tmp_path, monkeypatch):
 def tmp_providers_path(tmp_path, monkeypatch):
     """Point _PROVIDERS_PATH at a temp file so tests don't touch providers.json."""
     path = str(tmp_path / "providers.json")
-    monkeypatch.setattr(app_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_PROVIDERS_PATH", path)
     return path
 
 
@@ -217,7 +222,9 @@ class TestSettingsPost:
 def tmp_config_path(tmp_path, monkeypatch):
     """Point _CONFIG_PATH at a temp file so tests don't touch the real config.json."""
     path = str(tmp_path / "config.json")
-    monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(_settings_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
     return path
 
 
@@ -436,46 +443,46 @@ class TestMaskConfigKeys:
 
     def test_masks_app_id(self):
         data = {"adzuna_app_id": "real-id"}
-        result = app_module._mask_config_keys(data)
+        result = _provider_schemas_module._mask_config_keys(data)
         assert result["adzuna_app_id"] == "***"
 
     def test_masks_app_key(self):
         data = {"adzuna_app_key": "real-key"}
-        result = app_module._mask_config_keys(data)
+        result = _provider_schemas_module._mask_config_keys(data)
         assert result["adzuna_app_key"] == "***"
 
     def test_masks_api_key(self):
         data = {"some_api_key": "sk-secret"}
-        result = app_module._mask_config_keys(data)
+        result = _provider_schemas_module._mask_config_keys(data)
         assert result["some_api_key"] == "***"
 
     def test_case_insensitive_matching(self):
         data = {"ADZUNA_APP_ID": "id-value", "My_API_Key": "key-value"}
-        result = app_module._mask_config_keys(data)
+        result = _provider_schemas_module._mask_config_keys(data)
         assert result["ADZUNA_APP_ID"] == "***"
         assert result["My_API_Key"] == "***"
 
     def test_non_sensitive_keys_unchanged(self):
         data = {"scoring": {"threshold": 7.0}, "country": "us"}
-        result = app_module._mask_config_keys(data)
+        result = _provider_schemas_module._mask_config_keys(data)
         assert result["scoring"]["threshold"] == 7.0
         assert result["country"] == "us"
 
     def test_recursive_masking_in_nested_dict(self):
         data = {"providers": {"anthropic": {"anthropic_api_key": "sk-secret", "model": "claude"}}}
-        result = app_module._mask_config_keys(data)
+        result = _provider_schemas_module._mask_config_keys(data)
         assert result["providers"]["anthropic"]["anthropic_api_key"] == "***"
         assert result["providers"]["anthropic"]["model"] == "claude"
 
     def test_does_not_mutate_original(self):
         data = {"adzuna_app_id": "original"}
-        result = app_module._mask_config_keys(data)
+        result = _provider_schemas_module._mask_config_keys(data)
         assert data["adzuna_app_id"] == "original"
         assert result["adzuna_app_id"] == "***"
 
     def test_list_values_preserved(self):
         data = {"title_exclude": ["junior", "intern"], "adzuna_app_id": "secret"}
-        result = app_module._mask_config_keys(data)
+        result = _provider_schemas_module._mask_config_keys(data)
         assert result["title_exclude"] == ["junior", "intern"]
         assert result["adzuna_app_id"] == "***"
 
@@ -489,6 +496,10 @@ class TestLoadProvidersSafe:
 
     This replaces the old TestLoadKeys tests which covered the removed
     _load_keys() shim.
+
+    After Issue #326: _load_providers_safe now lives in services.provider_schemas
+    and requires explicit path arguments. Tests pass paths directly rather than
+    relying on monkeypatched app module globals.
     """
 
     def test_returns_empty_skeleton_when_no_file(
@@ -497,7 +508,11 @@ class TestLoadProvidersSafe:
         """When providers.json is absent and no migration sources exist, returns
         safe empty dict rather than raising."""
         assert not os.path.exists(tmp_providers_path)
-        result = app_module._load_providers_safe()
+        result = _provider_schemas_module._load_providers_safe(
+            providers_path=tmp_providers_path,
+            keys_path=tmp_keys_path,
+            config_path=tmp_config_path,
+        )
         assert "llm" in result
         assert "job_sources" in result
         assert "provider_order" in result
@@ -507,19 +522,29 @@ class TestLoadProvidersSafe:
     ):
         with open(tmp_providers_path, "w") as f:
             f.write("not valid json {{{{")
-        result = app_module._load_providers_safe()
+        result = _provider_schemas_module._load_providers_safe(
+            providers_path=tmp_providers_path,
+            keys_path=tmp_keys_path,
+        )
         assert result["llm"] == {}
         assert result["job_sources"] == {}
 
     def test_loads_existing_providers_json(self, tmp_providers_path, tmp_keys_path):
         _write_providers(tmp_providers_path, anthropic_key="sk-x")
-        result = app_module._load_providers_safe()
+        result = _provider_schemas_module._load_providers_safe(
+            providers_path=tmp_providers_path,
+            keys_path=tmp_keys_path,
+        )
         assert result["llm"]["anthropic"]["api_key"] == "sk-x"
 
     def test_never_raises(self, tmp_providers_path, tmp_keys_path, tmp_config_path):
         """_load_providers_safe() must never propagate CredentialError."""
         assert not os.path.exists(tmp_providers_path)
-        result = app_module._load_providers_safe()
+        result = _provider_schemas_module._load_providers_safe(
+            providers_path=tmp_providers_path,
+            keys_path=tmp_keys_path,
+            config_path=tmp_config_path,
+        )
         assert isinstance(result, dict)
 
 
@@ -995,7 +1020,7 @@ class TestValidateWithTimeout:
 
     def test_returns_validator_result_when_fast(self):
         """A fast validator's (state, detail) tuple passes through unchanged."""
-        result = app_module._validate_with_timeout(
+        result = _provider_schemas_module._validate_with_timeout(
             lambda k, m: ("valid", None), "key", "model"
         )
         assert result == ("valid", None)
@@ -1005,13 +1030,16 @@ class TestValidateWithTimeout:
         import time
 
         # Reduce timeout to 0.05 s so the test completes quickly.
-        monkeypatch.setattr(app_module, "_VALIDATE_TIMEOUT_SECONDS", 0.05)
+        # Patch the authoritative location (services/provider_schemas.py) —
+        # _validate_with_timeout is now defined there (Issue #326 consolidation).
+        import services.provider_schemas as _provider_schemas
+        monkeypatch.setattr(_provider_schemas, "_VALIDATE_TIMEOUT_SECONDS", 0.05)
 
         def _hanging_validator(k, m):
             time.sleep(10)  # much longer than the patched timeout
             return ("valid", None)
 
-        state, detail = app_module._validate_with_timeout(_hanging_validator, "key", "model")
+        state, detail = _provider_schemas_module._validate_with_timeout(_hanging_validator, "key", "model")
         assert state == "unreachable"
         assert "0.05" in detail
 
@@ -1020,14 +1048,14 @@ class TestValidateWithTimeout:
         def _exploding(k, m):
             raise RuntimeError("boom")
 
-        state, detail = app_module._validate_with_timeout(_exploding, "key", "model")
+        state, detail = _provider_schemas_module._validate_with_timeout(_exploding, "key", "model")
         assert state == "unreachable"
         assert "boom" in detail
 
     def test_validator_state_tuples_pass_through(self):
         """All non-timeout state tuples are forwarded verbatim."""
         for state in ("valid", "invalid_key", "unknown_model", "unreachable"):
-            result = app_module._validate_with_timeout(
+            result = _provider_schemas_module._validate_with_timeout(
                 lambda k, m, s=state: (s, None), "key", "model"
             )
             assert result == (state, None)
@@ -1039,7 +1067,7 @@ class TestValidateWithTimeout:
         def _leaky_validator(k, m):
             raise RuntimeError(f"Connection failed: key={secret_key}")
 
-        state, detail = app_module._validate_with_timeout(_leaky_validator, secret_key, "model")
+        state, detail = _provider_schemas_module._validate_with_timeout(_leaky_validator, secret_key, "model")
         assert state == "unreachable"
         assert secret_key not in detail
         assert "[REDACTED]" in detail
@@ -1072,7 +1100,10 @@ class TestValidateKeysTimeout:
         import time
 
         # Reduce timeout so the test completes quickly.
-        monkeypatch.setattr(app_module, "_VALIDATE_TIMEOUT_SECONDS", 0.05)
+        # Patch the authoritative location (services/provider_schemas.py) —
+        # _validate_with_timeout is now defined there (Issue #326 consolidation).
+        import services.provider_schemas as _provider_schemas
+        monkeypatch.setattr(_provider_schemas, "_VALIDATE_TIMEOUT_SECONDS", 0.05)
 
         self._write_providers(tmp_providers_path)
 

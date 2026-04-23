@@ -358,17 +358,21 @@ class TestAdminClearDbCsrf:
 @pytest.fixture()
 def tmp_providers_path(tmp_path, monkeypatch):
     """Isolate providers.json from the real config directory."""
-    import app as app_module
+    import services.profile_store as _profile_store_module
+    import web.settings as _settings_module
     path = str(tmp_path / "providers.json")
-    monkeypatch.setattr(app_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_PROVIDERS_PATH", path)
     return path
 
 
 @pytest.fixture()
 def tmp_keys_path(tmp_path, monkeypatch):
-    import app as app_module
+    import services.profile_store as _profile_store_module
+    import web.settings as _settings_module
     path = str(tmp_path / "keys.json")
-    monkeypatch.setattr(app_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_KEYS_PATH", path)
     return path
 
 
@@ -399,8 +403,8 @@ class TestAdminPageRenders:
 
     def test_admin_page_renders_with_listing_count(self, client, monkeypatch):
         """GET /admin renders without error and includes the danger zone markup."""
-        import app as app_module
-        monkeypatch.setattr(app_module.db, "get_listing_count", lambda: 42)
+        import db
+        monkeypatch.setattr(db, "get_listing_count", lambda: 42)
         resp = client.get("/admin")
         assert resp.status_code == 200
         body = resp.data.decode()
@@ -410,8 +414,8 @@ class TestAdminPageRenders:
 
     def test_admin_page_sets_csrf_token_in_session(self, client, monkeypatch):
         """GET /admin establishes a CSRF token in the session."""
-        import app as app_module
-        monkeypatch.setattr(app_module.db, "get_listing_count", lambda: 0)
+        import db
+        monkeypatch.setattr(db, "get_listing_count", lambda: 0)
         client.get("/admin")
         with client.session_transaction() as sess:
             assert "csrf_token" in sess

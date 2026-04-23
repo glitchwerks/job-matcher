@@ -1,4 +1,11 @@
-"""Integration tests for the /ingest/stream SSE endpoint."""
+"""Integration tests for the /ingest/stream SSE endpoint.
+
+Phase 5a extraction: ingest_stream() now lives in web/ingest.py.
+event_queue patches must also target web.ingest.event_queue so the
+replacement is visible inside the blueprint handler.
+MAX_SSE_CONNECTIONS is accessed via ingest_control.MAX_SSE_CONNECTIONS
+in the blueprint, so patches target that module.
+"""
 
 import json
 import socket
@@ -11,9 +18,10 @@ import waitress
 import waitress.server
 import werkzeug.serving
 
-import app as app_module
+import web.ingest as web_ingest_module
 from app import app as flask_app
 from ingest_events import EventQueue
+from services import ingest_control
 
 
 @pytest.fixture(autouse=True)
@@ -22,10 +30,19 @@ def fresh_queue(monkeypatch):
 
     idle_grace=0 disables the startup grace-period wait so tests that
     exercise the idle path complete immediately rather than sleeping 3 s.
+
+    Patches three namespaces that hold a reference to event_queue:
+      - web.ingest.event_queue         (Phase 5a: ingest_stream lives here)
+      - ingest_events.event_queue      (module-level singleton)
+      - services.ingest_control.event_queue  (bound at import time)
     """
     q = EventQueue(idle_grace=0)
-    monkeypatch.setattr(app_module, "event_queue", q)
+    monkeypatch.setattr(web_ingest_module, "event_queue", q)
     monkeypatch.setattr("ingest_events.event_queue", q)
+    # ingest_control does `from ingest_events import event_queue` at import time,
+    # so patching ingest_events.event_queue alone does not affect the local binding
+    # in ingest_control. Patch both so _stdout_reader and _ingest_running use our queue.
+    monkeypatch.setattr("services.ingest_control.event_queue", q)
     yield q
 
 
@@ -134,7 +151,8 @@ class TestIngestStream:
         assert last_data["type"] == "aborted"
 
     def test_max_connections_returns_429(self, client, fresh_queue, monkeypatch):
-        monkeypatch.setattr(app_module, "MAX_SSE_CONNECTIONS", 0)
+        # ingest_stream reads ingest_control.MAX_SSE_CONNECTIONS directly.
+        monkeypatch.setattr(ingest_control, "MAX_SSE_CONNECTIONS", 0)
         resp = client.get("/ingest/stream")
         assert resp.status_code == 429
 
@@ -160,8 +178,7 @@ class TestStdoutReader:
         """
         import io
         import logging
-        import app as app_module
-        from app import _stdout_reader
+        from services.ingest_control import _stdout_reader
 
         # Build a fake EventQueue that records pushed events
         pushed = []
@@ -200,10 +217,14 @@ class TestStdoutReader:
             def kill(self):
                 pass
 
-        monkeypatch.setattr(app_module, "event_queue", FakeQueue())
-        monkeypatch.setattr("app.IngestEventParser", FakeParser)
+        fake_queue = FakeQueue()
+        monkeypatch.setattr("ingest_events.event_queue", fake_queue)
+        # ingest_control binds event_queue at import time via `from ingest_events import
+        # event_queue` — patch both so _stdout_reader uses our recording instance.
+        monkeypatch.setattr("services.ingest_control.event_queue", fake_queue)
+        monkeypatch.setattr("ingest_events.IngestEventParser", FakeParser)
 
-        with caplog.at_level(logging.ERROR, logger="app"):
+        with caplog.at_level(logging.ERROR, logger="services.ingest_control"):
             _stdout_reader(FakeProc())
 
         # 1. Reader did NOT exit after the exception — it continued and pushed
@@ -281,12 +302,12 @@ class TestStreamingLatency:
     def live_server(self, monkeypatch):
         """Start a real Werkzeug HTTP server in a daemon thread.
 
-        Patches the global event_queue used by app.py with a fresh EventQueue
-        that has a 5 s idle_grace (long enough for the pusher thread to start).
+        Patches event_queue in all namespaces so ingest_stream (now in
+        web/ingest.py) uses the test-controlled queue instance.
         Yields (server_url, queue).
         """
         q = EventQueue(idle_grace=5.0)
-        monkeypatch.setattr(app_module, "event_queue", q)
+        monkeypatch.setattr(web_ingest_module, "event_queue", q)
         monkeypatch.setattr("ingest_events.event_queue", q)
 
         port = _find_free_port()
@@ -419,12 +440,12 @@ class TestWaitressStreamingLatency:
     def waitress_server(self, monkeypatch):
         """Start a real waitress HTTP server in a daemon thread.
 
-        Patches the global event_queue with a fresh instance that has a long
-        idle_grace so the pusher thread has time to push the first event.
+        Patches event_queue in all namespaces so ingest_stream (now in
+        web/ingest.py) uses the test-controlled queue instance.
         Yields (server_url, queue).
         """
         q = EventQueue(idle_grace=5.0)
-        monkeypatch.setattr(app_module, "event_queue", q)
+        monkeypatch.setattr(web_ingest_module, "event_queue", q)
         monkeypatch.setattr("ingest_events.event_queue", q)
 
         port = _find_free_port()

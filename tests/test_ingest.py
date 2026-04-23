@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from ingest import prefilter, score_listing_with_fallback, format_skills_for_prompt, format_education_for_prompt
-from app import salary_fmt, timeago
+from web.filters import salary_fmt, timeago
 from providers.anthropic_provider import strip_fences
 
 

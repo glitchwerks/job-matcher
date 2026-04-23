@@ -24,8 +24,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import app as app_module
-from app import app as flask_app, _is_trusted_host
+from app import app as flask_app
+from web.security import _is_localhost_request, _is_trusted_host
 
 
 # ---------------------------------------------------------------------------
@@ -42,8 +42,11 @@ def client():
 @pytest.fixture()
 def tmp_config_path(tmp_path, monkeypatch):
     """Point _CONFIG_PATH at a temp file so profile tests don't touch the real file."""
+    import services.profile_store as _profile_store_module
+    import web.profile as _profile_module
     path = str(tmp_path / "config.json")
-    monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(_profile_module, "_CONFIG_PATH", path)
     return path
 
 
@@ -180,7 +183,7 @@ class TestCsrfLocalhostGuard:
             method="POST",
             headers={"Origin": "http://localhost:5000"},
         ):
-            assert app_module._is_localhost_request() is True
+            assert _is_localhost_request() is True
 
     def test_is_localhost_request_true_for_127_origin(self):
         with flask_app.test_request_context(
@@ -188,7 +191,7 @@ class TestCsrfLocalhostGuard:
             method="POST",
             headers={"Origin": "http://127.0.0.1:5000"},
         ):
-            assert app_module._is_localhost_request() is True
+            assert _is_localhost_request() is True
 
     def test_is_localhost_request_false_for_external_origin(self):
         with flask_app.test_request_context(
@@ -196,11 +199,11 @@ class TestCsrfLocalhostGuard:
             method="POST",
             headers={"Origin": "http://attacker.io"},
         ):
-            assert app_module._is_localhost_request() is False
+            assert _is_localhost_request() is False
 
     def test_is_localhost_request_true_when_no_origin(self):
         with flask_app.test_request_context("/profile", method="POST"):
-            assert app_module._is_localhost_request() is True
+            assert _is_localhost_request() is True
 
     def test_is_trusted_host_true_for_localhost(self):
         assert _is_trusted_host("localhost") is True

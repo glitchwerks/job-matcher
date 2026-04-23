@@ -71,14 +71,14 @@ def client():
 class TestScheduleStateEmpty:
     def test_schedule_state_empty(self, client):
         """When no runs exist the response contains the empty-state message."""
-        with patch("app.db.get_recent_ingest_runs", return_value=[], create=True):
+        with patch("db.get_recent_ingest_runs", return_value=[], create=True):
             resp = client.get("/admin/schedule-state")
         assert resp.status_code == 200
         assert "No runs recorded yet" in resp.data.decode()
 
     def test_schedule_state_db_error_falls_back_to_empty(self, client):
         """When db.get_recent_ingest_runs raises, the route still returns 200."""
-        with patch("app.db.get_recent_ingest_runs",
+        with patch("db.get_recent_ingest_runs",
                    side_effect=Exception("db down"), create=True):
             resp = client.get("/admin/schedule-state")
         assert resp.status_code == 200
@@ -93,7 +93,7 @@ class TestScheduleStateWithRuns:
     def test_response_contains_run_data(self, client):
         """When runs exist the response renders a table with trigger and status."""
         runs = [_make_run(trigger="manual_cli", status="success", hours_ago=2)]
-        with patch("app.db.get_recent_ingest_runs", return_value=runs, create=True):
+        with patch("db.get_recent_ingest_runs", return_value=runs, create=True):
             resp = client.get("/admin/schedule-state")
         body = resp.data.decode()
         assert resp.status_code == 200
@@ -103,14 +103,14 @@ class TestScheduleStateWithRuns:
     def test_response_contains_cost(self, client):
         """Cost column is rendered with four decimal places."""
         runs = [_make_run(cost_usd=0.0123)]
-        with patch("app.db.get_recent_ingest_runs", return_value=runs, create=True):
+        with patch("db.get_recent_ingest_runs", return_value=runs, create=True):
             resp = client.get("/admin/schedule-state")
         assert "0.0123" in resp.data.decode()
 
     def test_response_contains_log_download_link(self, client):
         """Log filename is rendered as a download link."""
         runs = [_make_run(log_filename="ingest_20260412_120000.log")]
-        with patch("app.db.get_recent_ingest_runs", return_value=runs, create=True):
+        with patch("db.get_recent_ingest_runs", return_value=runs, create=True):
             resp = client.get("/admin/schedule-state")
         body = resp.data.decode()
         assert "/admin/logs/ingest_20260412_120000.log/download" in body
@@ -118,14 +118,14 @@ class TestScheduleStateWithRuns:
     def test_no_log_filename_shows_dash(self, client):
         """When log_filename is None the cell shows an em-dash placeholder."""
         runs = [_make_run(log_filename=None)]
-        with patch("app.db.get_recent_ingest_runs", return_value=runs, create=True):
+        with patch("db.get_recent_ingest_runs", return_value=runs, create=True):
             resp = client.get("/admin/schedule-state")
         assert "—" in resp.data.decode()
 
     def test_error_message_shown_for_failed_run(self, client):
         """Error message is shown when the most recent run failed."""
         runs = [_make_run(status="failed", error_message="timeout connecting to DB")]
-        with patch("app.db.get_recent_ingest_runs", return_value=runs, create=True):
+        with patch("db.get_recent_ingest_runs", return_value=runs, create=True):
             resp = client.get("/admin/schedule-state")
         assert "timeout connecting to DB" in resp.data.decode()
 
@@ -138,7 +138,7 @@ class TestScheduleBadgeGreen:
     def test_recent_scheduled_success_is_green(self, client):
         """A successful scheduled run within 25 hours -> badge='green'."""
         runs = [_make_run(trigger="scheduled", status="success", hours_ago=12)]
-        with patch("app.db.get_recent_ingest_runs", return_value=runs, create=True):
+        with patch("db.get_recent_ingest_runs", return_value=runs, create=True):
             resp = client.get("/admin/schedule-state")
         body = resp.data.decode()
         assert "schedule-badge--green" in body
@@ -149,7 +149,7 @@ class TestScheduleBadgeAmber:
     def test_scheduled_run_30h_ago_is_amber(self, client):
         """A successful scheduled run 30 hours ago -> badge='amber' (overdue)."""
         runs = [_make_run(trigger="scheduled", status="success", hours_ago=30)]
-        with patch("app.db.get_recent_ingest_runs", return_value=runs, create=True):
+        with patch("db.get_recent_ingest_runs", return_value=runs, create=True):
             resp = client.get("/admin/schedule-state")
         body = resp.data.decode()
         assert "schedule-badge--amber" in body
@@ -158,7 +158,7 @@ class TestScheduleBadgeAmber:
     def test_scheduled_run_running_is_amber(self, client):
         """A scheduled run currently in 'running' state -> badge='amber'."""
         runs = [_make_run(trigger="scheduled", status="running", hours_ago=0.1)]
-        with patch("app.db.get_recent_ingest_runs", return_value=runs, create=True):
+        with patch("db.get_recent_ingest_runs", return_value=runs, create=True):
             resp = client.get("/admin/schedule-state")
         body = resp.data.decode()
         assert "schedule-badge--amber" in body
@@ -167,7 +167,7 @@ class TestScheduleBadgeAmber:
     def test_no_scheduled_runs_is_none_badge(self, client):
         """Runs exist but none are scheduled -> badge='none'."""
         runs = [_make_run(trigger="manual_cli", status="success", hours_ago=1)]
-        with patch("app.db.get_recent_ingest_runs", return_value=runs, create=True):
+        with patch("db.get_recent_ingest_runs", return_value=runs, create=True):
             resp = client.get("/admin/schedule-state")
         body = resp.data.decode()
         assert "schedule-badge--none" in body
@@ -179,7 +179,7 @@ class TestScheduleBadgeRed:
         """A scheduled run with status='failed' -> badge='red'."""
         runs = [_make_run(trigger="scheduled", status="failed", hours_ago=5,
                           error_message="LLM timeout")]
-        with patch("app.db.get_recent_ingest_runs", return_value=runs, create=True):
+        with patch("db.get_recent_ingest_runs", return_value=runs, create=True):
             resp = client.get("/admin/schedule-state")
         body = resp.data.decode()
         assert "schedule-badge--red" in body
@@ -188,7 +188,7 @@ class TestScheduleBadgeRed:
     def test_no_scheduled_run_in_50h_is_red(self, client):
         """No scheduled run in 50+ hours -> badge='red', scheduler-down message."""
         runs = [_make_run(trigger="scheduled", status="success", hours_ago=50)]
-        with patch("app.db.get_recent_ingest_runs", return_value=runs, create=True):
+        with patch("db.get_recent_ingest_runs", return_value=runs, create=True):
             resp = client.get("/admin/schedule-state")
         body = resp.data.decode()
         assert "schedule-badge--red" in body

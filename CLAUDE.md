@@ -45,8 +45,10 @@ pytest -k "test_title_include"     # By name pattern
 
 The app is two decoupled processes sharing a PostgreSQL database (connection via `DATABASE_URL`):
 
+- **`app.py`** — Thin entry point: `from web import create_app; app = create_app()` plus a `__main__` runner for the dev server. WSGI servers (waitress in Docker, gunicorn) import `app` directly. Contains no routes, helpers, or business logic.
+- **`web/`** — Flask layer. `web/__init__.py::create_app()` constructs the app, registers Jinja filters, security hooks, context processors, blueprints, `db.init_db()`, and plugins. Blueprints: `feed_bp` (`web/feed.py`), `ingest_bp` (`web/ingest.py`), `settings_bp` (`web/settings.py`), `profile_bp` (`web/profile.py`), `admin_bp` (`web/admin.py`) — all registered with `url_prefix=""` so every URL path is unchanged. Template filters live in `web/filters.py`; CSRF/host guards in `web/security.py`.
+- **`services/`** — Pure Python, zero Flask imports. Unit-testable in isolation. Modules: `profile_store.py` (config/profile path constants and load/save helpers), `pdf_import.py` (async PDF-to-profile extraction), `provider_schemas.py` (LLM and job-source schema builders, config warnings, runtime versions), `ingest_control.py` (subprocess lifecycle, SSE state, stdout reader).
 - **`ingest.py`** — CLI pipeline: multiple job source APIs → pre-filter → scrape full JD → score with configured LLM provider → insert into DB. Runs on a schedule or manually.
-- **`app.py`** — Flask web server. Read-only views of scored listings plus HTMX write actions (bookmark, dismiss, apply). Talks to LLM providers only for key validation (`/api/validate-keys`); all scoring happens in `ingest.py`.
 - **`db.py`** — All PostgreSQL access via `psycopg2`. JSON array columns (`matched_skills`, `missing_skills`, `concerns`) are serialized/deserialized here.
 
 ### Ingestion pipeline (per listing)

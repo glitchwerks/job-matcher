@@ -13,6 +13,11 @@ unit tests with mocked boundaries cannot catch.
 All tests use Flask's test client (no real HTTP server) and mock subprocesses
 (no real ingest.py, no API keys, no network). The EventQueue singleton is reset
 per-test via the fresh_queue fixture from test_ingest_stream conventions.
+
+Phase 5a extraction: ingest_stream() now lives in web/ingest.py.
+event_queue patches must also target web.ingest.event_queue.
+MAX_SSE_CONNECTIONS is accessed via ingest_control.MAX_SSE_CONNECTIONS
+in the blueprint, so patches target that module.
 """
 
 from __future__ import annotations
@@ -22,9 +27,11 @@ import json
 
 import pytest
 
-import app as app_module
-from app import app as flask_app, _stdout_reader
+import web.ingest as web_ingest_module
+from app import app as flask_app
+from services.ingest_control import _stdout_reader
 from ingest_events import EventQueue
+from services import ingest_control
 
 
 # ---------------------------------------------------------------------------
@@ -114,11 +121,15 @@ def _parse_sse_ids(text: str) -> list[str]:
 def _run_reader_synchronously(proc, queue: EventQueue, monkeypatch) -> None:
     """Run _stdout_reader in the current thread against *proc*, pushing into *queue*.
 
-    Monkeypatches app_module.event_queue so _stdout_reader uses our fresh queue.
+    Monkeypatches event_queue in all three namespaces that hold a reference:
+      - web.ingest.event_queue     (Phase 5a: ingest_stream lives here)
+      - ingest_events.event_queue  (module-level singleton)
+      - services.ingest_control.event_queue  (bound at import time via
+        ``from ingest_events import event_queue`` — must be patched separately)
     """
-    monkeypatch.setattr(app_module, "event_queue", queue)
-    # Also patch ingest_events module-level reference used inside _stdout_reader
+    monkeypatch.setattr(web_ingest_module, "event_queue", queue)
     monkeypatch.setattr("ingest_events.event_queue", queue)
+    monkeypatch.setattr("services.ingest_control.event_queue", queue)
     _stdout_reader(proc)
 
 
@@ -133,10 +144,13 @@ def fresh_queue(monkeypatch):
     This is the same pattern used in test_ingest_stream.py. Marking autouse=True
     ensures every test in this module gets a clean queue, preventing state leakage
     between tests.
+
+    Patches three namespaces — see _run_reader_synchronously for the full list.
     """
     q = EventQueue()
-    monkeypatch.setattr(app_module, "event_queue", q)
+    monkeypatch.setattr(web_ingest_module, "event_queue", q)
     monkeypatch.setattr("ingest_events.event_queue", q)
+    monkeypatch.setattr("services.ingest_control.event_queue", q)
     yield q
 
 
@@ -460,7 +474,8 @@ class TestMaxConnectionLimit:
 
     def test_extra_connection_returns_429(self, client, monkeypatch):
         """When MAX_SSE_CONNECTIONS is 0, every request is rejected."""
-        monkeypatch.setattr(app_module, "MAX_SSE_CONNECTIONS", 0)
+        # ingest_stream reads ingest_control.MAX_SSE_CONNECTIONS directly.
+        monkeypatch.setattr(ingest_control, "MAX_SSE_CONNECTIONS", 0)
         resp = client.get("/ingest/stream")
         assert resp.status_code == 429
 
@@ -468,7 +483,7 @@ class TestMaxConnectionLimit:
         self, client, fresh_queue, monkeypatch
     ):
         """When MAX_SSE_CONNECTIONS >= 1, the first connection is accepted."""
-        monkeypatch.setattr(app_module, "MAX_SSE_CONNECTIONS", 1)
+        monkeypatch.setattr(ingest_control, "MAX_SSE_CONNECTIONS", 1)
         # Queue has a terminal so the stream returns immediately
         fresh_queue.push({
             "type": "complete", "source": None, "title": None,

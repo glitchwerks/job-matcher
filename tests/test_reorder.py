@@ -21,7 +21,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import app as app_module
+import services.profile_store as _profile_store_module
+import web.settings as _settings_module
 from app import app as flask_app
 
 
@@ -29,7 +30,8 @@ from app import app as flask_app
 def tmp_providers_path(tmp_path, monkeypatch):
     """Point _PROVIDERS_PATH at a temp file for full isolation."""
     path = str(tmp_path / "providers.json")
-    monkeypatch.setattr(app_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_PROVIDERS_PATH", path)
     return path
 
 
@@ -148,7 +150,7 @@ class TestReorderEndpoint:
         def _failing_save(*args, **kwargs):
             raise OSError("disk full")
 
-        monkeypatch.setattr(app_module, "save_providers", _failing_save)
+        monkeypatch.setattr(_settings_module, "save_providers", _failing_save)
         resp = client.post(
             "/api/providers/reorder",
             data=json.dumps({"order": valid_order}),

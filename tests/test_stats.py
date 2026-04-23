@@ -78,7 +78,7 @@ class TestStatsRoute:
             ],
         )
         with patch("db.get_usage_stats", return_value=stats_data), \
-             patch("app._config_warnings", return_value=[]):
+             patch("web.feed._config_warnings", return_value=[]):
             resp = client.get("/stats")
 
         assert resp.status_code == 200
@@ -106,7 +106,7 @@ class TestStatsRoute:
             ],
         )
         with patch("db.get_usage_stats", return_value=stats_data), \
-             patch("app._config_warnings", return_value=[]):
+             patch("web.feed._config_warnings", return_value=[]):
             resp = client.get("/stats")
 
         assert resp.status_code == 200
@@ -125,7 +125,7 @@ class TestStatsRoute:
             "by_date": [],
         }
         with patch("db.get_usage_stats", return_value=stats_data), \
-             patch("app._config_warnings", return_value=[]):
+             patch("web.feed._config_warnings", return_value=[]):
             resp = client.get("/stats")
 
         assert resp.status_code == 200
@@ -156,7 +156,7 @@ class TestStatsRoute:
             ],
         )
         with patch("db.get_usage_stats", return_value=stats_data), \
-             patch("app._config_warnings", return_value=[]):
+             patch("web.feed._config_warnings", return_value=[]):
             resp = client.get("/stats")
 
         assert resp.status_code == 200

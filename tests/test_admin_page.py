@@ -13,7 +13,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import app as app_module
+import services.profile_store as _profile_store_module
+import web.settings as _settings_module
 from app import app as flask_app
 
 
@@ -32,7 +33,8 @@ def client():
 def tmp_providers_path(tmp_path, monkeypatch):
     """Isolate providers.json from the real config directory."""
     path = str(tmp_path / "providers.json")
-    monkeypatch.setattr(app_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_PROVIDERS_PATH", path)
     return path
 
 
@@ -40,7 +42,8 @@ def tmp_providers_path(tmp_path, monkeypatch):
 def tmp_keys_path(tmp_path, monkeypatch):
     """Isolate keys.json from the real config directory."""
     path = str(tmp_path / "keys.json")
-    monkeypatch.setattr(app_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_KEYS_PATH", path)
     return path
 
 
@@ -114,8 +117,8 @@ class TestNavHasAdminLink:
         with patch("db.get_feed", return_value=_FEED_STUB), \
              patch("db.get_job_types", return_value=[]), \
              patch("db.get_last_fetch_time", return_value=None), \
-             patch("app._config_warnings", return_value=[]), \
-             patch("app._ingest_running", return_value=False):
+             patch("web.feed._config_warnings", return_value=[]), \
+             patch("services.ingest_control._ingest_running", return_value=False):
             resp = client.get("/")
         assert resp.status_code == 200
         assert 'href="/admin"' in resp.data.decode()
@@ -123,7 +126,7 @@ class TestNavHasAdminLink:
     def test_nav_has_admin_link_on_stats(self, client):
         """GET /stats renders the stats page with an admin nav link."""
         with patch("db.get_usage_stats", return_value=_STATS_STUB), \
-             patch("app._config_warnings", return_value=[]):
+             patch("web.feed._config_warnings", return_value=[]):
             resp = client.get("/stats")
         assert resp.status_code == 200
         assert 'href="/admin"' in resp.data.decode()

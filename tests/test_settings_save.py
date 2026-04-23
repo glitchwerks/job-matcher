@@ -50,7 +50,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import app as app_module
+import services.profile_store as _profile_store_module
+import web.settings as _settings_module
 from app import app as flask_app
 from credentials import save_providers
 
@@ -64,7 +65,8 @@ from credentials import save_providers
 def tmp_providers_path(tmp_path, monkeypatch):
     """Point _PROVIDERS_PATH at a temp file for full isolation."""
     path = str(tmp_path / "providers.json")
-    monkeypatch.setattr(app_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_PROVIDERS_PATH", path)
     return path
 
 
@@ -72,7 +74,8 @@ def tmp_providers_path(tmp_path, monkeypatch):
 def tmp_keys_path(tmp_path, monkeypatch):
     """Point _KEYS_PATH at a temp file so legacy migration never triggers."""
     path = str(tmp_path / "keys.json")
-    monkeypatch.setattr(app_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_KEYS_PATH", path)
     return path
 
 
@@ -80,7 +83,8 @@ def tmp_keys_path(tmp_path, monkeypatch):
 def tmp_config_path(tmp_path, monkeypatch):
     """Point _CONFIG_PATH at a temp file so config reads are isolated."""
     path = str(tmp_path / "config.json")
-    monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(_settings_module, "_CONFIG_PATH", path)
     return path
 
 
@@ -638,7 +642,7 @@ class TestBuildLlmSchemasHasValues:
         with open(tmp_providers_path, "w", encoding="utf-8") as fh:
             _json.dump(data, fh)
 
-        from app import _build_llm_schemas
+        from services.provider_schemas import _build_llm_schemas
 
         schemas = _build_llm_schemas(data["llm"], data["provider_order"])
         # Find the anthropic entry.
@@ -667,7 +671,7 @@ class TestBuildLlmSchemasHasValues:
         with open(tmp_providers_path, "w", encoding="utf-8") as fh:
             _json.dump(data, fh)
 
-        from app import _build_llm_schemas
+        from services.provider_schemas import _build_llm_schemas
 
         schemas = _build_llm_schemas(data["llm"], data["provider_order"])
         anthropic_entry = next(
@@ -696,7 +700,7 @@ class TestBuildLlmSchemasHasValues:
         with open(tmp_providers_path, "w", encoding="utf-8") as fh:
             _json.dump(data, fh)
 
-        from app import _build_llm_schemas
+        from services.provider_schemas import _build_llm_schemas
 
         schemas = _build_llm_schemas(data["llm"], data["provider_order"])
         anthropic_entry = next(
@@ -726,7 +730,7 @@ class TestBuildLlmSchemasHasValues:
         with open(tmp_providers_path, "w", encoding="utf-8") as fh:
             _json.dump(data, fh)
 
-        from app import _build_llm_schemas
+        from services.provider_schemas import _build_llm_schemas
 
         schemas = _build_llm_schemas(data["llm"], data["provider_order"])
         anthropic_entry = next(
@@ -1190,7 +1194,7 @@ class TestBuildLlmSchemasPopulatedFields:
             "job_sources": {},
         }
 
-        from app import _build_llm_schemas
+        from services.provider_schemas import _build_llm_schemas
 
         schemas = _build_llm_schemas(data["llm"], data["provider_order"])
         anthropic_entry = next(e for e in schemas if e[0] == "anthropic")
@@ -1202,7 +1206,7 @@ class TestBuildLlmSchemasPopulatedFields:
 
     def test_populated_fields_excludes_password_field_when_empty(self):
         """populated_fields must NOT include a password field name when stored value is empty."""
-        from app import _build_llm_schemas
+        from services.provider_schemas import _build_llm_schemas
 
         data_llm = {"anthropic": {"api_key": "", "model": "claude-haiku-4-5-20251001"}}
         schemas = _build_llm_schemas(data_llm, ["anthropic"])
@@ -1214,7 +1218,7 @@ class TestBuildLlmSchemasPopulatedFields:
 
     def test_populated_fields_excludes_password_field_when_absent(self):
         """populated_fields must NOT include a password field name when not stored at all."""
-        from app import _build_llm_schemas
+        from services.provider_schemas import _build_llm_schemas
 
         data_llm = {"anthropic": {"model": "claude-haiku-4-5-20251001"}}  # no api_key key
         schemas = _build_llm_schemas(data_llm, ["anthropic"])
@@ -1226,7 +1230,7 @@ class TestBuildLlmSchemasPopulatedFields:
 
     def test_populated_fields_includes_non_password_field_when_stored(self):
         """populated_fields must include non-password fields too when they have a stored value."""
-        from app import _build_llm_schemas
+        from services.provider_schemas import _build_llm_schemas
 
         data_llm = {"anthropic": {"api_key": "sk-x", "model": "claude-haiku-4-5-20251001"}}
         schemas = _build_llm_schemas(data_llm, ["anthropic"])
@@ -1238,7 +1242,7 @@ class TestBuildLlmSchemasPopulatedFields:
 
     def test_build_llm_schemas_returns_five_tuple(self):
         """Each entry returned by _build_llm_schemas must be a 5-tuple."""
-        from app import _build_llm_schemas
+        from services.provider_schemas import _build_llm_schemas
 
         schemas = _build_llm_schemas({}, [])
         for entry in schemas:

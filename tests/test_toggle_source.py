@@ -24,7 +24,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import app as app_module
+import services.profile_store as _profile_store_module
+import web.settings as _settings_module
 from app import app as flask_app
 
 
@@ -44,7 +45,12 @@ def tmp_providers_path(tmp_path, monkeypatch):
     422 (missing credentials) receive a 200 instead.
     """
     path = str(tmp_path / "providers.json")
-    monkeypatch.setattr(app_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_PROVIDERS_PATH", path)
+    # Also isolate keys/config paths so legacy migration in load_providers()
+    # cannot read the real project files and create an unexpected providers.json.
+    monkeypatch.setattr(_settings_module, "_KEYS_PATH", str(tmp_path / "keys.json"))
+    monkeypatch.setattr(_settings_module, "_CONFIG_PATH", str(tmp_path / "config.json"))
     for env_var in (
         "ADZUNA_APP_ID",
         "ADZUNA_APP_KEY",
@@ -287,6 +293,6 @@ class TestWriteFailure:
         def _failing_save(*args, **kwargs):
             raise OSError("disk full")
 
-        monkeypatch.setattr(app_module, "save_providers", _failing_save)
+        monkeypatch.setattr(_settings_module, "save_providers", _failing_save)
         resp = _post_toggle(client, "adzuna", enabled=True)
         assert resp.status_code == 500

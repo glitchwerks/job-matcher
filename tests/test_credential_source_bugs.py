@@ -18,7 +18,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import app as app_module
+import services.profile_store as _profile_store_module
+import web.settings as _settings_module
 from db import _lookup_pricing
 from app import app as flask_app
 from credentials import save_providers
@@ -32,23 +33,26 @@ from job_sources import SOURCES, make_enabled_sources, JobSource
 
 @pytest.fixture()
 def tmp_providers_path(tmp_path, monkeypatch):
-    """Isolated providers.json path; patch app._PROVIDERS_PATH."""
+    """Isolated providers.json path; patch profile_store and web.settings."""
     path = str(tmp_path / "providers.json")
-    monkeypatch.setattr(app_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_PROVIDERS_PATH", path)
     return path
 
 
 @pytest.fixture()
 def tmp_keys_path(tmp_path, monkeypatch):
     path = str(tmp_path / "keys.json")
-    monkeypatch.setattr(app_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_KEYS_PATH", path)
+    monkeypatch.setattr(_settings_module, "_KEYS_PATH", path)
     return path
 
 
 @pytest.fixture()
 def tmp_config_path(tmp_path, monkeypatch):
     path = str(tmp_path / "config.json")
-    monkeypatch.setattr(app_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(_settings_module, "_CONFIG_PATH", path)
     return path
 
 
@@ -332,10 +336,11 @@ class TestIssue282ConfigWarningsFalsePositive:
             "llm": {},
             "job_sources": {},  # no adzuna entry
         })
-        monkeypatch.setattr(app_module, "_PROVIDERS_PATH", tmp_providers_path)
 
-        from app import _config_warnings
-        warnings = _config_warnings()
+        from services.provider_schemas import _config_warnings
+        # After Issue #326: _config_warnings now lives in services.provider_schemas and
+        # requires providers_path= explicitly (no app-global fallback).
+        warnings = _config_warnings(providers_path=tmp_providers_path)
 
         assert warnings == [], f"Expected no warnings, got: {warnings}"
 
@@ -350,10 +355,9 @@ class TestIssue282ConfigWarningsFalsePositive:
                 "adzuna": {"enabled": False, "app_id": "", "app_key": ""},
             },
         })
-        monkeypatch.setattr(app_module, "_PROVIDERS_PATH", tmp_providers_path)
 
-        from app import _config_warnings
-        warnings = _config_warnings()
+        from services.provider_schemas import _config_warnings
+        warnings = _config_warnings(providers_path=tmp_providers_path)
 
         assert warnings == []
 
@@ -368,10 +372,9 @@ class TestIssue282ConfigWarningsFalsePositive:
                 "adzuna": {"enabled": True, "app_id": "", "app_key": ""},
             },
         })
-        monkeypatch.setattr(app_module, "_PROVIDERS_PATH", tmp_providers_path)
 
-        from app import _config_warnings
-        warnings = _config_warnings()
+        from services.provider_schemas import _config_warnings
+        warnings = _config_warnings(providers_path=tmp_providers_path)
 
         assert len(warnings) == 1
         assert "Adzuna" in warnings[0]
@@ -387,10 +390,9 @@ class TestIssue282ConfigWarningsFalsePositive:
                 "adzuna": {"enabled": True, "app_id": "real-id", "app_key": "real-key"},
             },
         })
-        monkeypatch.setattr(app_module, "_PROVIDERS_PATH", tmp_providers_path)
 
-        from app import _config_warnings
-        warnings = _config_warnings()
+        from services.provider_schemas import _config_warnings
+        warnings = _config_warnings(providers_path=tmp_providers_path)
 
         assert warnings == []
 
