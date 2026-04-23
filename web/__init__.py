@@ -1,20 +1,20 @@
-"""Web layer — Flask application factory and filter/hook registration.
+"""Web layer — Flask application factory and blueprint registration.
 
-``create_app()`` is the single authoritative place where the Flask
-``app`` object is constructed and all startup-time guards, template
-filters, context processors, and before-request hooks are wired up.
+``create_app()`` constructs the Flask app, registers Jinja filters
+(``web/filters.py``), the CSRF before-request hook and demo-mode
+context processor (``web/security.py``), and the five route blueprints:
+``feed_bp``, ``ingest_bp``, ``settings_bp``, ``profile_bp``,
+``admin_bp`` — all mounted at ``url_prefix=""`` so every URL path is
+unchanged from the pre-refactor monolith.  It then calls
+``db.init_db()`` and registers job-source plugins.
 
-After Phase 1 of the refactor, ``app.py`` delegates to this factory:
+``app.py`` is a thin entry-point shim that calls ``create_app()`` and
+runs the dev server; it contains no routes, helpers, or business logic.
+Pure-Python service helpers (config/profile I/O, PDF import, provider
+schemas, ingest control) live under ``services/`` with zero Flask
+imports.
 
-.. code-block:: python
-
-    from web import create_app
-    app = create_app()
-
-All route definitions remain in ``app.py`` for now and are imported
-as a side-effect of the ``from app import ...`` call inside
-``create_app()``.  Subsequent phases will migrate routes into
-blueprint modules under ``web/``.
+See the Architecture section of ``CLAUDE.md`` for the full module map.
 """
 
 from __future__ import annotations
@@ -211,12 +211,8 @@ def create_app() -> Flask:
     from job_sources.auto_register import (  # noqa: PLC0415
         ensure_plugins_registered,
     )
-    # _PROVIDERS_PATH is defined in app.py, but importing from app here
-    # would create a circular import (app.py -> create_app() -> app.py).
-    # Duplicating this one-line join is the lesser evil until Phase 2
-    # relocates the path constants to services/profile_store.py.
-    _providers_path = os.path.join(_root, "config", "providers.json")
-    ensure_plugins_registered(_providers_path)
+    from services.profile_store import _PROVIDERS_PATH  # noqa: PLC0415
+    ensure_plugins_registered(_PROVIDERS_PATH)
 
     _app_instance = app
     return app
