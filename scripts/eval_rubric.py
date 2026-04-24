@@ -809,7 +809,7 @@ def _print_summary(
         new_missing_req_counts.append(new_req)
         new_missing_nth_counts.append(new_nth)
 
-        # Flag if old_missing > (new combined) + 20 %
+        # Flag if combined < 80% of old (>20% drop)
         combined = new_req + new_nth
         if old_m > 0 and combined < old_m * 0.80:
             title = (

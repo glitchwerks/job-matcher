@@ -745,8 +745,8 @@ def test_score_rubric_returns_missing_nice_to_have_skills():
     assert result["missing_nice_to_have_skills"] == ["Kubernetes", "Helm"]
 
 
-def test_score_rubric_missing_required_defaults_to_empty_list():
-    """missing_required_skills defaults to [] when absent from LLM response."""
+def test_score_rubric_rejects_missing_required_skills():
+    """Validation fails (returns None) when missing_required_skills is absent."""
     mock_provider = MagicMock()
     # Build a response that omits missing_required_skills entirely
     raw = {
@@ -771,8 +771,8 @@ def test_score_rubric_missing_required_defaults_to_empty_list():
     assert result is None
 
 
-def test_score_rubric_missing_nth_defaults_to_empty_list():
-    """missing_nice_to_have_skills defaults to [] when absent from LLM response."""
+def test_score_rubric_rejects_missing_nice_to_have_skills():
+    """Validation fails (returns None) when missing_nice_to_have_skills is absent."""
     mock_provider = MagicMock()
     raw = {
         "dimensions": {"skills_match": 7, "role_fit": 6, "red_flags": 8},
