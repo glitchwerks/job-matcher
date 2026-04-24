@@ -174,6 +174,16 @@ but has related background
 - "Not qualified for this role"      → score 1–2: missing the defining skills \
 of the position
 
+STEP 2b — CATEGORISE MISSING SKILLS
+For each skill the candidate lacks, classify it using the listing's own framing:
+- "missing_required_skills": skills the listing frames as required, must-have, \
+essential, or mandatory — or skills in the job title itself
+- "missing_nice_to_have_skills": skills the listing frames as preferred, \
+nice-to-have, bonus, a plus, or desired but not required
+
+If the listing does not distinguish between required and preferred for a skill, \
+default it to required.
+
 STEP 3 — DIMENSION 2: ROLE & LEVEL FIT (weight: 40% of match_score)
 Evaluate from the CANDIDATE'S perspective. Assess role identity and career \
 trajectory — do NOT re-evaluate technical skill overlap (that is covered by \
@@ -232,7 +242,8 @@ Use exactly these keys:
   "role_fit_assessment": "<one of the five labels from Step 3>",
   "deal_breakers": [<strings>],
   "matched_skills": [<strings>],
-  "missing_skills": [<strings>],
+  "missing_required_skills": [<strings>],
+  "missing_nice_to_have_skills": [<strings>],
   "concerns": [<strings>],
   "archetype": "<job archetype, e.g. Backend Engineer, Data Scientist>",
   "apply_recommendation": "<Strong Yes|Yes|Maybe|No|Hard No>",
@@ -500,7 +511,8 @@ _RUBRIC_REQUIRED_KEYS = {
     "role_fit_assessment",
     "deal_breakers",
     "matched_skills",
-    "missing_skills",
+    "missing_required_skills",
+    "missing_nice_to_have_skills",
     "concerns",
     "archetype",
     "apply_recommendation",
@@ -510,14 +522,24 @@ _RUBRIC_REQUIRED_KEYS = {
 _RUBRIC_DIMENSION_KEYS = {"skills_match", "role_fit", "red_flags"}
 
 
-def _validate_rubric_response(result: dict) -> Optional[str]:
+def _validate_rubric_response(
+    result: dict,
+) -> Optional[str]:
     """Validate a parsed rubric response dict against the expected schema.
+
+    Checks required keys, dimension ranges, and apply_recommendation.
+    Also emits a stderr warning when ``missing_required_skills`` and
+    ``missing_nice_to_have_skills`` are non-disjoint (a skill appearing in
+    both arrays is a prompt-compliance issue but does not fail the response
+    outright — the caller receives a warning and the result is still returned).
 
     Args:
         result: Parsed dict from the LLM response.
 
     Returns:
         An error message string if validation fails, or None if valid.
+        A non-disjoint skill set is NOT a hard failure; a warning is printed
+        to stderr instead.
     """
     missing = _RUBRIC_REQUIRED_KEYS - result.keys()
     if missing:
@@ -541,6 +563,17 @@ def _validate_rubric_response(result: dict) -> Optional[str]:
         return (
             f"apply_recommendation {rec!r} not in "
             f"{sorted(_VALID_RECOMMENDATIONS)}"
+        )
+
+    # Disjoint-set check — warn but do not reject.
+    req_set = set(result.get("missing_required_skills") or [])
+    nth_set = set(result.get("missing_nice_to_have_skills") or [])
+    overlap = req_set & nth_set
+    if overlap:
+        print(
+            f"  WARNING: Disjoint-set violation — "
+            f"skill(s) appear in both missing arrays: {sorted(overlap)}",
+            file=sys.stderr,
         )
 
     return None
@@ -683,7 +716,8 @@ def _print_listing_comparison(
         role_fit_label = new_result.get("role_fit_assessment", "?")
         deal_breakers = new_result.get("deal_breakers") or []
         new_matched = len(new_result.get("matched_skills") or [])
-        new_missing = len(new_result.get("missing_skills") or [])
+        new_missing_req = len(new_result.get("missing_required_skills") or [])
+        new_missing_nth = len(new_result.get("missing_nice_to_have_skills") or [])
         print(
             f"  New:  match={match_score}  "
             f"quality={quality}  "
@@ -696,7 +730,8 @@ def _print_listing_comparison(
         print(
             f"        deal_breakers={deal_breakers}  "
             f"matched={new_matched}  "
-            f"missing={new_missing}"
+            f"missing_req={new_missing_req}  "
+            f"missing_nth={new_missing_nth}"
         )
     else:
         print("  New:  [FAILED]")
@@ -718,6 +753,17 @@ def _print_summary(
     provider_label: str,
 ) -> None:
     """Print aggregate summary statistics across all evaluated listings.
+
+    Includes two missing-skills comparison metrics (Issue #248):
+    1. old flat ``missing_skills`` count vs new combined
+       (``missing_required_skills`` + ``missing_nice_to_have_skills``) count
+       — apples-to-apples total gap count.
+    2. old flat ``missing_skills`` count vs new required-only count
+       — validates the hypothesis that "required" is substantially smaller
+       than the old flat count.
+
+    A flag is printed when old_missing > (new_req + new_nth) * 1.20, which
+    suggests the LLM may be silently dropping items under the new schema.
 
     Args:
         evaluated: List of result dicts. Each contains:
@@ -747,6 +793,34 @@ def _print_summary(
         if e["new"] is not None
         and isinstance(e["new"].get("match_score"), (int, float))
     ]
+
+    # --- Missing-skills gap counts (Issue #248) ---
+    # Collect per-listing counts only for pairs where both succeeded.
+    old_missing_counts: list[int] = []
+    new_missing_req_counts: list[int] = []
+    new_missing_nth_counts: list[int] = []
+    drop_flag_listings: list[str] = []
+
+    for e in successful_pairs:
+        old_m = len(e["old"].get("missing_skills") or [])
+        new_req = len(e["new"].get("missing_required_skills") or [])
+        new_nth = len(e["new"].get("missing_nice_to_have_skills") or [])
+        old_missing_counts.append(old_m)
+        new_missing_req_counts.append(new_req)
+        new_missing_nth_counts.append(new_nth)
+
+        # Flag if combined < 80% of old (>20% drop)
+        combined = new_req + new_nth
+        if old_m > 0 and combined < old_m * 0.80:
+            title = (
+                e["listing"].get("title") or "(no title)"
+            )
+            lid = e["listing"].get("id", "?")
+            drop_flag_listings.append(
+                f"  #{lid} \"{_truncate(title, 45)}\": "
+                f"old={old_m}  req={new_req}  nth={new_nth}  "
+                f"combined={combined}"
+            )
 
     # --- Tier delta stats ---
     # Classify by original score tier (from DB, not re-scored old prompt)
@@ -840,6 +914,39 @@ def _print_summary(
     _tier_stats("High (old>=8) ", 8, 11)
     _tier_stats("Mid (5<=old<8)", 5, 8)
     _tier_stats("Low (old<5)   ", 0, 5)
+
+    # --- Missing-skills comparison (Issue #248) ---
+    # Printed only when we have paired results to compare.
+    if old_missing_counts:
+        avg_old_m = round(statistics.mean(old_missing_counts), 1)
+        avg_new_req = round(statistics.mean(new_missing_req_counts), 1)
+        avg_new_nth = round(statistics.mean(new_missing_nth_counts), 1)
+        avg_new_combined = round(avg_new_req + avg_new_nth, 1)
+        print()
+        print("Missing-skills split (Issue #248):")
+        print(
+            f"  Metric 1 — total gap count: "
+            f"old_flat={avg_old_m} vs "
+            f"new_combined(req+nth)={avg_new_combined}  "
+            f"[avg per listing]"
+        )
+        print(
+            f"  Metric 2 — required-only:   "
+            f"old_flat={avg_old_m} vs "
+            f"new_required={avg_new_req}  "
+            f"[avg per listing]"
+        )
+        print(
+            f"  (new_nice_to_have avg: {avg_new_nth})"
+        )
+        if drop_flag_listings:
+            print(
+                f"\n  WARNING: {len(drop_flag_listings)} listing(s) where "
+                f"old_missing > (new_req + new_nth) * 1.20 — "
+                f"LLM may be dropping items under new schema:"
+            )
+            for line in drop_flag_listings:
+                print(line)
 
     new_count = sum(
         1 for e in evaluated if e["new"] is not None

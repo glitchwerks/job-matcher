@@ -8,6 +8,7 @@ Covers:
   - _fetch_stratified_sample() — stratified sampling from DB
   - _score_old() — old prompt scoring with error handling
   - _score_rubric() — new rubric scoring with validation and weighting
+  - _print_summary() — summary stats including Issue #248 split metrics
   - Constants: weights, valid recommendations
 """
 
@@ -25,6 +26,7 @@ from scripts.eval_rubric import (
     _fetch_stratified_sample,
     _score_old,
     _score_rubric,
+    _print_summary,
     _SKILLS_WEIGHT,
     _ROLE_FIT_WEIGHT,
     _VALID_RECOMMENDATIONS,
@@ -94,7 +96,8 @@ def _make_valid_rubric() -> dict:
         "role_fit_assessment": "Exact match",
         "deal_breakers": [],
         "matched_skills": ["Python"],
-        "missing_skills": [],
+        "missing_required_skills": [],
+        "missing_nice_to_have_skills": [],
         "concerns": [],
         "archetype": "Backend Engineer",
         "apply_recommendation": "Strong Yes",
@@ -521,7 +524,8 @@ def test_score_rubric_success():
         "role_fit_assessment": "Strong fit",
         "deal_breakers": [],
         "matched_skills": ["Python"],
-        "missing_skills": [],
+        "missing_required_skills": ["Kubernetes"],
+        "missing_nice_to_have_skills": ["Terraform"],
         "concerns": [],
         "archetype": "Backend Engineer",
         "apply_recommendation": "Yes",
@@ -540,6 +544,11 @@ def test_score_rubric_success():
     assert result["match_score"] == 7.2
     assert result["listing_quality"] == 9
     assert result["apply_recommendation"] == "Yes"
+    # New split fields should be present
+    assert result["missing_required_skills"] == ["Kubernetes"]
+    assert result["missing_nice_to_have_skills"] == ["Terraform"]
+    # Old flat field must not be present
+    assert "missing_skills" not in result
 
 
 def test_score_rubric_match_score_computation():
@@ -551,7 +560,8 @@ def test_score_rubric_match_score_computation():
         "role_fit_assessment": "Strong fit",
         "deal_breakers": [],
         "matched_skills": [],
-        "missing_skills": [],
+        "missing_required_skills": [],
+        "missing_nice_to_have_skills": [],
         "concerns": [],
         "archetype": "Role",
         "apply_recommendation": "Strong Yes",
@@ -574,7 +584,8 @@ def test_score_rubric_deal_breakers_force_hard_no():
         "role_fit_assessment": "Exact",
         "deal_breakers": ["Requires relocation"],
         "matched_skills": [],
-        "missing_skills": [],
+        "missing_required_skills": [],
+        "missing_nice_to_have_skills": [],
         "concerns": [],
         "archetype": "Role",
         "apply_recommendation": "Strong Yes",  # Will be overridden
@@ -608,7 +619,8 @@ def test_score_rubric_validation_failure_returns_none():
         "role_fit_assessment": "Strong",
         "deal_breakers": [],
         "matched_skills": [],
-        "missing_skills": [],
+        "missing_required_skills": [],
+        "missing_nice_to_have_skills": [],
         "concerns": [],
         "archetype": "Role",
         "apply_recommendation": "Yes",
@@ -640,7 +652,8 @@ def test_score_rubric_verbose_prints_response(capsys):
         "role_fit_assessment": "Strong",
         "deal_breakers": [],
         "matched_skills": [],
-        "missing_skills": [],
+        "missing_required_skills": [],
+        "missing_nice_to_have_skills": [],
         "concerns": [],
         "archetype": "Engineer",
         "apply_recommendation": "Yes",
@@ -663,7 +676,8 @@ def test_score_rubric_fenced_json_is_stripped():
         "role_fit_assessment": "Strong",
         "deal_breakers": [],
         "matched_skills": [],
-        "missing_skills": [],
+        "missing_required_skills": [],
+        "missing_nice_to_have_skills": [],
         "concerns": [],
         "archetype": "Engineer",
         "apply_recommendation": "Yes",
@@ -675,6 +689,203 @@ def test_score_rubric_fenced_json_is_stripped():
 
     assert result is not None
     assert result["match_score"] == 6.6  # 0.60*7 + 0.40*6
+
+
+# ---------------------------------------------------------------------------
+# _score_rubric() — missing skill split field tests
+# ---------------------------------------------------------------------------
+
+
+def _make_rubric_response(**overrides) -> str:
+    """Build a valid rubric JSON response string, optionally overriding fields."""
+    base = {
+        "dimensions": {"skills_match": 7, "role_fit": 6, "red_flags": 8},
+        "hiring_assessment": "Strong candidate, minor gaps",
+        "role_fit_assessment": "Strong fit, minor mismatch",
+        "deal_breakers": [],
+        "matched_skills": ["Python", "PostgreSQL"],
+        "missing_required_skills": [],
+        "missing_nice_to_have_skills": [],
+        "concerns": [],
+        "archetype": "Backend Engineer",
+        "apply_recommendation": "Yes",
+        "verdict": "Good match overall.",
+    }
+    base.update(overrides)
+    return json.dumps(base)
+
+
+def test_score_rubric_returns_missing_required_skills():
+    """Result contains missing_required_skills as a list."""
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = _make_rubric_response(
+        missing_required_skills=["Go", "Docker"],
+        missing_nice_to_have_skills=["Terraform"],
+    )
+
+    result = _score_rubric("desc", "{}", mock_provider)
+
+    assert result is not None
+    assert isinstance(result["missing_required_skills"], list)
+    assert result["missing_required_skills"] == ["Go", "Docker"]
+
+
+def test_score_rubric_returns_missing_nice_to_have_skills():
+    """Result contains missing_nice_to_have_skills as a list."""
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = _make_rubric_response(
+        missing_required_skills=["Rust"],
+        missing_nice_to_have_skills=["Kubernetes", "Helm"],
+    )
+
+    result = _score_rubric("desc", "{}", mock_provider)
+
+    assert result is not None
+    assert isinstance(result["missing_nice_to_have_skills"], list)
+    assert result["missing_nice_to_have_skills"] == ["Kubernetes", "Helm"]
+
+
+def test_score_rubric_rejects_missing_required_skills():
+    """Validation fails (returns None) when missing_required_skills is absent."""
+    mock_provider = MagicMock()
+    # Build a response that omits missing_required_skills entirely
+    raw = {
+        "dimensions": {"skills_match": 7, "role_fit": 6, "red_flags": 8},
+        "hiring_assessment": "Strong candidate, minor gaps",
+        "role_fit_assessment": "Strong fit, minor mismatch",
+        "deal_breakers": [],
+        "matched_skills": ["Python"],
+        # missing_required_skills intentionally absent
+        "missing_nice_to_have_skills": ["Terraform"],
+        "concerns": [],
+        "archetype": "Backend Engineer",
+        "apply_recommendation": "Yes",
+        "verdict": "Good match.",
+    }
+    mock_provider.generate.return_value = json.dumps(raw)
+
+    # Validation will fail because missing_required_skills is a required key —
+    # this is the expected behaviour: schema validation catches the absence and
+    # returns None so the caller can retry or log a warning.
+    result = _score_rubric("desc", "{}", mock_provider)
+    assert result is None
+
+
+def test_score_rubric_rejects_missing_nice_to_have_skills():
+    """Validation fails (returns None) when missing_nice_to_have_skills is absent."""
+    mock_provider = MagicMock()
+    raw = {
+        "dimensions": {"skills_match": 7, "role_fit": 6, "red_flags": 8},
+        "hiring_assessment": "Strong candidate, minor gaps",
+        "role_fit_assessment": "Strong fit, minor mismatch",
+        "deal_breakers": [],
+        "matched_skills": ["Python"],
+        "missing_required_skills": ["Go"],
+        # missing_nice_to_have_skills intentionally absent
+        "concerns": [],
+        "archetype": "Backend Engineer",
+        "apply_recommendation": "Yes",
+        "verdict": "Good match.",
+    }
+    mock_provider.generate.return_value = json.dumps(raw)
+
+    # Schema validation should catch the absent key and return None.
+    result = _score_rubric("desc", "{}", mock_provider)
+    assert result is None
+
+
+def test_score_rubric_two_arrays_are_disjoint():
+    """A skill that appears in required cannot also appear in nice-to-have."""
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = _make_rubric_response(
+        missing_required_skills=["Rust", "C++"],
+        missing_nice_to_have_skills=["Terraform", "Helm"],
+    )
+
+    result = _score_rubric("desc", "{}", mock_provider)
+
+    assert result is not None
+    req_set = set(result["missing_required_skills"])
+    nth_set = set(result["missing_nice_to_have_skills"])
+    assert req_set.isdisjoint(nth_set), (
+        f"Skills appear in both arrays: {req_set & nth_set}"
+    )
+
+
+def test_validate_rubric_response_warns_on_non_disjoint_arrays(capsys):
+    """A skill appearing in both arrays emits a stderr warning but passes."""
+    rubric = _make_valid_rubric()
+    # "Python" appears in both — deliberate disjoint violation.
+    rubric["missing_required_skills"] = ["Python", "Go"]
+    rubric["missing_nice_to_have_skills"] = ["Python", "Terraform"]
+
+    result = _validate_rubric_response(rubric)
+
+    # Validation itself must still return None (not a hard failure).
+    assert result is None, (
+        "Non-disjoint arrays should warn, not fail validation"
+    )
+    # The warning must be visible on stderr.
+    captured = capsys.readouterr()
+    assert "Disjoint-set violation" in captured.err
+    assert "Python" in captured.err
+
+
+def test_score_rubric_non_disjoint_arrays_warns_and_returns_result(capsys):
+    """_score_rubric surfaces a stderr warning when arrays overlap but still returns result."""
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = _make_rubric_response(
+        missing_required_skills=["Docker", "Kubernetes"],
+        missing_nice_to_have_skills=["Kubernetes", "Helm"],  # Kubernetes in both
+    )
+
+    result = _score_rubric("desc", "{}", mock_provider)
+
+    # Result is still returned — non-disjoint is not a parse failure.
+    assert result is not None
+    # Warning must appear on stderr.
+    captured = capsys.readouterr()
+    assert "Disjoint-set violation" in captured.err
+    assert "Kubernetes" in captured.err
+
+
+def test_score_rubric_old_missing_skills_field_not_in_result():
+    """The legacy missing_skills field must not be present in the parsed result."""
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = _make_rubric_response(
+        missing_required_skills=["Java"],
+        missing_nice_to_have_skills=[],
+    )
+
+    result = _score_rubric("desc", "{}", mock_provider)
+
+    assert result is not None
+    assert "missing_skills" not in result
+
+
+def test_validate_rubric_response_rejects_old_missing_skills_key():
+    """Validation fails when response has legacy missing_skills instead of split fields."""
+    rubric = _make_valid_rubric()
+    # Swap out the new fields for the old flat one
+    del rubric["missing_required_skills"]
+    del rubric["missing_nice_to_have_skills"]
+    rubric["missing_skills"] = []
+
+    result = _validate_rubric_response(rubric)
+
+    assert result is not None
+    assert "Missing keys" in result
+
+
+def test_validate_rubric_response_accepts_both_split_fields():
+    """Validation passes when both missing_required_skills and missing_nice_to_have_skills are present."""
+    rubric = _make_valid_rubric()
+    rubric["missing_required_skills"] = ["Scala"]
+    rubric["missing_nice_to_have_skills"] = ["Kafka"]
+
+    result = _validate_rubric_response(rubric)
+
+    assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -701,3 +912,118 @@ def test_valid_recommendations_contains_expected():
     """_VALID_RECOMMENDATIONS has all expected values."""
     expected = {"Strong Yes", "Yes", "Maybe", "No", "Hard No"}
     assert _VALID_RECOMMENDATIONS == expected
+
+
+# ---------------------------------------------------------------------------
+# _print_summary() — missing-skills split metrics (Issue #248)
+# ---------------------------------------------------------------------------
+
+
+def _make_eval_entry(
+    old_missing: int,
+    new_req: int,
+    new_nth: int,
+    old_score: int = 7,
+    match_score: float = 6.0,
+) -> dict:
+    """Build a synthetic evaluated-entry dict for _print_summary tests.
+
+    Args:
+        old_missing: Count of flat missing_skills from old prompt.
+        new_req:     Count of missing_required_skills from rubric prompt.
+        new_nth:     Count of missing_nice_to_have_skills from rubric prompt.
+        old_score:   Scalar score returned by old prompt (default 7).
+        match_score: Computed match_score from rubric prompt (default 6.0).
+
+    Returns:
+        Dict with ``listing``, ``old``, and ``new`` sub-dicts.
+    """
+    old_result = {
+        "score": old_score,
+        "matched_skills": [],
+        "missing_skills": [f"SkillA{i}" for i in range(old_missing)],
+        "concerns": [],
+        "verdict": "ok",
+    }
+    new_result = {
+        "match_score": match_score,
+        "listing_quality": 8,
+        "apply_recommendation": "Yes",
+        "hiring_assessment": "Strong candidate, minor gaps",
+        "role_fit_assessment": "Strong fit, minor mismatch",
+        "deal_breakers": [],
+        "matched_skills": [],
+        "missing_required_skills": [
+            f"Req{i}" for i in range(new_req)
+        ],
+        "missing_nice_to_have_skills": [
+            f"Nth{i}" for i in range(new_nth)
+        ],
+        "concerns": [],
+        "archetype": "Engineer",
+        "verdict": "ok",
+    }
+    return {
+        "listing": {"id": 1, "title": "Test Job", "score": old_score},
+        "old": old_result,
+        "new": new_result,
+    }
+
+
+def test_print_summary_emits_metric1_total_gap(capsys):
+    """Summary prints Metric 1: old flat vs new combined count."""
+    entries = [_make_eval_entry(old_missing=4, new_req=2, new_nth=2)]
+    _print_summary(evaluated=entries, provider_label="test/model")
+
+    captured = capsys.readouterr()
+    assert "Metric 1" in captured.out
+    assert "total gap count" in captured.out
+    # Output format is "old_flat=N" — value may be int or float repr.
+    assert "old_flat=4" in captured.out
+    assert "new_combined(req+nth)=4" in captured.out
+
+
+def test_print_summary_emits_metric2_required_only(capsys):
+    """Summary prints Metric 2: old flat vs new required-only count."""
+    entries = [_make_eval_entry(old_missing=4, new_req=2, new_nth=2)]
+    _print_summary(evaluated=entries, provider_label="test/model")
+
+    captured = capsys.readouterr()
+    assert "Metric 2" in captured.out
+    assert "required-only" in captured.out
+    # Output format is "new_required=N" — value may be int or float repr.
+    assert "new_required=2" in captured.out
+
+
+def test_print_summary_flags_drop_when_old_substantially_higher(capsys):
+    """Summary flags listings where old_missing > (new_req+new_nth) * 1.20."""
+    # old=10, combined=6 → 6 < 10*0.80=8 → should flag
+    entries = [_make_eval_entry(old_missing=10, new_req=3, new_nth=3)]
+    _print_summary(evaluated=entries, provider_label="test/model")
+
+    captured = capsys.readouterr()
+    assert "WARNING" in captured.out
+    assert "LLM may be dropping items" in captured.out
+
+
+def test_print_summary_no_flag_when_counts_comparable(capsys):
+    """Summary does not flag when new combined count is within 20% of old."""
+    # old=4, combined=4 → no drop
+    entries = [_make_eval_entry(old_missing=4, new_req=2, new_nth=2)]
+    _print_summary(evaluated=entries, provider_label="test/model")
+
+    captured = capsys.readouterr()
+    assert "LLM may be dropping items" not in captured.out
+
+
+def test_print_summary_old_path_reads_flat_missing_skills(capsys):
+    """Summary reads old prompt's missing_skills (not the new split fields)."""
+    # old missing_skills has 3 items; new has 1 req + 1 nth
+    entries = [_make_eval_entry(old_missing=3, new_req=1, new_nth=1)]
+    _print_summary(evaluated=entries, provider_label="test/model")
+
+    captured = capsys.readouterr()
+    # old_flat avg should be 3 (may render as int or float)
+    assert "old_flat=3" in captured.out
+    # combined avg should be 2 (may render as int or float)
+    assert "new_combined(req+nth)=2" in captured.out
