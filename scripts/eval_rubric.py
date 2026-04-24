@@ -921,6 +921,59 @@ def _build_run_meta(
     }
 
 
+def _render_json_sidecar(
+    evaluated: list[dict],
+    meta: dict,
+    decision: dict,
+) -> dict:
+    """Build the JSON sidecar payload for a rubric eval run.
+
+    The returned dict is JSON-serializable and carries everything the
+    markdown renderer also shows, so downstream tools can re-derive or
+    re-format without re-running the eval.
+
+    Args:
+        evaluated: Per-listing results with ``listing``, ``old``, ``new``
+            keys.
+        meta:      Dict from ``_build_run_meta``.
+        decision:  Dict from ``_compute_decision``.
+
+    Returns:
+        JSON-serializable dict with keys ``meta``, ``decision``,
+        ``per_listing``.
+    """
+    per_listing = []
+    for e in evaluated:
+        listing = e.get("listing") or {}
+        old = e.get("old")
+        new = e.get("new")
+        old_missing = (
+            len(old.get("missing_skills") or []) if old else None
+        )
+        if new:
+            required = len(new.get("missing_required_skills") or [])
+            nice_to_have = len(
+                new.get("missing_nice_to_have_skills") or []
+            )
+        else:
+            required = None
+            nice_to_have = None
+        per_listing.append({
+            "source_id": listing.get("id"),
+            "title": listing.get("title"),
+            "tier": _tier_of(listing.get("score")),
+            "old_missing": old_missing,
+            "required": required,
+            "nice_to_have": nice_to_have,
+        })
+
+    return {
+        "meta": meta,
+        "decision": decision,
+        "per_listing": per_listing,
+    }
+
+
 def _print_summary(
     evaluated: list[dict],
     provider_label: str,

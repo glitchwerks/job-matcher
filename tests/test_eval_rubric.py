@@ -33,6 +33,7 @@ from scripts.eval_rubric import (
     _normalize_seed,
     _compute_decision,
     _build_run_meta,
+    _render_json_sidecar,
 )
 
 
@@ -1275,3 +1276,77 @@ class TestBuildRunMeta:
         # Listings with unclassifiable scores don't contribute to tier counts.
         assert meta["actual_counts"] == {"high": 0, "mid": 0, "low": 0}
         assert meta["sampled_ids"] == ["a"]
+
+
+# ---------------------------------------------------------------------------
+# _render_json_sidecar() tests
+# ---------------------------------------------------------------------------
+
+
+class TestRenderJsonSidecar:
+    """Tests for _render_json_sidecar: produces the JSON artifact payload."""
+
+    def _fixture(self):
+        meta = {
+            "commit_sha": "abc1234",
+            "provider": "anthropic/claude-haiku-4-5",
+            "seed": 20260424,
+            "run_iso": "2026-04-24T15:00:00",
+            "requested_counts": {"high": 1, "mid": 1, "low": 1},
+            "actual_counts": {"high": 1, "mid": 1, "low": 1},
+            "sampled_ids": ["a", "b", "c"],
+        }
+        decision = {
+            "required_ratio": 0.75,
+            "threshold": 0.80,
+            "recommendation": "no change needed",
+            "counts": {"required": 3, "nice_to_have": 1},
+            "tier_breakdown": {
+                "high": {"n": 1, "required": 1, "nice_to_have": 0, "required_ratio": 1.0},
+                "mid": {"n": 1, "required": 1, "nice_to_have": 0, "required_ratio": 1.0},
+                "low": {"n": 1, "required": 1, "nice_to_have": 1, "required_ratio": 0.5},
+            },
+        }
+        evaluated = [
+            {
+                "listing": {"id": "a", "title": "High role", "score": 9.0},
+                "old": {"missing_skills": ["x"], "score": 9.0},
+                "new": {
+                    "match_score": 9.0,
+                    "missing_required_skills": ["r"],
+                    "missing_nice_to_have_skills": [],
+                },
+            },
+        ]
+        return meta, decision, evaluated
+
+    def test_returns_serializable_dict(self):
+        meta, decision, evaluated = self._fixture()
+        payload = _render_json_sidecar(evaluated, meta, decision)
+        # Must be JSON-serializable.
+        json.dumps(payload)
+        assert payload["meta"] == meta
+        assert payload["decision"] == decision
+
+    def test_contains_per_listing_rows(self):
+        meta, decision, evaluated = self._fixture()
+        payload = _render_json_sidecar(evaluated, meta, decision)
+        assert len(payload["per_listing"]) == 1
+        row = payload["per_listing"][0]
+        assert row["source_id"] == "a"
+        assert row["title"] == "High role"
+        assert row["tier"] == "high"
+        assert row["old_missing"] == 1
+        assert row["required"] == 1
+        assert row["nice_to_have"] == 0
+
+    def test_per_listing_handles_failed_old_or_new(self):
+        meta, decision, _ = self._fixture()
+        evaluated = [
+            {"listing": {"id": "x", "title": "t", "score": 6.0}, "old": None, "new": None},
+        ]
+        payload = _render_json_sidecar(evaluated, meta, decision)
+        row = payload["per_listing"][0]
+        assert row["old_missing"] is None
+        assert row["required"] is None
+        assert row["nice_to_have"] is None
