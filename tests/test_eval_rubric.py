@@ -31,6 +31,7 @@ from scripts.eval_rubric import (
     _ROLE_FIT_WEIGHT,
     _VALID_RECOMMENDATIONS,
     _normalize_seed,
+    _compute_decision,
 )
 
 
@@ -1105,3 +1106,109 @@ class TestFetchStratifiedSampleSeeded:
         _fetch_stratified_sample(mock_conn, 5, 5, 5, seed=42)
 
         assert mock_cursor.execute.call_count == 4
+
+
+# ---------------------------------------------------------------------------
+# _compute_decision() tests
+# ---------------------------------------------------------------------------
+
+
+def _make_eval(
+    old_missing: int,
+    new_req: int,
+    new_nth: int,
+    score: float = 7.0,
+) -> dict:
+    """Build a minimal evaluated entry with the fields _compute_decision reads.
+
+    Args:
+        old_missing: Number of missing skills in the old result.
+        new_req: Number of missing required skills in the new result.
+        new_nth: Number of missing nice-to-have skills in the new result.
+        score: DB score for tier classification. Defaults to 7.0 (mid tier).
+
+    Returns:
+        A dict with ``listing``, ``old``, and ``new`` keys as produced by the
+        eval pipeline.
+    """
+    return {
+        "listing": {"id": 1, "title": "x", "score": score},
+        "old": {"missing_skills": ["s"] * old_missing, "score": score},
+        "new": {
+            "missing_required_skills": ["r"] * new_req,
+            "missing_nice_to_have_skills": ["n"] * new_nth,
+            "match_score": score,
+        },
+    }
+
+
+class TestComputeDecision:
+    """Tests for _compute_decision: aggregates required/nice-to-have ratio
+    and renders the tune/no-change recommendation against the #341 threshold.
+    """
+
+    def test_ratio_above_threshold_recommends_tune(self) -> None:
+        """85/(85+15) = 0.85 > 0.80 threshold -> 'tune'."""
+        evaluated = [_make_eval(0, 85, 15)]
+        decision = _compute_decision(evaluated)
+        assert decision["required_ratio"] == 0.85
+        assert decision["recommendation"] == "tune"
+
+    def test_ratio_at_threshold_recommends_no_change(self) -> None:
+        """80/(80+20) = 0.80 exactly at threshold -> 'no change needed'."""
+        evaluated = [_make_eval(0, 80, 20)]
+        decision = _compute_decision(evaluated)
+        assert decision["required_ratio"] == 0.80
+        assert decision["recommendation"] == "no change needed"
+
+    def test_ratio_just_above_threshold_recommends_tune(self) -> None:
+        """81/(81+19) = 0.81 just above threshold -> 'tune'."""
+        evaluated = [_make_eval(0, 81, 19)]
+        decision = _compute_decision(evaluated)
+        assert decision["recommendation"] == "tune"
+
+    def test_ratio_just_below_threshold_recommends_no_change(self) -> None:
+        """79/(79+21) = 0.79 just below threshold -> 'no change needed'."""
+        evaluated = [_make_eval(0, 79, 21)]
+        decision = _compute_decision(evaluated)
+        assert decision["recommendation"] == "no change needed"
+
+    def test_empty_evaluated_returns_null_recommendation(self) -> None:
+        """Empty input list produces 'insufficient data' with None ratio."""
+        decision = _compute_decision([])
+        assert decision["recommendation"] == "insufficient data"
+        assert decision["required_ratio"] is None
+
+    def test_all_failed_new_results_returns_null_recommendation(self) -> None:
+        """Entries with new=None (score failures) produce 'insufficient data'."""
+        evaluated = [
+            {"listing": {"id": 1, "score": 7.0}, "old": None, "new": None}
+        ]
+        decision = _compute_decision(evaluated)
+        assert decision["recommendation"] == "insufficient data"
+
+    def test_per_tier_breakdown_present(self) -> None:
+        """Tier breakdown keys and per-tier ratios are correct."""
+        evaluated = [
+            _make_eval(0, 30, 10, score=9.0),  # high: 30/(30+10) = 0.75
+            _make_eval(0, 50, 20, score=6.0),  # mid:  50/(50+20) ≈ 0.7143
+            _make_eval(0, 80, 10, score=3.0),  # low:  80/(80+10) ≈ 0.8889
+        ]
+        decision = _compute_decision(evaluated)
+        assert "tier_breakdown" in decision
+        assert decision["tier_breakdown"]["high"]["required_ratio"] == 0.75
+        # mid: 50/(50+20) = 0.7142857...
+        assert (
+            round(decision["tier_breakdown"]["mid"]["required_ratio"], 4)
+            == 0.7143
+        )
+        # low: 80/(80+10) = 0.8888...
+        assert (
+            round(decision["tier_breakdown"]["low"]["required_ratio"], 4)
+            == 0.8889
+        )
+
+    def test_threshold_value_in_output(self) -> None:
+        """Result dict carries the threshold constant (0.80) for serialization."""
+        decision = _compute_decision([_make_eval(0, 1, 1)])
+        assert decision["threshold"] == 0.80

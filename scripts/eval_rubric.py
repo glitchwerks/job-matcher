@@ -770,6 +770,118 @@ def _print_listing_comparison(
             print(f"  Delta score: {sign}{delta}")
 
 
+# ---------------------------------------------------------------------------
+# Decision computation (Issue #341)
+# ---------------------------------------------------------------------------
+
+_DECISION_THRESHOLD = 0.80  # Issue #341: > 80% required -> tune
+
+
+def _tier_of(score: object) -> str:
+    """Classify a listing's DB score into 'high', 'mid', or 'low'.
+
+    Args:
+        score: The numeric score from the database. Non-numeric values
+            return 'unknown'.
+
+    Returns:
+        One of 'high' (>= 8), 'mid' (>= 5), 'low' (< 5), or 'unknown'.
+    """
+    if not isinstance(score, (int, float)):
+        return "unknown"
+    if score >= 8:
+        return "high"
+    if score >= 5:
+        return "mid"
+    return "low"
+
+
+def _compute_decision(evaluated: list[dict]) -> dict:
+    """Compute the tune/no-change recommendation for Issue #341.
+
+    The metric is the fraction of missing skills the rubric classified as
+    ``required`` across all successful evaluations::
+
+        required_ratio = sum(required) / (sum(required) + sum(nice_to_have))
+
+    Threshold (Issue #341): > 80% -> "tune"; <= 80% -> "no change needed".
+    If no evaluations produced a new-rubric result with valid counts,
+    returns "insufficient data".
+
+    Args:
+        evaluated: List of result dicts with ``listing``, ``old``, and
+            ``new`` keys as produced by the eval pipeline. Entries whose
+            ``new`` value is ``None`` (score failures) are skipped.
+
+    Returns:
+        Dict with keys:
+
+        - ``required_ratio`` (float or None): aggregate ratio across all
+          successful evaluations, or None when no data is available.
+        - ``threshold`` (float): the decision threshold constant (0.80).
+        - ``recommendation`` (str): one of ``"tune"``,
+          ``"no change needed"``, or ``"insufficient data"``.
+        - ``counts`` (dict): total ``required`` and ``nice_to_have`` counts.
+        - ``tier_breakdown`` (dict): per-tier dicts keyed by 'high', 'mid',
+          'low' (and 'unknown' when non-zero), each containing ``n``,
+          ``required``, ``nice_to_have``, and ``required_ratio``.
+    """
+    by_tier: dict[str, dict[str, int]] = {
+        "high": {"req": 0, "nth": 0, "n": 0},
+        "mid": {"req": 0, "nth": 0, "n": 0},
+        "low": {"req": 0, "nth": 0, "n": 0},
+        "unknown": {"req": 0, "nth": 0, "n": 0},
+    }
+    total_req = 0
+    total_nth = 0
+
+    for e in evaluated:
+        new = e.get("new")
+        if new is None:
+            continue
+        req = len(new.get("missing_required_skills") or [])
+        nth = len(new.get("missing_nice_to_have_skills") or [])
+        tier = _tier_of((e.get("listing") or {}).get("score"))
+        by_tier[tier]["req"] += req
+        by_tier[tier]["nth"] += nth
+        by_tier[tier]["n"] += 1
+        total_req += req
+        total_nth += nth
+
+    def _ratio(req: int, nth: int) -> Optional[float]:
+        """Return req/(req+nth), or None when the denominator is zero."""
+        combined = req + nth
+        return (req / combined) if combined > 0 else None
+
+    aggregate_ratio = _ratio(total_req, total_nth)
+
+    if aggregate_ratio is None:
+        recommendation = "insufficient data"
+    elif aggregate_ratio > _DECISION_THRESHOLD:
+        recommendation = "tune"
+    else:
+        recommendation = "no change needed"
+
+    tier_breakdown: dict[str, dict] = {}
+    for tier, counts in by_tier.items():
+        if tier == "unknown" and counts["n"] == 0:
+            continue  # hide empty unknown bucket
+        tier_breakdown[tier] = {
+            "n": counts["n"],
+            "required": counts["req"],
+            "nice_to_have": counts["nth"],
+            "required_ratio": _ratio(counts["req"], counts["nth"]),
+        }
+
+    return {
+        "required_ratio": aggregate_ratio,
+        "threshold": _DECISION_THRESHOLD,
+        "recommendation": recommendation,
+        "counts": {"required": total_req, "nice_to_have": total_nth},
+        "tier_breakdown": tier_breakdown,
+    }
+
+
 def _print_summary(
     evaluated: list[dict],
     provider_label: str,
