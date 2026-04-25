@@ -24,6 +24,7 @@ import argparse
 from datetime import date, datetime
 import json
 import os
+from pathlib import Path
 import statistics
 import subprocess
 import sys
@@ -296,6 +297,10 @@ def _normalize_seed(seed: int) -> float:
     Returns:
         Normalized seed in [-1.0, 1.0].
     """
+    # 10M provides sufficient granularity for date-based seeds (e.g.
+    # YYYYMMDD = 8 digits) while keeping the resulting float in a
+    # numerically stable range. The * 2 - 1 maps [0, 1) into [-1, 1),
+    # matching PostgreSQL setseed()'s expected input range.
     return (seed % 10_000_000) / 10_000_000 * 2 - 1
 
 
@@ -351,6 +356,12 @@ def _fetch_stratified_sample(
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT setseed(%s)", (_normalize_seed(seed),))
         for where_clause, limit in tiers:
+            # NOTE: `where_clause` is sourced exclusively from the
+            # hardcoded tier definitions in `tiers` above (e.g.
+            # "score >= 8"). It never carries user-provided input, so
+            # str.format() here is safe. If a future change makes
+            # `where_clause` user-influenced, switch to a parameterized
+            # query before merging.
             cur.execute(
                 query.format(where_clause=where_clause),
                 (limit,),
@@ -1514,7 +1525,7 @@ def main() -> None:
         decision = _compute_decision(evaluated)
 
         md_path = args.output
-        json_path = md_path.rsplit(".", 1)[0] + ".json"
+        json_path = str(Path(md_path).with_suffix(".json"))
 
         try:
             os.makedirs(os.path.dirname(md_path) or ".", exist_ok=True)
@@ -1526,14 +1537,15 @@ def main() -> None:
                     f,
                     indent=2,
                 )
-        except OSError as exc:
+        except (OSError, TypeError, ValueError) as exc:
             print(
                 f"\nERROR: failed to write artifacts to "
                 f"{md_path} / {json_path}: {exc}",
                 file=sys.stderr,
             )
             # Don't swallow — re-raise so the shell exit code reflects
-            # the failure.
+            # the failure. TypeError/ValueError cover JSON serialization
+            # failures (e.g. non-serializable types in the payload).
             raise
 
         print(f"\nArtifacts written:\n  {md_path}\n  {json_path}")
