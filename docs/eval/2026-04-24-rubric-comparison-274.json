@@ -1,0 +1,807 @@
+{
+  "meta": {
+    "commit_sha": "35e9088",
+    "provider": "anthropic/claude-haiku-4-5-20251001",
+    "seed": 20260424,
+    "run_iso": "2026-04-25T09:43:44",
+    "requested_counts": {
+      "high": 32,
+      "mid": 36,
+      "low": 32
+    },
+    "actual_counts": {
+      "high": 16,
+      "mid": 36,
+      "low": 32
+    },
+    "sampled_ids": [
+      141,
+      1,
+      60,
+      4,
+      75,
+      134,
+      118,
+      119,
+      53,
+      82,
+      120,
+      163,
+      8,
+      80,
+      166,
+      85,
+      6,
+      74,
+      24,
+      18,
+      37,
+      35,
+      49,
+      57,
+      73,
+      34,
+      36,
+      41,
+      123,
+      17,
+      27,
+      2,
+      152,
+      22,
+      131,
+      162,
+      66,
+      149,
+      65,
+      125,
+      42,
+      10,
+      101,
+      84,
+      112,
+      136,
+      143,
+      151,
+      103,
+      44,
+      45,
+      116,
+      138,
+      153,
+      72,
+      140,
+      98,
+      46,
+      104,
+      7,
+      168,
+      113,
+      102,
+      132,
+      114,
+      121,
+      52,
+      59,
+      169,
+      68,
+      97,
+      55,
+      170,
+      100,
+      40,
+      9,
+      146,
+      78,
+      56,
+      32,
+      51,
+      115,
+      127,
+      108
+    ]
+  },
+  "decision": {
+    "required_ratio": 0.6526479750778816,
+    "threshold": 0.8,
+    "recommendation": "no change needed",
+    "counts": {
+      "required": 419,
+      "nice_to_have": 223
+    },
+    "tier_breakdown": {
+      "high": {
+        "n": 16,
+        "required": 41,
+        "nice_to_have": 43,
+        "required_ratio": 0.4880952380952381
+      },
+      "mid": {
+        "n": 34,
+        "required": 164,
+        "nice_to_have": 116,
+        "required_ratio": 0.5857142857142857
+      },
+      "low": {
+        "n": 32,
+        "required": 214,
+        "nice_to_have": 64,
+        "required_ratio": 0.7697841726618705
+      }
+    }
+  },
+  "per_listing": [
+    {
+      "source_id": 141,
+      "title": "Banking Full Stack Software Developer TSCM 43657",
+      "tier": "high",
+      "old_missing": 1,
+      "required": 1,
+      "nice_to_have": 0
+    },
+    {
+      "source_id": 1,
+      "title": "Software Engineer",
+      "tier": "high",
+      "old_missing": 0,
+      "required": 0,
+      "nice_to_have": 0
+    },
+    {
+      "source_id": 60,
+      "title": "Deloitte Cyber Fullstack Senior Engineer/Senior Consultant",
+      "tier": "high",
+      "old_missing": 14,
+      "required": 7,
+      "nice_to_have": 6
+    },
+    {
+      "source_id": 4,
+      "title": "Software Engineer",
+      "tier": "high",
+      "old_missing": 8,
+      "required": 5,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 75,
+      "title": "Data Scientist - FCRM",
+      "tier": "high",
+      "old_missing": 4,
+      "required": 1,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 134,
+      "title": "Senior Software Engineer App Infra",
+      "tier": "high",
+      "old_missing": 3,
+      "required": 0,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 118,
+      "title": "Software Engineer, MyPay",
+      "tier": "high",
+      "old_missing": 4,
+      "required": 1,
+      "nice_to_have": 1
+    },
+    {
+      "source_id": 119,
+      "title": "Principal Software Engineer (React/.Net)",
+      "tier": "high",
+      "old_missing": 7,
+      "required": 3,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 53,
+      "title": "AI & Machine Learning Engineering Consultant - Life Sciences Sector - Senior - Consulting",
+      "tier": "high",
+      "old_missing": 8,
+      "required": 7,
+      "nice_to_have": 6
+    },
+    {
+      "source_id": 82,
+      "title": "Lead Software Developer",
+      "tier": "high",
+      "old_missing": 0,
+      "required": 0,
+      "nice_to_have": 0
+    },
+    {
+      "source_id": 120,
+      "title": "Full-Stack Software Engineer (AI-Enhanced Development)",
+      "tier": "high",
+      "old_missing": 3,
+      "required": 1,
+      "nice_to_have": 4
+    },
+    {
+      "source_id": 163,
+      "title": "Senior Independent Software Developer",
+      "tier": "high",
+      "old_missing": 0,
+      "required": 0,
+      "nice_to_have": 0
+    },
+    {
+      "source_id": 8,
+      "title": "Sr. Software Engineer",
+      "tier": "high",
+      "old_missing": 5,
+      "required": 5,
+      "nice_to_have": 0
+    },
+    {
+      "source_id": 80,
+      "title": "Cyber AI Data Engineer Senior Consultant",
+      "tier": "high",
+      "old_missing": 19,
+      "required": 4,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 166,
+      "title": "Tech Lead Databricks Data Engineer",
+      "tier": "high",
+      "old_missing": 8,
+      "required": 6,
+      "nice_to_have": 4
+    },
+    {
+      "source_id": 85,
+      "title": "Lead Software developer",
+      "tier": "high",
+      "old_missing": 7,
+      "required": 0,
+      "nice_to_have": 7
+    },
+    {
+      "source_id": 6,
+      "title": "Specialist, Software Engineering",
+      "tier": "mid",
+      "old_missing": 6,
+      "required": 5,
+      "nice_to_have": 8
+    },
+    {
+      "source_id": 74,
+      "title": "Context Engineer - Manager - Consulting - Location OPEN",
+      "tier": "mid",
+      "old_missing": 8,
+      "required": 5,
+      "nice_to_have": 5
+    },
+    {
+      "source_id": 24,
+      "title": "Software Engineer, Full-Stack Developer - LATAM, Remote",
+      "tier": "mid",
+      "old_missing": 6,
+      "required": 4,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 18,
+      "title": "Senior Software Engineer, Lion Holdings",
+      "tier": "mid",
+      "old_missing": 15,
+      "required": 7,
+      "nice_to_have": 9
+    },
+    {
+      "source_id": 37,
+      "title": "Senior Manager, Artificial Intelligence",
+      "tier": "mid",
+      "old_missing": 3,
+      "required": 3,
+      "nice_to_have": 2
+    },
+    {
+      "source_id": 35,
+      "title": "Lead Full Stack Engineer - PxE Consulting",
+      "tier": "mid",
+      "old_missing": 5,
+      "required": 5,
+      "nice_to_have": 4
+    },
+    {
+      "source_id": 49,
+      "title": "Product Cybersecurity Engineer - Mako Robotics & Enabling Technologies",
+      "tier": "mid",
+      "old_missing": 10,
+      "required": 4,
+      "nice_to_have": 6
+    },
+    {
+      "source_id": 57,
+      "title": "Physical AI Engineering Consultant - Senior - Consulting - Open Location",
+      "tier": "mid",
+      "old_missing": 12,
+      "required": null,
+      "nice_to_have": null
+    },
+    {
+      "source_id": 73,
+      "title": "Data Scientist II - FCRM -Screening Capabilities",
+      "tier": "mid",
+      "old_missing": 4,
+      "required": 1,
+      "nice_to_have": 0
+    },
+    {
+      "source_id": 34,
+      "title": "AI Engineer \u2013 Copilot & Agentic Development",
+      "tier": "mid",
+      "old_missing": 5,
+      "required": 3,
+      "nice_to_have": 4
+    },
+    {
+      "source_id": 36,
+      "title": "Solution Architect - Senior Manager - Consulting - Location OPEN",
+      "tier": "mid",
+      "old_missing": 8,
+      "required": 7,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 41,
+      "title": "AI and Distributed Systems Fullstack Engineer - Manager - Consulting - Location OPEN",
+      "tier": "mid",
+      "old_missing": 15,
+      "required": 4,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 123,
+      "title": "Software Engineer (Technical Leadership) \u2013 Machine Learning",
+      "tier": "mid",
+      "old_missing": 7,
+      "required": 6,
+      "nice_to_have": 1
+    },
+    {
+      "source_id": 17,
+      "title": "Senior Software Engineer, Lion Holdings",
+      "tier": "mid",
+      "old_missing": 13,
+      "required": 5,
+      "nice_to_have": 11
+    },
+    {
+      "source_id": 27,
+      "title": "Software Development Engineering - Advisor I",
+      "tier": "mid",
+      "old_missing": 14,
+      "required": null,
+      "nice_to_have": null
+    },
+    {
+      "source_id": 2,
+      "title": "Software Engineer",
+      "tier": "mid",
+      "old_missing": 4,
+      "required": 3,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 152,
+      "title": "Senior Cloud Architect ML AI",
+      "tier": "mid",
+      "old_missing": 5,
+      "required": 4,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 22,
+      "title": "Staff Software Engineer - Amazon Connect REMOTE",
+      "tier": "mid",
+      "old_missing": 16,
+      "required": 11,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 131,
+      "title": "Senior Software Engineer Cloud Platform",
+      "tier": "mid",
+      "old_missing": 4,
+      "required": 4,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 162,
+      "title": "Senior Independent AI Engineer / Architect",
+      "tier": "mid",
+      "old_missing": 4,
+      "required": 0,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 66,
+      "title": "Senior Data Engineer",
+      "tier": "mid",
+      "old_missing": 3,
+      "required": 3,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 149,
+      "title": "Engineering Manager Data Platform",
+      "tier": "mid",
+      "old_missing": 12,
+      "required": 10,
+      "nice_to_have": 2
+    },
+    {
+      "source_id": 65,
+      "title": "Analytics and Automation Senior Manager",
+      "tier": "mid",
+      "old_missing": 10,
+      "required": 10,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 125,
+      "title": "Software Engineer",
+      "tier": "mid",
+      "old_missing": 6,
+      "required": 2,
+      "nice_to_have": 0
+    },
+    {
+      "source_id": 42,
+      "title": "AI and Distributed Systems Fullstack Engineer - Senior - Consulting - Location OPEN",
+      "tier": "mid",
+      "old_missing": 7,
+      "required": 7,
+      "nice_to_have": 1
+    },
+    {
+      "source_id": 10,
+      "title": "Specialist, Software Engineer",
+      "tier": "mid",
+      "old_missing": 9,
+      "required": 4,
+      "nice_to_have": 5
+    },
+    {
+      "source_id": 101,
+      "title": "Senior Digital Consultant - 95k.",
+      "tier": "mid",
+      "old_missing": 4,
+      "required": 3,
+      "nice_to_have": 1
+    },
+    {
+      "source_id": 84,
+      "title": "Solutions Architect",
+      "tier": "mid",
+      "old_missing": 7,
+      "required": 6,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 112,
+      "title": "DevOps Engineer Hardware Integration (m/w/d)",
+      "tier": "mid",
+      "old_missing": 7,
+      "required": 5,
+      "nice_to_have": 5
+    },
+    {
+      "source_id": 136,
+      "title": "Senior Solutions Architect",
+      "tier": "mid",
+      "old_missing": 7,
+      "required": 3,
+      "nice_to_have": 2
+    },
+    {
+      "source_id": 143,
+      "title": "Software Engineer Payment Operations",
+      "tier": "mid",
+      "old_missing": 3,
+      "required": 1,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 151,
+      "title": "Senior Software Engineer II Applied AI and Evaluations",
+      "tier": "mid",
+      "old_missing": 4,
+      "required": 4,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 103,
+      "title": "Kubernetes Administrator (m/w/d) Softwareentwicklung",
+      "tier": "mid",
+      "old_missing": 2,
+      "required": 3,
+      "nice_to_have": 2
+    },
+    {
+      "source_id": 44,
+      "title": "Engineering Manager - Product Engineering A&A",
+      "tier": "mid",
+      "old_missing": 11,
+      "required": 11,
+      "nice_to_have": 4
+    },
+    {
+      "source_id": 45,
+      "title": "Cloud Engineer - Manager - Consulting - Location OPEN",
+      "tier": "mid",
+      "old_missing": 6,
+      "required": 5,
+      "nice_to_have": 2
+    },
+    {
+      "source_id": 116,
+      "title": "AI Developer with Python for Customer Care AI Platform team (hybrid)",
+      "tier": "mid",
+      "old_missing": 7,
+      "required": 6,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 138,
+      "title": "Regulatory Manager Senior Regulatory Manager",
+      "tier": "low",
+      "old_missing": 6,
+      "required": 8,
+      "nice_to_have": 0
+    },
+    {
+      "source_id": 153,
+      "title": "Senior IAM Engineer",
+      "tier": "low",
+      "old_missing": 6,
+      "required": 9,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 72,
+      "title": "QA Engineer",
+      "tier": "low",
+      "old_missing": 3,
+      "required": 6,
+      "nice_to_have": 1
+    },
+    {
+      "source_id": 140,
+      "title": "Business Development Manager Real World Data",
+      "tier": "low",
+      "old_missing": 7,
+      "required": 7,
+      "nice_to_have": 2
+    },
+    {
+      "source_id": 98,
+      "title": "(Senior) Solution Manager - Contact Center & Conversational AI (w/m/d)",
+      "tier": "low",
+      "old_missing": 9,
+      "required": 6,
+      "nice_to_have": 4
+    },
+    {
+      "source_id": 46,
+      "title": "Controls Engineer",
+      "tier": "low",
+      "old_missing": 8,
+      "required": 7,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 104,
+      "title": "Senior Global Integrated B2B Marketing Manager, Wolt for Work",
+      "tier": "low",
+      "old_missing": 9,
+      "required": 7,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 7,
+      "title": "Platform Software Engineer",
+      "tier": "low",
+      "old_missing": 5,
+      "required": 3,
+      "nice_to_have": 1
+    },
+    {
+      "source_id": 168,
+      "title": "\ud83c\udde9\ud83c\uddea Senior/Staff Software Engineer PHP, TS, Rust, Kotlin (m/w/d)",
+      "tier": "low",
+      "old_missing": 12,
+      "required": 4,
+      "nice_to_have": 4
+    },
+    {
+      "source_id": 113,
+      "title": "Senior Projektleiter Anlagenbau (gn)",
+      "tier": "low",
+      "old_missing": 6,
+      "required": 5,
+      "nice_to_have": 1
+    },
+    {
+      "source_id": 102,
+      "title": "Senior E-Commerce Manager",
+      "tier": "low",
+      "old_missing": 6,
+      "required": 10,
+      "nice_to_have": 0
+    },
+    {
+      "source_id": 132,
+      "title": "Senior Compliance Manager",
+      "tier": "low",
+      "old_missing": 10,
+      "required": 10,
+      "nice_to_have": 0
+    },
+    {
+      "source_id": 114,
+      "title": "Senior Projektleiter Anlagenbau (gn)",
+      "tier": "low",
+      "old_missing": 0,
+      "required": 6,
+      "nice_to_have": 1
+    },
+    {
+      "source_id": 121,
+      "title": "Software Engineer, Credit Line",
+      "tier": "low",
+      "old_missing": 5,
+      "required": 1,
+      "nice_to_have": 1
+    },
+    {
+      "source_id": 52,
+      "title": "Senior Oracle Architect",
+      "tier": "low",
+      "old_missing": 14,
+      "required": 11,
+      "nice_to_have": 4
+    },
+    {
+      "source_id": 59,
+      "title": "Network Security Engineer L2",
+      "tier": "low",
+      "old_missing": 10,
+      "required": 9,
+      "nice_to_have": 3
+    },
+    {
+      "source_id": 169,
+      "title": "Senior Frontend Developer",
+      "tier": "low",
+      "old_missing": 30,
+      "required": 13,
+      "nice_to_have": 6
+    },
+    {
+      "source_id": 68,
+      "title": "Sr. Cyber Security Engineer",
+      "tier": "low",
+      "old_missing": 13,
+      "required": 5,
+      "nice_to_have": 4
+    },
+    {
+      "source_id": 97,
+      "title": "Project Engineer Battery Testing (m/w/d)",
+      "tier": "low",
+      "old_missing": 5,
+      "required": 5,
+      "nice_to_have": 1
+    },
+    {
+      "source_id": 55,
+      "title": "CONFIDENTIAL- Senior Director Technology",
+      "tier": "low",
+      "old_missing": 8,
+      "required": 7,
+      "nice_to_have": 0
+    },
+    {
+      "source_id": 170,
+      "title": "Online Data Analyst (United States/Spanish speakers)",
+      "tier": "low",
+      "old_missing": 0,
+      "required": 4,
+      "nice_to_have": 1
+    },
+    {
+      "source_id": 100,
+      "title": "Senior Grid Connection Manager",
+      "tier": "low",
+      "old_missing": 7,
+      "required": 6,
+      "nice_to_have": 1
+    },
+    {
+      "source_id": 40,
+      "title": "Lead E Commerce Engineering - AEM",
+      "tier": "low",
+      "old_missing": 5,
+      "required": 4,
+      "nice_to_have": 2
+    },
+    {
+      "source_id": 9,
+      "title": "Platform Software Engineer",
+      "tier": "low",
+      "old_missing": 5,
+      "required": 4,
+      "nice_to_have": 2
+    },
+    {
+      "source_id": 146,
+      "title": "Alignment Engineer",
+      "tier": "low",
+      "old_missing": 5,
+      "required": 6,
+      "nice_to_have": 0
+    },
+    {
+      "source_id": 78,
+      "title": "Electrical Engineer",
+      "tier": "low",
+      "old_missing": 11,
+      "required": 11,
+      "nice_to_have": 4
+    },
+    {
+      "source_id": 56,
+      "title": "Principal System Engineer (HYBRID)",
+      "tier": "low",
+      "old_missing": 8,
+      "required": 8,
+      "nice_to_have": 2
+    },
+    {
+      "source_id": 32,
+      "title": "eCommerce Software EngineerFort Lauderdale, FLHybrid",
+      "tier": "low",
+      "old_missing": 5,
+      "required": 3,
+      "nice_to_have": 1
+    },
+    {
+      "source_id": 51,
+      "title": "Electrical Engineer",
+      "tier": "low",
+      "old_missing": 12,
+      "required": 12,
+      "nice_to_have": 1
+    },
+    {
+      "source_id": 115,
+      "title": "Senior Projektleiter Anlagenbau (gn)",
+      "tier": "low",
+      "old_missing": 5,
+      "required": 6,
+      "nice_to_have": 1
+    },
+    {
+      "source_id": 127,
+      "title": "Senior Solution Consultant",
+      "tier": "low",
+      "old_missing": 8,
+      "required": 4,
+      "nice_to_have": 2
+    },
+    {
+      "source_id": 108,
+      "title": "(Senior) Performance Marketing Manager - Paid Social (all genders)",
+      "tier": "low",
+      "old_missing": 8,
+      "required": 7,
+      "nice_to_have": 5
+    }
+  ]
+}

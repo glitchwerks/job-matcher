@@ -10,12 +10,15 @@ Covers:
   - _score_rubric() — new rubric scoring with validation and weighting
   - _print_summary() — summary stats including Issue #248 split metrics
   - Constants: weights, valid recommendations
+  - _render_markdown_report() — Markdown artifact for Issue #274
 """
 
 import json
 import os
 import sys
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -30,6 +33,12 @@ from scripts.eval_rubric import (
     _SKILLS_WEIGHT,
     _ROLE_FIT_WEIGHT,
     _VALID_RECOMMENDATIONS,
+    _normalize_seed,
+    _compute_decision,
+    _build_run_meta,
+    _render_json_sidecar,
+    _render_markdown_report,
+    _parse_args,
 )
 
 
@@ -378,7 +387,9 @@ def test_fetch_stratified_sample_all_tiers():
     )
 
     with patch("scripts.eval_rubric.psycopg2.extras.RealDictCursor"):
-        results = _fetch_stratified_sample(mock_conn, high_n=1, mid_n=1, low_n=1)
+        results = _fetch_stratified_sample(
+            mock_conn, high_n=1, mid_n=1, low_n=1, seed=0
+        )
 
     assert len(results) >= 3  # At least one from each tier
 
@@ -391,13 +402,13 @@ def test_fetch_stratified_sample_respects_limits():
     mock_cursor.fetchall.return_value = []
 
     with patch("scripts.eval_rubric.psycopg2.extras.RealDictCursor"):
-        _fetch_stratified_sample(mock_conn, high_n=5, mid_n=10, low_n=15)
+        _fetch_stratified_sample(mock_conn, high_n=5, mid_n=10, low_n=15, seed=0)
 
-    # Should call execute 3 times (one per tier) with the limits
+    # Should call execute 4 times: one setseed + three tier queries
     calls = mock_cursor.execute.call_args_list
-    assert len(calls) == 3
-    # Verify limits are in the params (second arg to each execute call)
-    limits = [call[0][1][0] for call in calls]
+    assert len(calls) == 4
+    # Verify limits are in the params of the three tier calls (skip index 0)
+    limits = [call[0][1][0] for call in calls[1:]]
     assert 5 in limits
     assert 10 in limits
     assert 15 in limits
@@ -423,7 +434,7 @@ def test_fetch_stratified_sample_empty_tier():
     mock_cursor.fetchall.side_effect = mock_fetchall
 
     with patch("scripts.eval_rubric.psycopg2.extras.RealDictCursor"):
-        results = _fetch_stratified_sample(mock_conn, 2, 2, 2)
+        results = _fetch_stratified_sample(mock_conn, 2, 2, 2, seed=0)
 
     # Should still return results from high and low
     assert len(results) >= 2
@@ -1027,3 +1038,538 @@ def test_print_summary_old_path_reads_flat_missing_skills(capsys):
     assert "old_flat=3" in captured.out
     # combined avg should be 2 (may render as int or float)
     assert "new_combined(req+nth)=2" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Issue #274: seed normalization + seeded sampling
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeSeed:
+    """Tests for _normalize_seed: maps ints into the [-1.0, 1.0] range
+    that PostgreSQL's setseed() requires."""
+
+    def test_zero_maps_to_negative_one(self):
+        # (0 % 10_000_000) / 10_000_000 * 2 - 1 = -1.0
+        assert _normalize_seed(0) == -1.0
+
+    def test_five_million_maps_to_zero(self):
+        # (5_000_000 / 10_000_000) * 2 - 1 = 0.0
+        assert _normalize_seed(5_000_000) == 0.0
+
+    def test_ten_million_wraps_to_negative_one(self):
+        # (10_000_000 % 10_000_000) / 10_000_000 * 2 - 1 = -1.0
+        assert _normalize_seed(10_000_000) == -1.0
+
+    def test_large_seed_stays_in_range(self):
+        result = _normalize_seed(20260424)
+        assert -1.0 <= result <= 1.0
+
+    def test_negative_seed_handled(self):
+        # Python's modulo keeps sign of divisor, so (-1) % 10_000_000 = 9_999_999
+        result = _normalize_seed(-1)
+        assert -1.0 <= result <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# _fetch_stratified_sample() — seeded RNG tests
+# ---------------------------------------------------------------------------
+
+
+class TestFetchStratifiedSampleSeeded:
+    """Tests that the sample query seeds PostgreSQL's RNG before querying."""
+
+    def test_setseed_called_before_sample_queries(self):
+        # Arrange: mock cursor that returns empty rows for all three tier queries
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_cursor.__exit__ = MagicMock(return_value=False)
+
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        # Act
+        _fetch_stratified_sample(mock_conn, 10, 10, 10, seed=20260424)
+
+        # Assert: first execute call must be SELECT setseed(...) with
+        # the normalized seed.
+        first_call = mock_cursor.execute.call_args_list[0]
+        assert "setseed" in first_call.args[0].lower()
+        # _normalize_seed(20260424) = (20260424 % 10_000_000) / 10_000_000 * 2 - 1
+        expected_normalized = (20260424 % 10_000_000) / 10_000_000 * 2 - 1
+        assert first_call.args[1] == (expected_normalized,)
+
+    def test_four_execute_calls_total(self):
+        """One setseed + three per-tier sample queries."""
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_cursor.__exit__ = MagicMock(return_value=False)
+
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        _fetch_stratified_sample(mock_conn, 5, 5, 5, seed=42)
+
+        assert mock_cursor.execute.call_count == 4
+
+
+# ---------------------------------------------------------------------------
+# _compute_decision() tests
+# ---------------------------------------------------------------------------
+
+
+def _make_eval(
+    old_missing: int,
+    new_req: int,
+    new_nth: int,
+    score: float = 7.0,
+) -> dict:
+    """Build a minimal evaluated entry with the fields _compute_decision reads.
+
+    Args:
+        old_missing: Number of missing skills in the old result.
+        new_req: Number of missing required skills in the new result.
+        new_nth: Number of missing nice-to-have skills in the new result.
+        score: DB score for tier classification. Defaults to 7.0 (mid tier).
+
+    Returns:
+        A dict with ``listing``, ``old``, and ``new`` keys as produced by the
+        eval pipeline.
+    """
+    return {
+        "listing": {"id": 1, "title": "x", "score": score},
+        "old": {"missing_skills": ["s"] * old_missing, "score": score},
+        "new": {
+            "missing_required_skills": ["r"] * new_req,
+            "missing_nice_to_have_skills": ["n"] * new_nth,
+            "match_score": score,
+        },
+    }
+
+
+class TestComputeDecision:
+    """Tests for _compute_decision: aggregates required/nice-to-have ratio
+    and renders the tune/no-change recommendation against the #341 threshold.
+    """
+
+    def test_ratio_above_threshold_recommends_tune(self) -> None:
+        """85/(85+15) = 0.85 > 0.80 threshold -> 'tune'."""
+        evaluated = [_make_eval(0, 85, 15)]
+        decision = _compute_decision(evaluated)
+        assert decision["required_ratio"] == 0.85
+        assert decision["recommendation"] == "tune"
+
+    def test_ratio_at_threshold_recommends_no_change(self) -> None:
+        """80/(80+20) = 0.80 exactly at threshold -> 'no change needed'."""
+        evaluated = [_make_eval(0, 80, 20)]
+        decision = _compute_decision(evaluated)
+        assert decision["required_ratio"] == 0.80
+        assert decision["recommendation"] == "no change needed"
+
+    def test_ratio_just_above_threshold_recommends_tune(self) -> None:
+        """81/(81+19) = 0.81 just above threshold -> 'tune'."""
+        evaluated = [_make_eval(0, 81, 19)]
+        decision = _compute_decision(evaluated)
+        assert decision["recommendation"] == "tune"
+
+    def test_ratio_just_below_threshold_recommends_no_change(self) -> None:
+        """79/(79+21) = 0.79 just below threshold -> 'no change needed'."""
+        evaluated = [_make_eval(0, 79, 21)]
+        decision = _compute_decision(evaluated)
+        assert decision["recommendation"] == "no change needed"
+
+    def test_empty_evaluated_returns_null_recommendation(self) -> None:
+        """Empty input list produces 'insufficient data' with None ratio."""
+        decision = _compute_decision([])
+        assert decision["recommendation"] == "insufficient data"
+        assert decision["required_ratio"] is None
+
+    def test_all_failed_new_results_returns_null_recommendation(self) -> None:
+        """Entries with new=None (score failures) produce 'insufficient data'."""
+        evaluated = [
+            {"listing": {"id": 1, "score": 7.0}, "old": None, "new": None}
+        ]
+        decision = _compute_decision(evaluated)
+        assert decision["recommendation"] == "insufficient data"
+
+    def test_per_tier_breakdown_present(self) -> None:
+        """Tier breakdown keys and per-tier ratios are correct."""
+        evaluated = [
+            _make_eval(0, 30, 10, score=9.0),  # high: 30/(30+10) = 0.75
+            _make_eval(0, 50, 20, score=6.0),  # mid:  50/(50+20) ≈ 0.7143
+            _make_eval(0, 80, 10, score=3.0),  # low:  80/(80+10) ≈ 0.8889
+        ]
+        decision = _compute_decision(evaluated)
+        assert "tier_breakdown" in decision
+        assert decision["tier_breakdown"]["high"]["required_ratio"] == 0.75
+        # mid: 50/(50+20) = 0.7142857...
+        assert (
+            round(decision["tier_breakdown"]["mid"]["required_ratio"], 4)
+            == 0.7143
+        )
+        # low: 80/(80+10) = 0.8888...
+        assert (
+            round(decision["tier_breakdown"]["low"]["required_ratio"], 4)
+            == 0.8889
+        )
+
+    def test_threshold_value_in_output(self) -> None:
+        """Result dict carries the threshold constant (0.80) for serialization."""
+        decision = _compute_decision([_make_eval(0, 1, 1)])
+        assert decision["threshold"] == 0.80
+
+
+# ---------------------------------------------------------------------------
+# _build_run_meta() tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildRunMeta:
+    """Tests for _build_run_meta: constructs the metadata dict embedded in
+    both the markdown and JSON artifacts."""
+
+    def test_carries_all_required_fields(self):
+        """All required fields are present and match the supplied arguments."""
+        listings = [
+            {"id": "src-1", "score": 9.0, "title": "x"},
+            {"id": "src-2", "score": 6.0, "title": "y"},
+            {"id": "src-3", "score": 3.0, "title": "z"},
+        ]
+        meta = _build_run_meta(
+            listings=listings,
+            requested_counts={"high": 32, "mid": 36, "low": 32},
+            seed=20260424,
+            provider_label="anthropic/claude-haiku-4-5",
+            commit_sha="abc1234",
+            run_iso="2026-04-24T15:00:00",
+        )
+
+        assert meta["commit_sha"] == "abc1234"
+        assert meta["provider"] == "anthropic/claude-haiku-4-5"
+        assert meta["seed"] == 20260424
+        assert meta["run_iso"] == "2026-04-24T15:00:00"
+        assert meta["requested_counts"] == {"high": 32, "mid": 36, "low": 32}
+        assert meta["actual_counts"] == {"high": 1, "mid": 1, "low": 1}
+        assert meta["sampled_ids"] == ["src-1", "src-2", "src-3"]
+
+    def test_empty_listings_gives_zero_counts(self):
+        """Empty listings list produces zero actual_counts and empty sampled_ids."""
+        meta = _build_run_meta(
+            listings=[],
+            requested_counts={"high": 1, "mid": 1, "low": 1},
+            seed=0,
+            provider_label="x/y",
+            commit_sha="0",
+            run_iso="2026-04-24T00:00:00",
+        )
+        assert meta["actual_counts"] == {"high": 0, "mid": 0, "low": 0}
+        assert meta["sampled_ids"] == []
+
+    def test_missing_score_falls_to_unknown_bucket(self):
+        """Listings with unclassifiable scores don't contribute to tier counts."""
+        listings = [{"id": "a", "score": None, "title": "t"}]
+        meta = _build_run_meta(
+            listings=listings,
+            requested_counts={"high": 0, "mid": 0, "low": 0},
+            seed=0,
+            provider_label="x/y",
+            commit_sha="0",
+            run_iso="2026-04-24T00:00:00",
+        )
+        # Listings with unclassifiable scores don't contribute to tier counts.
+        assert meta["actual_counts"] == {"high": 0, "mid": 0, "low": 0}
+        assert meta["sampled_ids"] == ["a"]
+
+
+# ---------------------------------------------------------------------------
+# _render_json_sidecar() tests
+# ---------------------------------------------------------------------------
+
+
+class TestRenderJsonSidecar:
+    """Tests for _render_json_sidecar: produces the JSON artifact payload."""
+
+    def _fixture(self):
+        meta = {
+            "commit_sha": "abc1234",
+            "provider": "anthropic/claude-haiku-4-5",
+            "seed": 20260424,
+            "run_iso": "2026-04-24T15:00:00",
+            "requested_counts": {"high": 1, "mid": 1, "low": 1},
+            "actual_counts": {"high": 1, "mid": 1, "low": 1},
+            "sampled_ids": ["a", "b", "c"],
+        }
+        decision = {
+            "required_ratio": 0.75,
+            "threshold": 0.80,
+            "recommendation": "no change needed",
+            "counts": {"required": 3, "nice_to_have": 1},
+            "tier_breakdown": {
+                "high": {"n": 1, "required": 1, "nice_to_have": 0, "required_ratio": 1.0},
+                "mid": {"n": 1, "required": 1, "nice_to_have": 0, "required_ratio": 1.0},
+                "low": {"n": 1, "required": 1, "nice_to_have": 1, "required_ratio": 0.5},
+            },
+        }
+        evaluated = [
+            {
+                "listing": {"id": "a", "title": "High role", "score": 9.0},
+                "old": {"missing_skills": ["x"], "score": 9.0},
+                "new": {
+                    "match_score": 9.0,
+                    "missing_required_skills": ["r"],
+                    "missing_nice_to_have_skills": [],
+                },
+            },
+        ]
+        return meta, decision, evaluated
+
+    def test_returns_serializable_dict(self):
+        meta, decision, evaluated = self._fixture()
+        payload = _render_json_sidecar(evaluated, meta, decision)
+        # Must be JSON-serializable.
+        json.dumps(payload)
+        assert payload["meta"] == meta
+        assert payload["decision"] == decision
+
+    def test_contains_per_listing_rows(self):
+        meta, decision, evaluated = self._fixture()
+        payload = _render_json_sidecar(evaluated, meta, decision)
+        assert len(payload["per_listing"]) == 1
+        row = payload["per_listing"][0]
+        assert row["source_id"] == "a"
+        assert row["title"] == "High role"
+        assert row["tier"] == "high"
+        assert row["old_missing"] == 1
+        assert row["required"] == 1
+        assert row["nice_to_have"] == 0
+
+    def test_per_listing_handles_failed_old_or_new(self):
+        meta, decision, _ = self._fixture()
+        evaluated = [
+            {"listing": {"id": "x", "title": "t", "score": 6.0}, "old": None, "new": None},
+        ]
+        payload = _render_json_sidecar(evaluated, meta, decision)
+        row = payload["per_listing"][0]
+        assert row["old_missing"] is None
+        assert row["required"] is None
+        assert row["nice_to_have"] is None
+
+
+# ---------------------------------------------------------------------------
+# _render_markdown_report() tests
+# ---------------------------------------------------------------------------
+
+
+class TestRenderMarkdownReport:
+    """Tests for _render_markdown_report: produces the Markdown artifact."""
+
+    def _fixture_no_change(self):
+        """Fixture whose aggregate ratio lands below 0.80."""
+        meta = {
+            "commit_sha": "abc1234",
+            "provider": "anthropic/claude-haiku-4-5",
+            "seed": 20260424,
+            "run_iso": "2026-04-24T15:00:00",
+            "requested_counts": {"high": 32, "mid": 36, "low": 32},
+            "actual_counts": {"high": 1, "mid": 1, "low": 1},
+            "sampled_ids": ["src-a", "src-b", "src-c"],
+        }
+        decision = {
+            "required_ratio": 0.75,
+            "threshold": 0.80,
+            "recommendation": "no change needed",
+            "counts": {"required": 3, "nice_to_have": 1},
+            "tier_breakdown": {
+                "high": {"n": 1, "required": 1, "nice_to_have": 0, "required_ratio": 1.0},
+                "mid":  {"n": 1, "required": 1, "nice_to_have": 0, "required_ratio": 1.0},
+                "low":  {"n": 1, "required": 1, "nice_to_have": 1, "required_ratio": 0.5},
+            },
+        }
+        evaluated = [
+            {
+                "listing": {"id": "src-a", "title": "High role", "score": 9.0},
+                "old": {"missing_skills": ["x"], "score": 9.0},
+                "new": {
+                    "match_score": 9.0,
+                    "missing_required_skills": ["r"],
+                    "missing_nice_to_have_skills": [],
+                },
+            },
+        ]
+        return evaluated, meta, decision
+
+    def test_has_issue_274_header(self):
+        evaluated, meta, decision = self._fixture_no_change()
+        md = _render_markdown_report(evaluated, meta, decision)
+        assert "# Rubric Eval Comparison" in md
+        assert "Issue #274" in md
+
+    def test_decision_section_shows_recommendation(self):
+        evaluated, meta, decision = self._fixture_no_change()
+        md = _render_markdown_report(evaluated, meta, decision)
+        assert "## Decision" in md
+        assert "**RECOMMENDATION: no change needed**" in md
+        assert "75.0%" in md  # 0.75 formatted as percent
+
+    def test_decision_tune_recommendation(self):
+        evaluated, meta, decision = self._fixture_no_change()
+        decision = dict(decision)
+        decision["required_ratio"] = 0.85
+        decision["recommendation"] = "tune"
+        md = _render_markdown_report(evaluated, meta, decision)
+        assert "**RECOMMENDATION: tune**" in md
+        assert "85.0%" in md
+
+    def test_run_metadata_fields_present(self):
+        evaluated, meta, decision = self._fixture_no_change()
+        md = _render_markdown_report(evaluated, meta, decision)
+        assert "abc1234" in md  # commit
+        assert "anthropic/claude-haiku-4-5" in md
+        assert "20260424" in md  # seed
+        assert "src-a" in md and "src-b" in md and "src-c" in md
+
+    def test_per_tier_table_present(self):
+        evaluated, meta, decision = self._fixture_no_change()
+        md = _render_markdown_report(evaluated, meta, decision)
+        assert "## Per-Tier Breakdown" in md
+        assert "| Tier |" in md
+        assert "High" in md and "Mid" in md and "Low" in md
+
+    def test_per_listing_table_present(self):
+        evaluated, meta, decision = self._fixture_no_change()
+        md = _render_markdown_report(evaluated, meta, decision)
+        assert "## Per-Listing Results" in md
+        assert "High role" in md  # the one synthetic listing
+
+
+# ---------------------------------------------------------------------------
+# _parse_args() — CLI flag tests (Issue #274 Task 7)
+# ---------------------------------------------------------------------------
+
+
+class TestParseArgs:
+    """Tests for the extended CLI argument parser."""
+
+    def test_seed_defaults_to_date_integer(self):
+        """Default seed is today's date as YYYYMMDD int."""
+        with patch("sys.argv", ["eval_rubric.py"]):
+            args = _parse_args()
+        # Default seed is today's date as YYYYMMDD int.
+        assert isinstance(args.seed, int)
+        assert args.seed >= 20260101  # sanity: positive and plausible
+
+    def test_seed_flag_overrides_default(self):
+        """--seed N stores N as an integer."""
+        with patch("sys.argv", ["eval_rubric.py", "--seed", "42"]):
+            args = _parse_args()
+        assert args.seed == 42
+
+    def test_output_defaults_to_none(self):
+        """--output is None when not supplied."""
+        with patch("sys.argv", ["eval_rubric.py"]):
+            args = _parse_args()
+        assert args.output is None
+
+    def test_output_flag_captures_path(self):
+        """--output PATH stores the given path string."""
+        with patch("sys.argv", ["eval_rubric.py", "--output", "docs/eval/x.md"]):
+            args = _parse_args()
+        assert args.output == "docs/eval/x.md"
+
+    def test_existing_count_flag_still_works(self):
+        """--count N is still accepted without error."""
+        with patch("sys.argv", ["eval_rubric.py", "--count", "50"]):
+            args = _parse_args()
+        assert args.count == 50
+
+
+# ---------------------------------------------------------------------------
+# main() artifact-write error handling
+# ---------------------------------------------------------------------------
+
+
+class TestMainArtifactWriteError:
+    """Test that artifact write failures surface to stderr and re-raise."""
+
+    def test_oserror_on_markdown_write_raises_and_prints_to_stderr(
+        self, capsys
+    ):
+        """OSError during file write is printed to stderr and re-raised.
+
+        Verifies that a disk-full (or permissions) failure during artifact
+        output does not silently succeed: the error is written to stderr
+        and the exception propagates so the shell exit code reflects the
+        failure.
+        """
+        from scripts import eval_rubric
+
+        # Patch at call time: make open() raise on the markdown file.
+        def _raising_open(path, *args, **kwargs):
+            if path.endswith(".md"):
+                raise OSError("disk full")
+            return MagicMock()
+
+        # Minimal listing dict that satisfies the scoring loop without
+        # real DB or LLM calls.
+        fake_listing = {"title": "Test Job", "description": "desc"}
+
+        # Stub every upstream call inside main() that needs a real value
+        # so control reaches the write block with --output set.
+        with (
+            patch(
+                "sys.argv",
+                ["eval_rubric.py", "--output", "nonexistent/dir/x.md"],
+            ),
+            patch.object(
+                eval_rubric, "_connect", return_value=MagicMock()
+            ),
+            patch.object(
+                eval_rubric, "_build_chain", return_value=[MagicMock()]
+            ),
+            patch.object(
+                eval_rubric,
+                "_first_available_provider",
+                return_value=MagicMock(),
+            ),
+            patch.object(
+                eval_rubric, "_provider_name", return_value="fake"
+            ),
+            patch.object(
+                eval_rubric, "_provider_model", return_value="model"
+            ),
+            patch.object(
+                eval_rubric,
+                "_fetch_stratified_sample",
+                return_value=[fake_listing],
+            ),
+            patch.object(
+                eval_rubric, "_load_profile", return_value={}
+            ),
+            patch.object(
+                eval_rubric,
+                "_prepare_scoring_profile",
+                return_value={},
+            ),
+            patch.object(
+                eval_rubric, "_score_old", return_value=None
+            ),
+            patch.object(
+                eval_rubric, "_score_rubric", return_value=None
+            ),
+            patch.object(
+                eval_rubric, "_print_listing_comparison", return_value=None
+            ),
+            patch.object(
+                eval_rubric, "_print_summary", return_value=None
+            ),
+            patch("os.makedirs", return_value=None),
+            patch("builtins.open", side_effect=_raising_open),
+        ):
+            with pytest.raises(OSError, match="disk full"):
+                eval_rubric.main()
+
+        captured = capsys.readouterr()
+        assert "ERROR: failed to write artifacts" in captured.err
+        assert "disk full" in captured.err

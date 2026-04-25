@@ -21,9 +21,12 @@ Environment:
 from __future__ import annotations
 
 import argparse
+from datetime import date, datetime
 import json
 import os
+from pathlib import Path
 import statistics
+import subprocess
 import sys
 from typing import Optional
 
@@ -281,11 +284,32 @@ def _connect() -> psycopg2.extensions.connection:
         sys.exit(1)
 
 
+def _normalize_seed(seed: int) -> float:
+    """Map an integer seed into the [-1.0, 1.0] range setseed() requires.
+
+    PostgreSQL's ``setseed(value)`` accepts a float in [-1.0, 1.0]. We map
+    the Python int seed into that range via modulo and linear scaling so
+    any integer seed produces a deterministic, in-range value.
+
+    Args:
+        seed: Arbitrary integer seed.
+
+    Returns:
+        Normalized seed in [-1.0, 1.0].
+    """
+    # 10M provides sufficient granularity for date-based seeds (e.g.
+    # YYYYMMDD = 8 digits) while keeping the resulting float in a
+    # numerically stable range. The * 2 - 1 maps [0, 1) into [-1, 1),
+    # matching PostgreSQL setseed()'s expected input range.
+    return (seed % 10_000_000) / 10_000_000 * 2 - 1
+
+
 def _fetch_stratified_sample(
     conn: psycopg2.extensions.connection,
     high_n: int,
     mid_n: int,
     low_n: int,
+    seed: int,
 ) -> list[dict]:
     """Fetch a stratified sample of scored listings with full descriptions.
 
@@ -295,13 +319,17 @@ def _fetch_stratified_sample(
     - Low tier:   score < 5
 
     If a tier has fewer listings than requested, all available are returned.
-    Listings are ordered randomly within each tier to avoid systematic bias.
+    Listings are ordered randomly within each tier via PostgreSQL's
+    ``random()`` function, seeded by ``setseed(_normalize_seed(seed))`` before
+    the first query so the sample is reproducible across runs for a given
+    ``seed`` and DB state.
 
     Args:
         conn:   Open psycopg2 connection.
         high_n: Target count for high-tier listings.
         mid_n:  Target count for mid-tier listings.
         low_n:  Target count for low-tier listings.
+        seed:   Integer seed for sample reproducibility.
 
     Returns:
         List of listing dicts (plain Python dicts), combined across tiers.
@@ -326,7 +354,14 @@ def _fetch_stratified_sample(
 
     results: list[dict] = []
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT setseed(%s)", (_normalize_seed(seed),))
         for where_clause, limit in tiers:
+            # NOTE: `where_clause` is sourced exclusively from the
+            # hardcoded tier definitions in `tiers` above (e.g.
+            # "score >= 8"). It never carries user-provided input, so
+            # str.format() here is safe. If a future change makes
+            # `where_clause` user-influenced, switch to a parameterized
+            # query before merging.
             cur.execute(
                 query.format(where_clause=where_clause),
                 (limit,),
@@ -748,6 +783,328 @@ def _print_listing_comparison(
             print(f"  Delta score: {sign}{delta}")
 
 
+# ---------------------------------------------------------------------------
+# Decision computation (Issue #341)
+# ---------------------------------------------------------------------------
+
+_DECISION_THRESHOLD = 0.80  # Issue #341: > 80% required -> tune
+
+
+def _tier_of(score: object) -> str:
+    """Classify a listing's DB score into 'high', 'mid', or 'low'.
+
+    Args:
+        score: The numeric score from the database. Non-numeric values
+            return 'unknown'.
+
+    Returns:
+        One of 'high' (>= 8), 'mid' (>= 5), 'low' (< 5), or 'unknown'.
+    """
+    if not isinstance(score, (int, float)):
+        return "unknown"
+    if score >= 8:
+        return "high"
+    if score >= 5:
+        return "mid"
+    return "low"
+
+
+def _compute_decision(evaluated: list[dict]) -> dict:
+    """Compute the tune/no-change recommendation for Issue #341.
+
+    The metric is the fraction of missing skills the rubric classified as
+    ``required`` across all successful evaluations::
+
+        required_ratio = sum(required) / (sum(required) + sum(nice_to_have))
+
+    Threshold (Issue #341): > 80% -> "tune"; <= 80% -> "no change needed".
+    If no evaluations produced a new-rubric result with valid counts,
+    returns "insufficient data".
+
+    Args:
+        evaluated: List of result dicts with ``listing``, ``old``, and
+            ``new`` keys as produced by the eval pipeline. Entries whose
+            ``new`` value is ``None`` (score failures) are skipped.
+
+    Returns:
+        Dict with keys:
+
+        - ``required_ratio`` (float or None): aggregate ratio across all
+          successful evaluations, or None when no data is available.
+        - ``threshold`` (float): the decision threshold constant (0.80).
+        - ``recommendation`` (str): one of ``"tune"``,
+          ``"no change needed"``, or ``"insufficient data"``.
+        - ``counts`` (dict): total ``required`` and ``nice_to_have`` counts.
+        - ``tier_breakdown`` (dict): per-tier dicts keyed by 'high', 'mid',
+          'low' (and 'unknown' when non-zero), each containing ``n``,
+          ``required``, ``nice_to_have``, and ``required_ratio``.
+    """
+    by_tier: dict[str, dict[str, int]] = {
+        "high": {"req": 0, "nth": 0, "n": 0},
+        "mid": {"req": 0, "nth": 0, "n": 0},
+        "low": {"req": 0, "nth": 0, "n": 0},
+        "unknown": {"req": 0, "nth": 0, "n": 0},
+    }
+    total_req = 0
+    total_nth = 0
+
+    for e in evaluated:
+        new = e.get("new")
+        if new is None:
+            continue
+        req = len(new.get("missing_required_skills") or [])
+        nth = len(new.get("missing_nice_to_have_skills") or [])
+        tier = _tier_of((e.get("listing") or {}).get("score"))
+        by_tier[tier]["req"] += req
+        by_tier[tier]["nth"] += nth
+        by_tier[tier]["n"] += 1
+        total_req += req
+        total_nth += nth
+
+    def _ratio(req: int, nth: int) -> Optional[float]:
+        """Return req/(req+nth), or None when the denominator is zero."""
+        combined = req + nth
+        return (req / combined) if combined > 0 else None
+
+    aggregate_ratio = _ratio(total_req, total_nth)
+
+    if aggregate_ratio is None:
+        recommendation = "insufficient data"
+    elif aggregate_ratio > _DECISION_THRESHOLD:
+        recommendation = "tune"
+    else:
+        recommendation = "no change needed"
+
+    tier_breakdown: dict[str, dict] = {}
+    for tier, counts in by_tier.items():
+        if tier == "unknown" and counts["n"] == 0:
+            continue  # hide empty unknown bucket
+        tier_breakdown[tier] = {
+            "n": counts["n"],
+            "required": counts["req"],
+            "nice_to_have": counts["nth"],
+            "required_ratio": _ratio(counts["req"], counts["nth"]),
+        }
+
+    return {
+        "required_ratio": aggregate_ratio,
+        "threshold": _DECISION_THRESHOLD,
+        "recommendation": recommendation,
+        "counts": {"required": total_req, "nice_to_have": total_nth},
+        "tier_breakdown": tier_breakdown,
+    }
+
+
+def _build_run_meta(
+    listings: list[dict],
+    requested_counts: dict,
+    seed: int,
+    provider_label: str,
+    commit_sha: str,
+    run_iso: str,
+) -> dict:
+    """Build the run-metadata dict embedded in both artifacts.
+
+    Args:
+        listings:         Listings actually returned by the sample query.
+        requested_counts: Dict with keys 'high'/'mid'/'low' showing what was
+                          asked for (pre-downgrade).
+        seed:             Seed used for the run.
+        provider_label:   String like 'anthropic/claude-haiku-4-5'.
+        commit_sha:       Git commit SHA (short or long). Caller supplies.
+        run_iso:          ISO-8601 timestamp string. Caller supplies.
+
+    Returns:
+        Dict with deterministic field set (see tests for exact shape).
+    """
+    actual_counts = {"high": 0, "mid": 0, "low": 0}
+    for listing in listings:
+        tier = _tier_of(listing.get("score"))
+        if tier in actual_counts:
+            actual_counts[tier] += 1
+
+    return {
+        "commit_sha": commit_sha,
+        "provider": provider_label,
+        "seed": seed,
+        "run_iso": run_iso,
+        "requested_counts": dict(requested_counts),
+        "actual_counts": actual_counts,
+        "sampled_ids": [listing.get("id") for listing in listings],
+    }
+
+
+def _render_json_sidecar(
+    evaluated: list[dict],
+    meta: dict,
+    decision: dict,
+) -> dict:
+    """Build the JSON sidecar payload for a rubric eval run.
+
+    The returned dict is JSON-serializable and carries everything the
+    markdown renderer also shows, so downstream tools can re-derive or
+    re-format without re-running the eval.
+
+    Args:
+        evaluated: Per-listing results with ``listing``, ``old``, ``new``
+            keys.
+        meta:      Dict from ``_build_run_meta``.
+        decision:  Dict from ``_compute_decision``.
+
+    Returns:
+        JSON-serializable dict with keys ``meta``, ``decision``,
+        ``per_listing``.
+    """
+    per_listing = []
+    for e in evaluated:
+        listing = e.get("listing") or {}
+        old = e.get("old")
+        new = e.get("new")
+        old_missing = (
+            len(old.get("missing_skills") or []) if old else None
+        )
+        if new:
+            required = len(new.get("missing_required_skills") or [])
+            nice_to_have = len(
+                new.get("missing_nice_to_have_skills") or []
+            )
+        else:
+            required = None
+            nice_to_have = None
+        per_listing.append({
+            "source_id": listing.get("id"),
+            "title": listing.get("title"),
+            "tier": _tier_of(listing.get("score")),
+            "old_missing": old_missing,
+            "required": required,
+            "nice_to_have": nice_to_have,
+        })
+
+    return {
+        "meta": meta,
+        "decision": decision,
+        "per_listing": per_listing,
+    }
+
+
+def _render_markdown_report(
+    evaluated: list[dict],
+    meta: dict,
+    decision: dict,
+) -> str:
+    """Render the Markdown comparison report for a rubric eval run.
+
+    Produces a decision-ready artifact with the top-level Decision section
+    answering Issue #341's tune/no-change call, plus supporting per-tier
+    and per-listing tables.
+
+    Args:
+        evaluated: Per-listing results with ``listing``, ``old``, ``new``
+            keys.
+        meta:      Dict from ``_build_run_meta``.
+        decision:  Dict from ``_compute_decision``.
+
+    Returns:
+        Complete markdown document as a single string.
+    """
+    lines: list[str] = []
+
+    # --- Header ---
+    run_date = meta.get("run_iso", "").split("T")[0]
+    lines.append(f"# Rubric Eval Comparison — {run_date} (Issue #274)")
+    lines.append("")
+
+    # --- Metadata ---
+    lines.append("## Run Metadata")
+    lines.append(f"- Commit: `{meta['commit_sha']}`")
+    lines.append(f"- Provider: `{meta['provider']}`")
+    lines.append(f"- Seed: `{meta['seed']}`")
+    lines.append(f"- Run at: `{meta['run_iso']}`")
+    req = meta["requested_counts"]
+    act = meta["actual_counts"]
+    lines.append(
+        f"- Sample (requested): {sum(req.values())} listings "
+        f"({req['high']} high / {req['mid']} mid / {req['low']} low)"
+    )
+    lines.append(
+        f"- Sample (actual): {sum(act.values())} listings "
+        f"({act['high']} high / {act['mid']} mid / {act['low']} low)"
+    )
+    ids_joined = ", ".join(str(sid) for sid in meta["sampled_ids"])
+    lines.append(f"- Sampled source_ids: `{ids_joined}`")
+    lines.append("")
+
+    # --- Decision ---
+    lines.append("## Decision")
+    lines.append(
+        "- Metric: `required / (required + nice_to_have)` across all "
+        "successful evaluations"
+    )
+    lines.append(
+        f"- Threshold (Issue #341): "
+        f"`> {decision['threshold'] * 100:.0f}% → tune`; "
+        f"`≤ {decision['threshold'] * 100:.0f}% → close as \"no change\"`"
+    )
+    ratio = decision["required_ratio"]
+    if ratio is None:
+        lines.append("- **Aggregate result: insufficient data**")
+    else:
+        lines.append(f"- **Aggregate result: {ratio * 100:.1f}%**")
+    lines.append(f"- **RECOMMENDATION: {decision['recommendation']}**")
+    lines.append("")
+
+    # --- Per-tier table ---
+    lines.append("## Per-Tier Breakdown")
+    lines.append("| Tier | N | % required | % nice-to-have |")
+    lines.append("|------|---|------------|----------------|")
+    for tier_key, label in [("high", "High"), ("mid", "Mid"), ("low", "Low")]:
+        tb = decision["tier_breakdown"].get(tier_key)
+        if not tb:
+            continue
+        req_ratio = tb.get("required_ratio")
+        if req_ratio is None:
+            req_cell = "—"
+            nth_cell = "—"
+        else:
+            req_cell = f"{req_ratio * 100:.1f}%"
+            nth_cell = f"{(1 - req_ratio) * 100:.1f}%"
+        lines.append(
+            f"| {label} | {tb['n']} | {req_cell} | {nth_cell} |"
+        )
+    lines.append("")
+
+    # --- Per-listing table ---
+    lines.append("## Per-Listing Results")
+    lines.append(
+        "| source_id | title | tier | old_missing | required | nice_to_have |"
+    )
+    lines.append(
+        "|-----------|-------|------|-------------|----------|--------------|"
+    )
+    for e in evaluated:
+        listing = e.get("listing") or {}
+        old = e.get("old")
+        new = e.get("new")
+        title = _truncate(listing.get("title") or "", 50)
+        tier = _tier_of(listing.get("score"))
+        old_cell = (
+            len(old.get("missing_skills") or []) if old else "FAILED"
+        )
+        if new:
+            req_cell = len(new.get("missing_required_skills") or [])
+            nth_cell = len(new.get("missing_nice_to_have_skills") or [])
+        else:
+            req_cell = "FAILED"
+            nth_cell = "FAILED"
+        lines.append(
+            f"| `{listing.get('id', '?')}` | {title} | {tier} | "
+            f"{old_cell} | {req_cell} | {nth_cell} |"
+        )
+    lines.append("")
+
+    return "\n".join(lines)
+
+
 def _print_summary(
     evaluated: list[dict],
     provider_label: str,
@@ -1013,6 +1370,26 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print full LLM responses for each listing.",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=int(date.today().strftime("%Y%m%d")),
+        metavar="N",
+        help=(
+            "Integer seed for deterministic sampling. Defaults to today's "
+            "date as YYYYMMDD, so runs on the same day reproduce the same "
+            "sample."
+        ),
+    )
+    parser.add_argument(
+        "--output",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Write a markdown report to PATH and a JSON sidecar to the "
+            "same path with .json extension. Script still prints to stdout."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -1047,7 +1424,7 @@ def main() -> None:
     # --- Connect to database and fetch sample ---
     conn = _connect()
     try:
-        listings = _fetch_stratified_sample(conn, high_n, mid_n, low_n)
+        listings = _fetch_stratified_sample(conn, high_n, mid_n, low_n, seed=args.seed)
     finally:
         conn.close()
 
@@ -1121,6 +1498,57 @@ def main() -> None:
 
     # --- Print summary ---
     _print_summary(evaluated=evaluated, provider_label=provider_label)
+
+    # --- Write artifacts if --output was set ---
+    if args.output:
+        try:
+            commit_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()[:7]
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            commit_sha = "unknown"
+
+        run_iso = datetime.now().isoformat(timespec="seconds")
+        requested_counts = {"high": high_n, "mid": mid_n, "low": low_n}
+
+        meta = _build_run_meta(
+            listings=listings,
+            requested_counts=requested_counts,
+            seed=args.seed,
+            provider_label=provider_label,
+            commit_sha=commit_sha,
+            run_iso=run_iso,
+        )
+        decision = _compute_decision(evaluated)
+
+        md_path = args.output
+        json_path = str(Path(md_path).with_suffix(".json"))
+
+        try:
+            os.makedirs(os.path.dirname(md_path) or ".", exist_ok=True)
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(_render_markdown_report(evaluated, meta, decision))
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    _render_json_sidecar(evaluated, meta, decision),
+                    f,
+                    indent=2,
+                )
+        except (OSError, TypeError, ValueError) as exc:
+            print(
+                f"\nERROR: failed to write artifacts to "
+                f"{md_path} / {json_path}: {exc}",
+                file=sys.stderr,
+            )
+            # Don't swallow — re-raise so the shell exit code reflects
+            # the failure. TypeError/ValueError cover JSON serialization
+            # failures (e.g. non-serializable types in the payload).
+            raise
+
+        print(f"\nArtifacts written:\n  {md_path}\n  {json_path}")
 
 
 if __name__ == "__main__":
