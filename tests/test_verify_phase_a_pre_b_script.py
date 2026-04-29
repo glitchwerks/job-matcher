@@ -119,3 +119,27 @@ class TestVerifyPhaseAPreBScriptMarkers:
         assert "JOB_AGGREGATOR_SOURCES" in script_content, (
             f"JOB_AGGREGATOR_SOURCES env var not set in {_SCRIPT_PATH.name}"
         )
+
+
+class TestVerifyPhaseAPreBScriptRedaction:
+    """The password redaction regex must be robust to @ characters in the password."""
+
+    @pytest.fixture(scope="class")
+    def script_content(self) -> str:
+        return _SCRIPT_PATH.read_text(encoding="utf-8")
+
+    def test_redaction_regex_uses_host_anchor(self, script_content: str) -> None:
+        """Regex suffix must use [^/?@]+ to anchor at the LAST @ before the host.
+
+        The naive pattern [^@]+ for the password portion stops at the FIRST @,
+        so a password containing @ would cause the match to fail and the real
+        password would appear in logs. The correct pattern anchors the suffix
+        host segment with [^/?@]+ so the replacement always consumes everything
+        between the credentials colon and the final @ regardless of password content.
+        """
+        assert "[^/?@]+" in script_content, (
+            f"Redaction regex in {_SCRIPT_PATH.name} does not use '[^/?@]+' for "
+            "the host-segment anchor. This guard exists because the naive "
+            "'[^@]+' pattern leaks passwords that contain '@'. "
+            "Use: -replace '(?<prefix>postgresql://[^:/@]+:).+(?<suffix>@[^/?@]+)'"
+        )

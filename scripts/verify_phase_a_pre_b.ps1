@@ -106,7 +106,11 @@ function Add-Result {
 Write-Host ""
 Write-Host "verify_phase_a_pre_b.ps1 - Phase A pre-Phase-B verification" -ForegroundColor White
 Write-Host "WorktreeRoot : $WorktreeRoot"
-$redactedUrl = if ($DatabaseUrl) { $DatabaseUrl -replace '//[^:]+:[^@]+@', '//<user>:<redacted>@' } else { '(not set)' }
+# Anchor to the LAST @ before the host segment: [^/?@]+ ensures the suffix
+# cannot match an @ inside the password, so the replacement always targets
+# everything between the first colon and the final @ (handles raw or
+# percent-encoded @ characters in the password without leaking them).
+$redactedUrl = if ($DatabaseUrl) { $DatabaseUrl -replace '(?<prefix>postgresql://[^:/@]+:).+(?<suffix>@[^/?@]+)', '${prefix}***REDACTED***${suffix}' } else { '(not set)' }
 Write-Host "DatabaseUrl  : $redactedUrl"
 Write-Host "SkipSmoke    : $SkipSmoke"
 
