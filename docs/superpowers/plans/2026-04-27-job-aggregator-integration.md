@@ -142,9 +142,41 @@ All work happens in worktrees under `.worktrees/` per the project's git policy. 
 - [ ] Existing tests (`pytest`) still pass; new tests all pass.
 - [ ] DB rows continue to use `source = "arbeitnow"` exactly.
 
-**Rollback:** Phase A is fully reversible by `git revert` of PR #346. Nothing on disk has changed — `providers.json` is still in legacy shape, no in-tree files have been deleted. The bridge is added code, not modified code.
+**Rollback:** Phase A is fully reversible by `git revert` of PR #346. Nothing on disk has changed -- `providers.json` is still in legacy shape, no in-tree files have been deleted. The bridge is added code, not modified code.
 
 **Dependencies:** None. This is the entry phase.
+
+#### Pre-Phase-B verification (issue #352)
+
+Before Phase B work begins, run `scripts/verify_phase_a_pre_b.ps1` from the worktree root to confirm all Phase A deferred acceptance criteria (AC #13, #16, #17) are satisfied against the live dev DB.
+
+**Command:**
+
+```powershell
+.\scripts\verify_phase_a_pre_b.ps1 -DatabaseUrl "postgresql://jobmatcher:<password>@localhost:5432/jobmatcher_dev"
+# Or if DATABASE_URL is already exported:
+.\scripts\verify_phase_a_pre_b.ps1
+# Skip the live ingest run (steps 1, 2, 4 only):
+.\scripts\verify_phase_a_pre_b.ps1 -SkipSmoke
+```
+
+**Expected pass output:**
+
+```
+[PASS]  1. Source-string fixture refresh    no drift (10 keys)
+[PASS]  2. Pre-aggregator baseline          docs/baselines/2026-04-27-pre-aggregator.json (X KB)
+[PASS]  3. Live ingest smoke run            JobAggregatorProvider + LegacyInTreeProvider markers seen; log: phase-a-pre-b-smoke-<ts>.log
+[PASS]  4. Post-aggregator baseline         delta: +N rows (pre=X, post=Y)
+All non-skipped steps PASSED.
+```
+
+**Troubleshooting per failure mode:**
+
+- **Step 1 FAIL -- DB unreachable:** `DATABASE_URL` is wrong, or the dev Docker stack is not running. Start with `docker compose -p job-matcher-pr-dev --env-file .env.dev -f docker-compose.dev.yml up -d` and verify `psql "$env:DATABASE_URL" -c "SELECT 1"` works.
+- **Step 2 FAIL -- baseline still stub:** `capture_ingest_baseline.py` exited non-zero. Re-run it manually with `python scripts/capture_ingest_baseline.py --label pre-aggregator` and inspect stderr. Common cause: `DATABASE_URL` not set, or `psycopg2` not installed in the venv.
+- **Step 3 FAIL -- JobAggregatorProvider marker missing:** arbeitnow did not route through the aggregator bridge. Confirm `JOB_AGGREGATOR_SOURCES=arbeitnow` was active during the run (the script sets it, but check the log header). Confirm PR #351 is checked out in this worktree.
+- **Step 3 FAIL -- Fetching from source marker missing:** no legacy sources were fetched at all. The dev `config/config.json` may have all sources disabled, or credentials are missing for all nine non-arbeitnow sources.
+- **Step 4 FAIL -- post baseline invalid:** same as step 2. Check `DATABASE_URL` and psycopg2.
 
 ---
 
