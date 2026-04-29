@@ -51,7 +51,7 @@ jobs:
   lint-fix:
     needs: preflight
     if: needs.preflight.outputs.pr_number != '' && needs.preflight.outputs.lint_failed == 'true'
-    uses: cbeaulieu-gt/github-actions/.github/workflows/claude-lint-fix.yml@v2
+    uses: glitchwerks/github-actions/.github/workflows/claude-lint-fix.yml@v2
     permissions:
       contents: write
       pull-requests: write
