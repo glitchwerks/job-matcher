@@ -211,8 +211,10 @@ try {
 
     $captureArgs = @(
         $captureScript
-        "--label"  "pre-aggregator"
-        "--output" $preBaseline
+        "--label"
+        "pre-aggregator"
+        "--output"
+        $preBaseline
     )
     Write-Verbose "Running: python $captureArgs"
     & python @captureArgs 2>&1 | Write-Verbose
@@ -370,8 +372,10 @@ try {
 
     $captureArgs = @(
         $captureScript
-        "--label"  "post-aggregator"
-        "--output" $postBaseline
+        "--label"
+        "post-aggregator"
+        "--output"
+        $postBaseline
     )
     Write-Verbose "Running: python $captureArgs"
     & python @captureArgs 2>&1 | Write-Verbose

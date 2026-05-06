@@ -1,15 +1,20 @@
 """Structural smoke tests for scripts/verify_phase_a_pre_b.ps1.
 
-These tests do not execute the PowerShell script. They verify that:
+These tests do not execute the PowerShell script end-to-end. They verify:
 1. The script file exists (catches accidental deletion/rename).
 2. The param block declares the four expected parameters.
 3. The script body references all four step labels used in the summary table.
+4. The script parses cleanly under pwsh (regression for #357 array-literal bug).
 
-No DB connection, no subprocess execution. Pure file-system assertions.
+Tests 1-3 are pure file-system assertions (no DB, no subprocess).
+Test 4 invokes pwsh only if it is on PATH; skipped otherwise so Linux CI
+without pwsh does not false-fail.
 """
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -142,4 +147,54 @@ class TestVerifyPhaseAPreBScriptRedaction:
             "the host-segment anchor. This guard exists because the naive "
             "'[^@]+' pattern leaks passwords that contain '@'. "
             "Use: -replace '(?<prefix>postgresql://[^:/@]+:).+(?<suffix>@[^/?@]+)'"
+        )
+
+
+class TestVerifyPhaseAPreBScriptParses:
+    """The script must parse without errors under pwsh (regression for #357).
+
+    This class uses pwsh to parse the script as a ScriptBlock without
+    executing it, catching array-literal syntax errors like adjacent string
+    tokens on the same line inside @(...).
+
+    The test is skipped when pwsh is not on PATH so Linux CI without
+    PowerShell does not false-fail.
+    """
+
+    def test_script_parses_without_errors(self) -> None:
+        """Script must parse cleanly as a PowerShell ScriptBlock.
+
+        Uses [scriptblock]::Create(...) which performs a full parse without
+        executing any code. A parser error causes $Error to be non-empty and
+        the command exits with code 1.
+
+        Raises:
+            pytest.skip.Exception: If pwsh is not found on PATH.
+        """
+        pwsh = shutil.which("pwsh")
+        if pwsh is None:
+            pytest.skip("pwsh not on PATH — skipping parse validation")
+
+        script_path = str(_SCRIPT_PATH.resolve())
+        parse_command = (
+            "[scriptblock]::Create("
+            "(Get-Content -Raw -Path '"
+            + script_path.replace("'", "''")
+            + "')) | Out-Null; "
+            "if ($Error) { exit 1 }"
+        )
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-NoLogo", "-Command", parse_command],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert result.returncode == 0, (
+            f"pwsh parser rejected {_SCRIPT_PATH.name}.\n"
+            f"stderr: {result.stderr.strip()}\n"
+            f"stdout: {result.stdout.strip()}"
+        )
+        assert result.stderr.strip() == "", (
+            f"pwsh emitted unexpected stderr while parsing "
+            f"{_SCRIPT_PATH.name}:\n{result.stderr.strip()}"
         )
