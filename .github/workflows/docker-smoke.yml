@@ -36,7 +36,7 @@ jobs:
           context: .
           push: false
           load: true
-          tags: ghcr.io/cbeaulieu-gt/job-matcher-pr:latest
+          tags: ghcr.io/glitchwerks/job-matcher-pr:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -45,7 +45,7 @@ jobs:
       # resolve in the Linux Docker environment (Decision Log #10 / Risk #4).
       - name: Smoke test job_aggregator import
         run: |
-          docker run --rm ghcr.io/cbeaulieu-gt/job-matcher-pr:latest \
+          docker run --rm ghcr.io/glitchwerks/job-matcher-pr:latest \
             /bin/sh -c "python -c 'import job_aggregator; print(\"job_aggregator import OK\")'"
 
       # The compose env files only need POSTGRES_* credentials and SECRET_KEY.

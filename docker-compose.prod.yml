@@ -26,7 +26,7 @@ services:
     logging: *default-logging
 
   web:
-    image: ghcr.io/cbeaulieu-gt/job-matcher-pr:latest
+    image: ghcr.io/glitchwerks/job-matcher-pr:latest
     env_file: .env.prod
     depends_on:
       db:

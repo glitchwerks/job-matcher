@@ -42,7 +42,7 @@ docker compose version
 
 ```bash
 # 1. Clone the repo into /opt (recommended path — scripts reference it)
-sudo git clone https://github.com/cbeaulieu-gt/job-matcher-pr.git /opt/job-matcher-pr
+sudo git clone https://github.com/glitchwerks/job-matcher-pr.git /opt/job-matcher-pr
 cd /opt/job-matcher-pr
 
 # 2. Run the one-time setup script (requires root for chown)

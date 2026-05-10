@@ -440,7 +440,7 @@ For full documentation — stack architecture, environment variables, CI/CD pipe
 
 ```bash
 # Clone into the recommended path (scripts reference /opt/job-matcher-pr)
-sudo git clone https://github.com/cbeaulieu-gt/job-matcher-pr.git /opt/job-matcher-pr
+sudo git clone https://github.com/glitchwerks/job-matcher-pr.git /opt/job-matcher-pr
 cd /opt/job-matcher-pr
 
 # One-time VM provisioning: creates directories, copies config examples, starts both stacks

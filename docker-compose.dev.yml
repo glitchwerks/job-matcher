@@ -37,7 +37,7 @@ services:
     # builds from the Dockerfile and tags the result with the `image:` name,
     # which keeps dev and prod on the same image name for parity. Use
     # `docker compose up -d --build` on first run to force a rebuild.
-    image: ghcr.io/cbeaulieu-gt/job-matcher-pr:${APP_VERSION:-latest}
+    image: ghcr.io/glitchwerks/job-matcher-pr:${APP_VERSION:-latest}
     build: .
     env_file: .env.dev
     depends_on:

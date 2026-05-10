@@ -594,7 +594,7 @@ docker compose -p job-matcher-pr-prod --env-file .env.prod -f docker-compose.pro
   (`pgdata_dev` / `pgdata_prod`). Exposes a healthcheck so the `web` container
   waits for readiness before starting.
 - **`web`** — Application image pulled from GHCR
-  (`ghcr.io/cbeaulieu-gt/job-matcher-pr`). Mounts config and logs directories
+  (`ghcr.io/glitchwerks/job-matcher-pr`). Mounts config and logs directories
   from the host. Receives `DATABASE_URL` as an environment variable.
 - **`scheduler`** — `mcuadros/ofelia`. Reads cron schedules from Docker labels on
   the `web` container and executes `python ingest.py --hours 25` daily via
@@ -618,7 +618,7 @@ ensuring there is slight overlap with the previous day's run.
 ### Image Publishing
 
 The application image is built from the `Dockerfile` and published to
-`ghcr.io/cbeaulieu-gt/job-matcher-pr` via GitHub Actions on merge to `main`.
+`ghcr.io/glitchwerks/job-matcher-pr` via GitHub Actions on merge to `main`.
 The `web` service in each Compose file pulls from GHCR rather than building locally.
 
 ### Helper Scripts
