@@ -1,6 +1,6 @@
 # publish.yml — fixes #166
 #
-# Mirrors the private repo (cbeaulieu-gt/job-matcher-pr) to the
+# Mirrors the private repo (glitchwerks/job-matcher-pr) to the
 # public repo (cbeaulieu-gt/job-matcher).
 #
 # Prerequisites:
@@ -61,7 +61,7 @@ jobs:
             # Rewrite private-repo URLs in wiki markdown so public readers see public links.
             # Host-anchored pattern (github.com/...) avoids touching Docker project names
             # like `-p job-matcher-pr-prod` or VM paths like `/opt/job-matcher-pr/`.
-            find . -name '*.md' -exec sed -i 's|github.com/cbeaulieu-gt/job-matcher-pr|github.com/cbeaulieu-gt/job-matcher|g' {} +
+            find . -name '*.md' -exec sed -i 's|github.com/glitchwerks/job-matcher-pr|github.com/cbeaulieu-gt/job-matcher|g' {} +
             if ! git diff --quiet; then
               git -c user.email=actions@github.com -c user.name="github-actions[bot]" commit -am "chore(mirror): rewrite private-repo URLs for public wiki"
             fi
