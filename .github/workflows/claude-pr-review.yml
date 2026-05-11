@@ -12,5 +12,4 @@ jobs:
       issues: write
       pull-requests: write
       statuses: write
-    secrets:
-      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    secrets: inherit
