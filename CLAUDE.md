@@ -100,6 +100,7 @@ Results include a `model_used` field stored as `"provider/model"` per listing. S
 - `scripts/docker-setup.sh` — one-time VM provisioning
 - `scripts/docker-status.sh` / `scripts/docker-teardown.sh` — ops helpers
 - `scripts/deploy-remote-linux.sh` — workstation-driven remote update. Pushes compose files, scripts, config examples, **and live `.env.prod` / `.env.dev`** (with overwrite confirmation + chmod 600). Run this after editing any `.env.*.example` schema to get the new required fields onto the server.
+- **As of issue #373**, `deploy.yml` (all four deploy jobs) also syncs compose files, scripts, and `.env.*.example` to `/opt/job-matcher-pr/` on every deploy via a `Sync deploy files` step that runs before the Preflight check. `deploy-remote-linux.sh` is now only needed for (a) first-time server provisioning and (b) pushing updated live `.env.prod` / `.env.dev` secret values to the server.
 
 **Log rotation:** all services use the `json-file` driver with `max-size: 10m` and `max-file: 3` (≤ 30 MB total per service), configured via a shared YAML anchor in each compose file.
 

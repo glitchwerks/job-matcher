@@ -281,9 +281,11 @@ Deploy workflow triggers (workflow_run on CI success)
 
 - The deploy jobs run on `[self-hosted, linux]` — the GitHub Actions runner must be installed and running on the VM (see [First-Time Server Setup](#first-time-server-setup)).
 - CI must pass before any auto-deploy job runs (`if: github.event.workflow_run.conclusion == 'success'`).
+- **Every deploy job syncs compose files and scripts first** (as of issue #373). Each deploy job checks out the repo at the exact commit being deployed, then copies `docker-compose.dev.yml`, `docker-compose.prod.yml`, `.env.*.example`, and `scripts/` into `/opt/job-matcher-pr/` before running `docker compose pull`. This ensures the on-disk compose files always match the image being pulled. Live `.env.dev` and `.env.prod` secret files are never touched by CI.
 - Deploys use `up -d --remove-orphans` which replaces containers in-place with zero downtime for the database.
 - After each deploy, old images are pruned to reclaim disk space.
 - The deploy workflow does **not** SSH into the VM. Instead, the self-hosted runner executes `docker compose` commands directly on the host. This means no `DEPLOY_SSH_*` secrets are needed for the current deployment model.
+- `scripts/deploy-remote-linux.sh` is now only needed for (a) first-time provisioning (before CI has run) and (b) pushing updated `.env.dev` / `.env.prod` secret values to the server. Day-to-day compose file and script updates are handled automatically by the CI sync step.
 
 ### Manual deploy (workflow_dispatch)
 

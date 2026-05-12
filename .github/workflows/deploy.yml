@@ -77,6 +77,30 @@ jobs:
       packages: read
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Check out the exact SHA whose image was just built and pushed,
+          # so compose files on disk match the image being pulled.
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Sync deploy files to /opt/job-matcher-pr/
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The self-hosted runner has write access to /opt/job-matcher-pr/ —
+          # it is the deploy target for docker compose commands run below.
+          echo "Syncing compose files..."
+          install -m 0644 docker-compose.dev.yml  /opt/job-matcher-pr/docker-compose.dev.yml
+          install -m 0644 docker-compose.prod.yml /opt/job-matcher-pr/docker-compose.prod.yml
+          echo "Syncing env examples..."
+          install -m 0644 .env.dev.example  /opt/job-matcher-pr/.env.dev.example
+          install -m 0644 .env.prod.example /opt/job-matcher-pr/.env.prod.example
+          echo "Syncing scripts/..."
+          cp -a scripts/. /opt/job-matcher-pr/scripts/
+          chmod 0755 /opt/job-matcher-pr/scripts/*.sh
+          echo "Sync complete."
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -118,6 +142,30 @@ jobs:
       packages: read
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Check out the exact SHA whose image was just built and pushed,
+          # so compose files on disk match the image being pulled.
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Sync deploy files to /opt/job-matcher-pr/
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The self-hosted runner has write access to /opt/job-matcher-pr/ —
+          # it is the deploy target for docker compose commands run below.
+          echo "Syncing compose files..."
+          install -m 0644 docker-compose.dev.yml  /opt/job-matcher-pr/docker-compose.dev.yml
+          install -m 0644 docker-compose.prod.yml /opt/job-matcher-pr/docker-compose.prod.yml
+          echo "Syncing env examples..."
+          install -m 0644 .env.dev.example  /opt/job-matcher-pr/.env.dev.example
+          install -m 0644 .env.prod.example /opt/job-matcher-pr/.env.prod.example
+          echo "Syncing scripts/..."
+          cp -a scripts/. /opt/job-matcher-pr/scripts/
+          chmod 0755 /opt/job-matcher-pr/scripts/*.sh
+          echo "Sync complete."
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -280,6 +328,28 @@ jobs:
       packages: read
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        # Default ref — matches the branch selected in the "Run workflow" UI,
+        # which is also the branch whose image was just built and pushed.
+
+      - name: Sync deploy files to /opt/job-matcher-pr/
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The self-hosted runner has write access to /opt/job-matcher-pr/ —
+          # it is the deploy target for docker compose commands run below.
+          echo "Syncing compose files..."
+          install -m 0644 docker-compose.dev.yml  /opt/job-matcher-pr/docker-compose.dev.yml
+          install -m 0644 docker-compose.prod.yml /opt/job-matcher-pr/docker-compose.prod.yml
+          echo "Syncing env examples..."
+          install -m 0644 .env.dev.example  /opt/job-matcher-pr/.env.dev.example
+          install -m 0644 .env.prod.example /opt/job-matcher-pr/.env.prod.example
+          echo "Syncing scripts/..."
+          cp -a scripts/. /opt/job-matcher-pr/scripts/
+          chmod 0755 /opt/job-matcher-pr/scripts/*.sh
+          echo "Sync complete."
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -320,6 +390,28 @@ jobs:
       packages: read
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        # Default ref — matches the branch selected in the "Run workflow" UI,
+        # which is also the branch whose image was just built and pushed.
+
+      - name: Sync deploy files to /opt/job-matcher-pr/
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The self-hosted runner has write access to /opt/job-matcher-pr/ —
+          # it is the deploy target for docker compose commands run below.
+          echo "Syncing compose files..."
+          install -m 0644 docker-compose.dev.yml  /opt/job-matcher-pr/docker-compose.dev.yml
+          install -m 0644 docker-compose.prod.yml /opt/job-matcher-pr/docker-compose.prod.yml
+          echo "Syncing env examples..."
+          install -m 0644 .env.dev.example  /opt/job-matcher-pr/.env.dev.example
+          install -m 0644 .env.prod.example /opt/job-matcher-pr/.env.prod.example
+          echo "Syncing scripts/..."
+          cp -a scripts/. /opt/job-matcher-pr/scripts/
+          chmod 0755 /opt/job-matcher-pr/scripts/*.sh
+          echo "Sync complete."
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
