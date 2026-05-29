@@ -27,8 +27,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 from typing import Optional
+
+from config_io import atomic_config_write
 
 logger = logging.getLogger(__name__)
 
@@ -167,30 +168,17 @@ def migrate_from_legacy(
     }
 
     # ---------------------------------------------------------------------------
-    # Atomic write
+    # Atomic write under advisory lock
     # ---------------------------------------------------------------------------
-    tmp_path = providers_path + ".tmp"
-    _write_ok = False
-    try:
-        with open(tmp_path, "w", encoding="utf-8") as fh:
-            json.dump(providers_dict, fh, indent=2)
-        os.replace(tmp_path, providers_path)
-        _write_ok = True
-        logger.info(
-            "Migrated legacy credentials to %s. "
-            "keys.json and config.json have not been modified.",
-            os.path.abspath(providers_path),
-        )
-    finally:
-        # If the write or rename failed, clean up the temp file so the next
-        # run does not find a partial artifact. If _write_ok is True the
-        # rename already consumed the temp file, so remove() would no-op anyway.
-        if not _write_ok:
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
+    with atomic_config_write(providers_path) as on_disk:
+        on_disk.clear()
+        on_disk.update(providers_dict)
 
+    logger.info(
+        "Migrated legacy credentials to %s. "
+        "keys.json and config.json have not been modified.",
+        os.path.abspath(providers_path),
+    )
     return providers_dict
 
 
@@ -320,9 +308,10 @@ def save_providers(
     stored value, allowing users to remove credentials via the UI.  Only keys
     that are absent from *updates* entirely are left unchanged.
 
-    The write is atomic: data is written to ``providers.json.tmp`` first,
-    then renamed with ``os.replace()``.  If the write fails the temp file
-    is cleaned up and the original ``providers.json`` is left unchanged.
+    The write is atomic and lock-protected: :func:`config_io.atomic_config_write`
+    acquires a cross-platform advisory lock, re-reads the file under that lock
+    so no concurrent update is lost, applies *updates* via deep-merge, then
+    renames a ``.tmp`` sibling atomically over the destination.
 
     Args:
         updates:        Nested dict shaped like ``providers.json``::
@@ -344,98 +333,28 @@ def save_providers(
                         when absent.
 
     Raises:
+        filelock.Timeout: If the advisory lock cannot be acquired within
+            the default timeout.
         OSError: If the file cannot be written (permissions, disk full, …).
     """
-    # --- File locking: prevent TOCTOU races when app.py and ingest.py run
-    # concurrently on Windows (NSSM service + Task Scheduler).
-    #
-    # Strategy: open the lock file with O_CREAT|O_EXCL (atomic on Windows NTFS)
-    # and spin-wait briefly if another process holds it.  The lock file is
-    # removed in the finally block so the next caller can acquire it.
-    #
-    # msvcrt.locking() is NOT used because it applies byte-range locks on an
-    # open file descriptor and its LK_LOCK mode reports "deadlock avoided"
-    # when called repeatedly from the same process (e.g. in test suites).
-    lock_path = providers_path + ".lock"
-    _lock_acquired = False
+    def _deep_merge(base: dict, patch: dict) -> None:
+        """Recursively apply *patch* values into *base* in-place.
 
-    if sys.platform == "win32":
-        import time as _time
-        _deadline = _time.monotonic() + 5.0  # give up after 5 s
-        while True:
-            try:
-                # O_EXCL ensures only one process can create this file at a time.
-                _fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.close(_fd)
-                _lock_acquired = True
-                break
-            except FileExistsError:
-                if _time.monotonic() >= _deadline:
-                    # Lock file has been present for 5 s — treat as stale
-                    # (e.g. left by a previous crash) and remove it so this
-                    # call and future callers do not keep spinning.
-                    logger.warning(
-                        "save_providers: could not acquire lock %s within 5 s "
-                        "— removing stale lock and proceeding without lock",
-                        lock_path,
-                    )
-                    try:
-                        os.remove(lock_path)
-                    except OSError:
-                        pass
-                    break
-                _time.sleep(0.05)
+        All values are applied as-is, including blank strings so that
+        credential fields can be cleared via the UI.  Nested dicts are
+        merged recursively; only keys absent from *patch* are left
+        unchanged.
+        """
+        for key, value in patch.items():
+            if isinstance(value, dict):
+                base.setdefault(key, {})
+                _deep_merge(base[key], value)
+            else:
+                base[key] = value
 
-    try:
-        # --- Load existing data (start from empty skeleton when absent) ---
-        if os.path.exists(providers_path):
-            try:
-                with open(providers_path, encoding="utf-8") as fh:
-                    existing: dict = json.load(fh)
-            except (json.JSONDecodeError, OSError):
-                existing = {}
-        else:
-            existing = {}
-
-        # Ensure top-level sections exist.
+    with atomic_config_write(providers_path) as existing:
+        # Ensure top-level sections exist before merging.
         existing.setdefault("provider_order", [])
         existing.setdefault("llm", {})
         existing.setdefault("job_sources", {})
-
-        def _deep_merge(base: dict, patch: dict) -> None:
-            """Recursively apply *patch* values into *base* in-place.
-
-            All values are applied as-is, including blank strings so that
-            credential fields can be cleared via the UI.  Nested dicts are
-            merged recursively; only keys absent from *patch* are left unchanged.
-            """
-            for key, value in patch.items():
-                if isinstance(value, dict):
-                    base.setdefault(key, {})
-                    _deep_merge(base[key], value)
-                else:
-                    base[key] = value
-
         _deep_merge(existing, updates)
-
-        # --- Atomic write ---
-        tmp_path = providers_path + ".tmp"
-        _write_ok = False
-        try:
-            with open(tmp_path, "w", encoding="utf-8") as fh:
-                json.dump(existing, fh, indent=2)
-            os.replace(tmp_path, providers_path)
-            _write_ok = True
-        finally:
-            if not _write_ok:
-                try:
-                    os.remove(tmp_path)
-                except OSError:
-                    pass
-
-    finally:
-        if _lock_acquired:
-            try:
-                os.remove(lock_path)
-            except OSError:
-                pass

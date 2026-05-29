@@ -44,6 +44,8 @@ import json
 import os
 from typing import Any
 
+from config_io import atomic_config_write
+
 # ---------------------------------------------------------------------------
 # Path constants
 # ---------------------------------------------------------------------------
@@ -110,30 +112,30 @@ def load_config(path: str = _CONFIG_PATH) -> dict[str, Any]:
 
 
 def _write_json_atomic(path: str, data: dict[str, Any]) -> None:
-    """Write *data* as JSON to *path* atomically using a sibling ``.tmp`` file.
+    """Write *data* as JSON to *path* under an advisory lock, atomically.
 
-    Writes to ``<path>.tmp`` first, then uses :func:`os.replace` to make the
-    swap visible to readers as an atomic operation.  The temp file is always
-    cleaned up on failure so stale partials never accumulate.
+    Acquires a cross-platform file lock on ``<path>.lock``, then writes
+    *data* atomically via a ``<path>.tmp`` → :func:`os.replace` rename.
+    The lock serialises concurrent writers so no update is lost.
+
+    This is a thin wrapper around :func:`config_io.atomic_config_write`
+    for callers that have already built the full dict to write.  New code
+    should prefer the context-manager form directly so the read also
+    happens under the lock.
 
     Args:
         path: Destination file path.
-        data: Dict to serialise as indented JSON.
+        data: Dict to serialise as indented JSON.  Replaces whatever the
+            file currently contains.
 
     Raises:
+        filelock.Timeout: If the advisory lock cannot be acquired within
+            the default timeout.
         OSError: If writing or renaming fails.
     """
-    tmp_path = path + ".tmp"
-    try:
-        with open(tmp_path, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2)
-        os.replace(tmp_path, path)
-    finally:
-        try:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-        except OSError:
-            pass
+    with atomic_config_write(path) as on_disk:
+        on_disk.clear()
+        on_disk.update(data)
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 annotated-types==0.7.0
+filelock>=3.13.0,<4
 geopy==2.4.1
 geographiclib==2.1
 anthropic==0.86.0

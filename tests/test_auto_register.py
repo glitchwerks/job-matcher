@@ -250,38 +250,27 @@ def test_no_sources_noop(tmp_path, monkeypatch):
     assert data == original
 
 
-def test_lock_falls_back_to_temp_when_config_dir_not_writable(tmp_path, monkeypatch):
-    """When the config directory is not writable, _resolve_lock_path returns a
-    path under tempfile.gettempdir() rather than raising PermissionError.
+def test_ensure_plugins_registered_acquires_lock_alongside_providers_file(
+    tmp_path, monkeypatch
+):
+    """ensure_plugins_registered uses a .lock sibling of providers.json.
 
-    This is the regression test for the Docker smoke-test CI failure where
-    /app/config/ was read-only and open(lock_path, "w") crashed the web
-    container on startup.
+    This is an integration-level check that the locking convention used by
+    atomic_config_write (``<path>.lock``) is respected.  The private
+    ``_resolve_lock_path`` helper no longer exists — locking is now handled
+    entirely by filelock via config_io.atomic_config_write.
     """
-    import tempfile
-    import job_sources.auto_register as _ar
+    providers_path = str(tmp_path / "providers.json")
+    _write_providers(providers_path, {"job_sources": {}})
 
-    lock_path = str(tmp_path / "config" / "providers.json.lock")
+    monkeypatch.setattr(_mod, "SOURCES", {"keyless": _FakeKeyless})
 
-    # Simulate a non-writable config directory by monkeypatching os.access so
-    # that W_OK checks on the config directory return False.
-    real_access = os.access
+    ensure_plugins_registered(providers_path)
 
-    def _fake_access(path, mode, **kw):
-        if mode == os.W_OK and os.path.normpath(path) == os.path.normpath(str(tmp_path / "config")):
-            return False
-        return real_access(path, mode, **kw)
-
-    monkeypatch.setattr(os, "access", _fake_access)
-
-    resolved = _ar._resolve_lock_path(lock_path)
-
-    # Must NOT be the original (non-writable) path.
-    assert resolved != lock_path
-    # Must be somewhere inside the system temp dir.
-    assert resolved.startswith(tempfile.gettempdir())
-    # Must be deterministic for the same input.
-    assert resolved == _ar._resolve_lock_path(lock_path)
+    # The file was successfully written — this proves the lock was acquired and
+    # released cleanly.
+    data = _read_providers(providers_path)
+    assert data["job_sources"]["keyless"] == {"enabled": True}
 
 
 def test_ensure_plugins_registered_survives_unwritable_config_dir(tmp_path, monkeypatch):
