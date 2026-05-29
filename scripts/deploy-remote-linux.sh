@@ -365,6 +365,82 @@ for LIVE_ENV in .env.prod .env.dev; do
     fi
 done
 
+# --- Live secrets/db_password.* files (opt-in, with overwrite confirmation + chmod 600) ---
+#
+# The DB password now lives in secrets/db_password.{dev,prod} rather than in
+# DATABASE_URL inside the .env file. entrypoint.sh reads /run/secrets/db_password
+# and constructs DATABASE_URL at container start. These files must be present on
+# the remote before `docker compose up` or the web container falls back to the
+# (absent) DATABASE_URL env var and will fail to connect.
+#
+# Mirrors the live .env push pattern above: stage to /tmp, sudo-install to the
+# final path with 600 permissions, then clean up the temp file.
+# shellcheck disable=SC2029  # ${REMOTE_PATH} and ${SSH_TARGET} intentionally expand client-side
+ssh "${SSH_TARGET}" "mkdir -p '${REMOTE_PATH}/secrets'"
+ok "Remote secrets/ directory ensured."
+
+for SECRET_FILE in secrets/db_password.prod secrets/db_password.dev; do
+    LOCAL_SECRET="${LOCAL_PROJECT_ROOT}/${SECRET_FILE}"
+    REMOTE_SECRET="${REMOTE_PATH}/${SECRET_FILE}"
+    SECRET_BASENAME="$(basename "${SECRET_FILE}")"
+
+    if [[ ! -f "${LOCAL_SECRET}" ]]; then
+        # No local secret file -> nothing to push. Operator must create it manually.
+        warn "Local ${SECRET_FILE} not found -- skipping. Create it from secrets/db_password.example before deploying."
+        continue
+    fi
+
+    # Pre-push sanity check: catch placeholder values before they go to the wire.
+    if grep -qE '^changeme' "${LOCAL_SECRET}"; then
+        echo ""
+        warn "Local ${SECRET_FILE} still contains a 'changeme' placeholder password."
+        if [[ "${SECRET_FILE}" == *prod* ]]; then
+            read -r -p "Push anyway? The prod stack will use this weak password. [y/N] " PUSH_ANYWAY
+        else
+            read -r -p "Push anyway? Not recommended for deployed environments. [y/N] " PUSH_ANYWAY
+        fi
+        echo ""
+        if [[ ! "${PUSH_ANYWAY}" =~ ^[Yy]$ ]]; then
+            warn "Skipped ${SECRET_FILE} -- remote unchanged."
+            continue
+        fi
+    fi
+
+    # Check whether the remote already has the secret and confirm overwrite.
+    # shellcheck disable=SC2029  # ${REMOTE_SECRET} and ${SSH_TARGET} intentionally expand client-side
+    if ssh "${SSH_TARGET}" "[[ -f '${REMOTE_SECRET}' ]]" 2>/dev/null; then
+        echo ""
+        warn "Remote already has a live ${SECRET_FILE} at ${REMOTE_PATH}."
+        warn "Overwriting will replace the DB password the running stack is using."
+        read -r -p "Overwrite remote ${SECRET_FILE} with the local copy? [y/N] " CONFIRM_OVERWRITE
+        echo ""
+        if [[ ! "${CONFIRM_OVERWRITE}" =~ ^[Yy]$ ]]; then
+            warn "Skipped live ${SECRET_FILE} -- remote unchanged."
+            continue
+        fi
+    fi
+
+    # Stage-then-install: same atomic pattern as the .env push above.
+    # shellcheck disable=SC2029  # ${SECRET_BASENAME} and ${SSH_TARGET} intentionally expand client-side
+    REMOTE_TMP=$(ssh "${SSH_TARGET}" "mktemp /tmp/.${SECRET_BASENAME}.XXXXXX")
+    if [[ -z "${REMOTE_TMP}" ]]; then
+        warn "Could not create temp file on remote -- skipped ${SECRET_FILE}."
+        continue
+    fi
+    scp -q "${LOCAL_SECRET}" "${SSH_TARGET}:${REMOTE_TMP}"
+    # shellcheck disable=SC2029  # ${REMOTE_TMP} and ${SSH_TARGET} intentionally expand client-side
+    ssh "${SSH_TARGET}" "chmod 600 '${REMOTE_TMP}'"
+    # shellcheck disable=SC2029  # ${REMOTE_TMP}, ${REMOTE_SECRET}, ${SSH_TARGET} intentionally expand client-side
+    if ssh -tt "${SSH_TARGET}" "sudo install -m 600 -o \"\$(id -un)\" -g \"\$(id -gn)\" '${REMOTE_TMP}' '${REMOTE_SECRET}'"; then
+        ssh "${SSH_TARGET}" "rm -f '${REMOTE_TMP}'" 2>/dev/null || true
+        ok "Copied live ${SECRET_FILE} (chmod 600)"
+    else
+        warn "sudo install failed for ${SECRET_FILE} (see output above for details)."
+        ssh "${SSH_TARGET}" "rm -f '${REMOTE_TMP}'" 2>/dev/null || true
+        continue
+    fi
+done
+
 # --- Fix line endings (Windows → Unix) ---
 # scp from a Windows workstation copies files with CRLF line endings.
 # Bash on the remote will choke on \r in shell scripts (e.g. "set -euo pipefail\r"

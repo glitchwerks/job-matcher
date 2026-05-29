@@ -6,6 +6,12 @@ config/providers.json
 config/providers.json.lock
 config-dev/
 
+# Docker file-based secrets — ignore live password files, track scaffolding only.
+# Note: negation (!pattern) cannot un-ignore files inside an ignored directory,
+# so we ignore individual secret files rather than the whole directory.
+secrets/db_password.dev
+secrets/db_password.prod
+
 # Database
 jobs.db
 jobs.demo.db

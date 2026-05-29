@@ -36,8 +36,13 @@ services:
     volumes:
       - ./config:/app/config:rw   # rw required: /settings UI writes providers.json
       - ./logs:/app/logs:rw
+    secrets:
+      - db_password
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/jobmatcher_prod
+      # DATABASE_URL is constructed by entrypoint.sh from POSTGRES_USER +
+      # /run/secrets/db_password + POSTGRES_DB. Do not set DATABASE_URL here.
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: jobmatcher_prod
       SECRET_KEY: '${SECRET_KEY:?SECRET_KEY must be set in .env.prod — generate with: python -c ''import secrets; print(secrets.token_hex(32))''}'
       FLASK_DEBUG: "0"
       LOG_DIR: "/app/logs"
@@ -66,3 +71,7 @@ services:
 
 volumes:
   pgdata_prod:
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.prod
