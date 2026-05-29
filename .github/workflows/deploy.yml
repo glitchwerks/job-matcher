@@ -41,6 +41,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Extract OCI metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/glitchwerks/job-matcher
+          labels: |
+            org.opencontainers.image.revision=${{ github.event.workflow_run.head_sha }}
+            org.opencontainers.image.version=${{ github.event.workflow_run.head_sha }}
+
       - name: Build and push image (non-main — SHA tag only)
         if: ${{ github.event.workflow_run.head_branch != 'main' }}
         uses: docker/build-push-action@v5
@@ -49,6 +58,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/job-matcher:${{ github.event.workflow_run.head_sha }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -61,6 +71,7 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/job-matcher:latest
             ghcr.io/${{ github.repository_owner }}/job-matcher:${{ github.event.workflow_run.head_sha }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -291,6 +302,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Extract OCI metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/glitchwerks/job-matcher
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.sha }}
+
       - name: Build and push image (non-main — SHA + branch tags)
         if: ${{ github.ref_name != 'main' }}
         uses: docker/build-push-action@v5
@@ -300,6 +320,7 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/job-matcher:${{ github.sha }}
             ghcr.io/${{ github.repository_owner }}/job-matcher:${{ steps.sha.outputs.short }}-${{ steps.branch_tag.outputs.safe }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -313,6 +334,7 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/job-matcher:latest
             ghcr.io/${{ github.repository_owner }}/job-matcher:${{ github.sha }}
             ghcr.io/${{ github.repository_owner }}/job-matcher:${{ steps.sha.outputs.short }}-${{ steps.branch_tag.outputs.safe }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
