@@ -443,9 +443,15 @@ For full documentation — stack architecture, environment variables, CI/CD pipe
 sudo git clone https://github.com/glitchwerks/job-matcher.git /opt/job-matcher-pr
 cd /opt/job-matcher-pr
 
+# Create DB password secret files from the example (one per environment)
+cp secrets/db_password.example secrets/db_password.dev   # then edit with your dev password
+cp secrets/db_password.example secrets/db_password.prod  # then edit with your prod password
+
 # One-time VM provisioning: creates directories, copies config examples, starts both stacks
 sudo ./scripts/docker-setup.sh
 ```
+
+> **DB password secret files:** The database password now lives in `secrets/db_password.{dev,prod}` rather than in `DATABASE_URL` inside `.env.*`. `scripts/entrypoint.sh` reads `/run/secrets/db_password` at container start and constructs `DATABASE_URL` from `POSTGRES_USER` + the secret file + `POSTGRES_DB`. The `.env.*` files no longer need `DATABASE_URL` and `POSTGRES_PASSWORD` is only required by the `db` service for initial database creation. The `secrets/` files are gitignored — only `secrets/db_password.example` (a placeholder) and `secrets/.gitkeep` are tracked.
 
 ### Pushing updates to a remote server
 
@@ -455,7 +461,7 @@ sudo ./scripts/docker-setup.sh
 ./scripts/deploy-remote-linux.sh <host>
 ```
 
-The script pushes compose files, helper scripts, and config examples over SSH, then prompts before overwriting the live `.env.prod` / `.env.dev` files and chmod 600s them after copying. It handles sudo and TTY requirements automatically.
+The script pushes compose files, helper scripts, config examples, and live secret files over SSH, then prompts before overwriting the live `.env.prod` / `.env.dev` and `secrets/db_password.*` files, and chmod 600s them after copying. It handles sudo and TTY requirements automatically.
 
 If you prefer to update the server directly, SSH in and diff `.env.prod` against `.env.prod.example` (`diff .env.prod .env.prod.example`), add any new keys by hand, then recreate the stack (`docker compose ... down && ... up -d`) to pick up the changes — compose freezes env vars at container creation time.
 

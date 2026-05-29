@@ -41,7 +41,9 @@ jobs:
           cache-to: type=gha,mode=max
 
       # The compose env files only need POSTGRES_* credentials and SECRET_KEY.
-      # DATABASE_URL, FLASK_DEBUG, etc. are set in the compose environment: block.
+      # POSTGRES_USER and POSTGRES_DB are passed to the web container via the
+      # environment: block so entrypoint.sh can construct DATABASE_URL from
+      # POSTGRES_USER + /run/secrets/db_password + POSTGRES_DB.
       # Use printf to avoid heredoc indentation issues inside YAML run blocks.
       # SECRET_KEY is generated fresh per run — the value only needs to be non-empty
       # and random; it is not persisted beyond this workflow execution.
@@ -52,6 +54,15 @@ jobs:
             "${{ env.POSTGRES_USER }}" "${{ env.POSTGRES_PASSWORD }}" "$SECRET_KEY" > .env.dev
           printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=jobmatcher_prod\nSECRET_KEY=%s\n' \
             "${{ env.POSTGRES_USER }}" "${{ env.POSTGRES_PASSWORD }}" "$SECRET_KEY" > .env.prod
+
+      # Create the DB password secret files required by the compose secrets: stanza.
+      # entrypoint.sh reads /run/secrets/db_password and constructs DATABASE_URL;
+      # without these files `docker compose up` will fail to start the web service.
+      - name: Create test secret files
+        run: |
+          mkdir -p secrets
+          printf '%s\n' "${{ env.POSTGRES_PASSWORD }}" > secrets/db_password.dev
+          printf '%s\n' "${{ env.POSTGRES_PASSWORD }}" > secrets/db_password.prod
 
       # Create config directories and populate them from example files so the
       # Flask app has valid (if empty) config on first boot.
