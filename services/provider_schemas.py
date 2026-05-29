@@ -209,7 +209,7 @@ def _mtime(path: str) -> float:
         return 0.0
 
 
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=1)
 def _cached_validation(
     mtime_tuple: tuple[float, float],
     providers_path: str,
@@ -217,10 +217,17 @@ def _cached_validation(
 ) -> list[ValidationIssue]:
     """Load config files from disk and return validation issues.
 
-    This function is wrapped with :func:`functools.lru_cache`.  The cache key
-    is *(mtime_tuple, providers_path, config_path)* so any out-of-process
-    modification to either config file (including a ``/settings`` POST rewrite)
-    automatically busts the cache via the changed mtime.
+    This function is wrapped with :func:`functools.lru_cache` with
+    ``maxsize=1``.  There is effectively a single config/providers path-pair
+    in normal operation, so only the *current* mtime entry is needed.  A
+    bound of 1 ensures that each config edit evicts the previous entry rather
+    than accumulating an unbounded number of stale mtime entries over the
+    lifetime of a long-running Gunicorn worker.
+
+    The cache key is *(mtime_tuple, providers_path, config_path)* so any
+    out-of-process modification to either config file (including a
+    ``/settings`` POST rewrite) automatically busts the cache via the changed
+    mtime.
 
     Callers should **not** call this function directly; use
     :func:`_get_search_validation_issues` instead.
