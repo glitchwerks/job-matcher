@@ -43,19 +43,6 @@ from job_sources import make_enabled_sources, get_required_search_fields
 from providers import build_provider_chain, LLMProvider
 from credentials import CredentialError, load_providers
 
-# ---------------------------------------------------------------------------
-# Feature-flag: JOB_AGGREGATOR_SOURCES (Phase A)
-# ---------------------------------------------------------------------------
-# When set, comma-separated source keys in this env var are routed through
-# JobAggregatorProvider; all other sources use LegacyInTreeProvider.
-# Example: JOB_AGGREGATOR_SOURCES=arbeitnow
-# When unset (default), all sources use LegacyInTreeProvider (today's path).
-# Phase B removes this flag and routes all sources through JobAggregatorProvider.
-#
-# grep -rn JOB_AGGREGATOR_SOURCES returning empty after Phase B is the
-# removal verification criterion (Decision Log #11).
-_JOB_AGGREGATOR_SOURCES_ENV = "JOB_AGGREGATOR_SOURCES"
-
 # Load environment variables from a local .env file if present.
 # Precedence: parent-process env (shell, VSCode task, docker env_file) always
 # wins. This covers the native `python ingest.py` path where no external env
@@ -1093,95 +1080,6 @@ def _inject_env_var_credentials(providers: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Feature-flag source routing (Phase A)
-# ---------------------------------------------------------------------------
-
-def _build_source_clients(
-    providers: dict,
-    config: dict,
-    providers_path: str,
-) -> list:
-    """Return a flat list of source clients using the Phase A feature flag.
-
-    When ``JOB_AGGREGATOR_SOURCES`` is unset, all sources are returned by
-    the legacy ``make_enabled_sources`` path unchanged.
-
-    When ``JOB_AGGREGATOR_SOURCES`` is set (e.g. ``"arbeitnow"``):
-    - Named sources are fetched via ``JobAggregatorProvider.make_clients()``.
-    - Remaining sources are fetched via ``LegacyInTreeProvider.make_clients()``
-      with the named sources' ``enabled`` flags set to ``False`` in a copy of
-      ``providers`` so they are not double-fetched.
-
-    The returned list is ordered: aggregator clients first, legacy clients
-    second (preserving the existing pipeline ordering within each group).
-
-    Args:
-        providers:      Full dict from ``load_providers()``.
-        config:         Full config dict (includes ``config["search"]``).
-        providers_path: Path to providers.json (for ``ensure_plugins_registered``).
-
-    Returns:
-        Flat list of source client objects (satisfy ``SourceClient`` Protocol).
-    """
-    from job_sources.auto_register import ensure_plugins_registered
-    ensure_plugins_registered(providers_path)
-
-    flag_value = os.environ.get(_JOB_AGGREGATOR_SOURCES_ENV, "").strip()
-    if not flag_value:
-        # No flag set — use legacy path for all sources.
-        return make_enabled_sources(providers, config)
-
-    aggregator_keys = {
-        k.strip() for k in flag_value.split(",") if k.strip()
-    }
-    logger.info(
-        "JOB_AGGREGATOR_SOURCES=%r — routing %s through JobAggregatorProvider",
-        flag_value,
-        sorted(aggregator_keys),
-    )
-
-    from job_sources.aggregator_provider import JobAggregatorProvider
-    from job_sources.legacy_provider import LegacyInTreeProvider
-
-    agg_provider = JobAggregatorProvider()
-    leg_provider = LegacyInTreeProvider()
-
-    # Build aggregator clients for the named sources only.
-    # We filter providers["job_sources"] to only the named keys so that
-    # make_clients() does not try to instantiate plugins not in the flag set.
-    agg_job_sources = {
-        k: v for k, v in (providers.get("job_sources") or {}).items()
-        if k in aggregator_keys
-    }
-    agg_providers = dict(providers)
-    agg_providers["job_sources"] = agg_job_sources
-
-    agg_clients = agg_provider.make_clients(
-        providers_data=agg_providers,
-        search=config.get("search", {}),
-        only_sources=aggregator_keys,
-    )
-
-    # Build legacy clients for remaining sources.
-    # Disable the aggregator-routed sources so they are not double-fetched.
-    legacy_providers = dict(providers)
-    legacy_job_sources = dict(providers.get("job_sources") or {})
-    for key in aggregator_keys:
-        if key in legacy_job_sources:
-            entry = dict(legacy_job_sources[key])
-            entry["enabled"] = False
-            legacy_job_sources[key] = entry
-    legacy_providers["job_sources"] = legacy_job_sources
-
-    legacy_clients = leg_provider.make_clients(
-        providers_data=legacy_providers,
-        search=config.get("search", {}),
-    )
-
-    return list(agg_clients) + list(legacy_clients)
-
-
-# ---------------------------------------------------------------------------
 # Plugin isolation helper
 # ---------------------------------------------------------------------------
 
@@ -1352,7 +1250,10 @@ def run(
 
         _inject_env_var_credentials(providers)
 
-        sources = _build_source_clients(providers, config, providers_path)
+        from job_sources.auto_register import ensure_plugins_registered
+        ensure_plugins_registered(providers_path)
+
+        sources = make_enabled_sources(providers, config)
         if not sources:
             logger.warning(
                 "No job sources are enabled. Enable at least one source in Settings > Sources."

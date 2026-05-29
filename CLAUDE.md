@@ -20,12 +20,6 @@ python ingest.py -v                # Short form of --verbose
 # Run web UI (http://localhost:5000)
 python app.py
 
-# Phase A feature flag: route specific sources through JobAggregatorProvider
-# JOB_AGGREGATOR_SOURCES=arbeitnow python ingest.py --hours 24
-#   → arbeitnow fetched via job_aggregator; all other sources via legacy loader
-# Unset (default): all sources use the legacy in-tree loader
-# Phase B removal criterion: grep -rn JOB_AGGREGATOR_SOURCES returns empty
-
 # Run tests (requires PostgreSQL pointed at a TEST database — set DATABASE_URL)
 # Option A: use jobmatcher_test (created automatically on fresh docker volume;
 #           for existing setups run once: docker exec job-matcher-pr-dev-db-1

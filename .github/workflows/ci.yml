@@ -31,25 +31,6 @@ jobs:
       - name: Run linter
         run: ruff check .
 
-      - name: Enforce job_aggregator import isolation
-        run: |
-          # Only job_sources/aggregator_provider.py may import job_aggregator.
-          # This step fails if any other .py file contains such an import.
-          # Tests are exempt (grep -v tests/) since test files import
-          # job_aggregator for fixtures and error-class assertions.
-          VIOLATIONS=$(grep -rn 'from job_aggregator\|import job_aggregator' \
-            --include='*.py' . \
-            | grep -v 'job_sources/aggregator_provider.py' \
-            | grep -v '__pycache__' \
-            | grep -v 'tests/' \
-            || true)
-          if [ -n "$VIOLATIONS" ]; then
-            echo "ERROR: job_aggregator imported outside aggregator_provider.py:"
-            echo "$VIOLATIONS"
-            exit 1
-          fi
-          echo "Import isolation check passed."
-
       - name: ShellCheck
         run: shellcheck scripts/*.sh
 

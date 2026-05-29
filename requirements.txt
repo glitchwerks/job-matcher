@@ -36,4 +36,3 @@ waitress==3.0.1
 psycopg2-binary>=2.9
 pypdf>=4.0.0
 python-dotenv==1.0.1
-job-aggregator @ git+https://github.com/cbeaulieu-gt/job-aggregator@41b4ad534cd8e2b552954963ad65ac9b454a41cf

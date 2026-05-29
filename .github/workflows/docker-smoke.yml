@@ -40,14 +40,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Verify job_aggregator is importable from the built image.
-      # This catches cases where the git+ URL in requirements.txt fails to
-      # resolve in the Linux Docker environment (Decision Log #10 / Risk #4).
-      - name: Smoke test job_aggregator import
-        run: |
-          docker run --rm ghcr.io/glitchwerks/job-matcher:latest \
-            /bin/sh -c "python -c 'import job_aggregator; print(\"job_aggregator import OK\")'"
-
       # The compose env files only need POSTGRES_* credentials and SECRET_KEY.
       # DATABASE_URL, FLASK_DEBUG, etc. are set in the compose environment: block.
       # Use printf to avoid heredoc indentation issues inside YAML run blocks.
