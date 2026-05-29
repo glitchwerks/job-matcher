@@ -34,6 +34,13 @@ jobs:
       - name: ShellCheck
         run: shellcheck scripts/*.sh
 
+      - name: Check for CRLF line endings in shell scripts and Dockerfiles
+        run: |
+          if git ls-files '*.sh' '*.bash' 'Dockerfile*' | xargs -r grep -lU $'\r'; then
+            echo "::error::Files above contain CRLF line endings. See README Troubleshooting or .gitattributes."
+            exit 1
+          fi
+
   test:
     runs-on: ubuntu-latest
     services:
