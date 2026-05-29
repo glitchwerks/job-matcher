@@ -345,19 +345,36 @@ for LIVE_ENV in .env.prod .env.dev; do
     # shellcheck disable=SC2029  # ${REMOTE_TMP} and ${SSH_TARGET} intentionally expand client-side
     ssh "${SSH_TARGET}" "chmod 600 '${REMOTE_TMP}'"
     # Atomically place the file at the final destination with correct mode
-    # and ownership. One `ssh -tt` session handles sudo prompt + install +
-    # temp-file cleanup together so sudo's `tty_tickets` credential cache
-    # applies consistently. (A previous two-pass attempt -- `sudo -v` then
-    # `sudo -n install` in separate ssh sessions -- failed with "a password
-    # is required" because tty_tickets scopes cached credentials per-TTY,
-    # and the two ssh calls landed on different TTYs.) Output streams to
-    # the user's terminal so they see the sudo prompt and any install
-    # errors directly; we rely on the ssh exit code for success/failure
-    # rather than capturing stderr into a variable.
+    # and ownership. Try a privilege-free path first (steady state after first
+    # deploy), then fall back to `sudo install` + TTY allocation only when the
+    # destination is not writable by the current user (first deploy / privilege
+    # drift).  The `sudo -tt` path is kept intact so tty_tickets credential
+    # caching still works when sudo is genuinely required (see original comment
+    # above about the two-pass `sudo -v` / `sudo -n` failure mode).
+    #
+    # One-round-trip writability check: target writable, OR target absent but
+    # its parent dir is writable (i.e. we can create the file without sudo).
+    # shellcheck disable=SC2029  # ${REMOTE_LIVE}, ${SSH_TARGET} intentionally expand client-side
+    if ssh "${SSH_TARGET}" "[ -w '${REMOTE_LIVE}' ] || { [ ! -e '${REMOTE_LIVE}' ] && [ -w \"\$(dirname '${REMOTE_LIVE}')\" ]; }"; then
+        # Privileged path not required -- plain install over non-TTY SSH.
+        # shellcheck disable=SC2029  # ${REMOTE_TMP}, ${REMOTE_LIVE}, ${SSH_TARGET} intentionally expand client-side
+        if ssh "${SSH_TARGET}" "install -m 600 '${REMOTE_TMP}' '${REMOTE_LIVE}'"; then
+            ssh "${SSH_TARGET}" "rm -f '${REMOTE_TMP}'" 2>/dev/null || true
+            ok "Copied live ${LIVE_ENV} (chmod 600, no sudo)"
+            continue
+        else
+            warn "Plain install failed for ${LIVE_ENV}; falling back to sudo."
+        fi
+    fi
+
+    # Sudo fallback -- required on first deploy (root-owned destination dir) or
+    # after privilege drift.  One `ssh -tt` session handles the sudo prompt and
+    # install together so tty_tickets credential caching applies consistently.
+    # Output streams to the terminal so the user sees the sudo prompt directly.
     # shellcheck disable=SC2029  # ${REMOTE_TMP}, ${REMOTE_LIVE}, ${SSH_TARGET} intentionally expand client-side
     if ssh -tt "${SSH_TARGET}" "sudo install -m 600 -o \"\$(id -un)\" -g \"\$(id -gn)\" '${REMOTE_TMP}' '${REMOTE_LIVE}'"; then
         ssh "${SSH_TARGET}" "rm -f '${REMOTE_TMP}'" 2>/dev/null || true
-        ok "Copied live ${LIVE_ENV} (chmod 600)"
+        ok "Copied live ${LIVE_ENV} (chmod 600, sudo)"
     else
         warn "sudo install failed for ${LIVE_ENV} (see output above for details)."
         ssh "${SSH_TARGET}" "rm -f '${REMOTE_TMP}'" 2>/dev/null || true
