@@ -10,6 +10,7 @@ Owns the 4 routes for viewing and updating the candidate profile:
 from __future__ import annotations
 
 import json
+import os
 import secrets
 from datetime import datetime, timezone
 
@@ -37,6 +38,7 @@ from services.pdf_import import (
     _prune_pdf_jobs,
     _run_pdf_import_job,
 )
+from config_io import atomic_config_write
 from services.profile_store import (
     _CONFIG_PATH,
     _KEYS_PATH,
@@ -613,29 +615,26 @@ def apply_prefilter_suggestions():
             ),
         }), 400
 
-    try:
-        with open(_CONFIG_PATH, "r", encoding="utf-8") as fh:
-            cfg = json.load(fh)
-    except (OSError, json.JSONDecodeError) as exc_io:
+    # Guard: config.json must already exist before we merge into it.
+    # Applying prefilter suggestions to a non-existent config would silently
+    # create a file with only prefilter keys, dropping all other settings.
+    if not os.path.exists(_CONFIG_PATH):
         current_app.logger.error(
-            "[apply-prefilter-suggestions] failed to read config: %s",
-            exc_io,
+            "[apply-prefilter-suggestions] config.json not found at %s",
+            _CONFIG_PATH,
         )
         return jsonify({
             "success": False,
             "error": "Could not read config.json.",
         }), 500
 
-    existing_prefilter = cfg.get("prefilter") or {}
-    cfg["prefilter"] = _merge_prefilter_suggestions(
-        existing_prefilter,
-        {"title_include": inc, "title_exclude": exc},
-    )
-
     try:
-        with open(_CONFIG_PATH, "w", encoding="utf-8") as fh:
-            json.dump(cfg, fh, indent=2)
-            fh.write("\n")
+        with atomic_config_write(_CONFIG_PATH) as cfg:
+            existing_prefilter = cfg.get("prefilter") or {}
+            cfg["prefilter"] = _merge_prefilter_suggestions(
+                existing_prefilter,
+                {"title_include": inc, "title_exclude": exc},
+            )
     except OSError as exc_io:
         current_app.logger.error(
             "[apply-prefilter-suggestions] failed to write config: %s",

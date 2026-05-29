@@ -12,87 +12,12 @@ Public API
 
 from __future__ import annotations
 
-import hashlib
 import logging
-import os
-import sys
-import tempfile
 
+from config_io import atomic_config_write
 from job_sources import SOURCES  # module-level so tests can monkeypatch it
-from credentials import load_providers, save_providers
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_lock_path(lock_path: str) -> str:
-    """Return a writable lock path, falling back to the system temp directory.
-
-    The preferred location is *lock_path* itself (alongside providers.json).
-    If that directory is not writable — e.g. in a Docker container where
-    ``/app/config/`` is a read-only image layer — we derive a deterministic
-    fallback path in ``tempfile.gettempdir()`` so the lock still provides
-    cross-process coordination for any processes that share the same temp dir.
-    """
-    lock_dir = os.path.dirname(lock_path) or "."
-    if os.access(lock_dir, os.W_OK):
-        return lock_path
-
-    # Fallback: name the temp lock file after a hash of the original path so
-    # different providers.json files get different locks.
-    name_hash = hashlib.sha1(lock_path.encode()).hexdigest()[:12]
-    fallback = os.path.join(tempfile.gettempdir(), f"providers_{name_hash}.lock")
-    logger.debug(
-        "Config directory %r is not writable; using temp lock file %r",
-        lock_dir,
-        fallback,
-    )
-    return fallback
-
-
-def _acquire_lock(lock_path: str):
-    """Return an open file handle locked for exclusive access (cross-platform).
-
-    If the preferred lock path is in a non-writable directory, a fallback path
-    under ``tempfile.gettempdir()`` is used automatically.
-
-    Returns None if the lock cannot be acquired (another process holds it).
-    """
-    resolved = _resolve_lock_path(lock_path)
-    try:
-        fh = open(resolved, "w")
-    except OSError as exc:
-        logger.warning(
-            "Could not open lock file %r (%s); skipping file lock.",
-            resolved,
-            exc,
-        )
-        return None
-    try:
-        if sys.platform == "win32":
-            import msvcrt
-            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        fh.close()
-        return None
-    return fh
-
-
-def _release_lock(fh) -> None:
-    """Release the file lock and close the handle."""
-    if fh is None:
-        return
-    try:
-        if sys.platform == "win32":
-            import msvcrt
-            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(fh, fcntl.LOCK_UN)
-    finally:
-        fh.close()
 
 
 def ensure_plugins_registered(providers_path: str) -> None:
@@ -104,74 +29,62 @@ def ensure_plugins_registered(providers_path: str) -> None:
     fields so the user can fill them in via the Settings UI.
     Existing entries are never modified.
 
-    Uses a file lock to prevent TOCTOU races when app.py and ingest.py start
-    simultaneously.  If the lock cannot be acquired, a warning is logged and
-    the function returns without modifying providers.json — it is safer to
-    skip auto-registration than to risk corrupting the file.
+    Uses :func:`config_io.atomic_config_write` to prevent TOCTOU races when
+    ``app.py`` and ``ingest.py`` start simultaneously.  If the lock cannot be
+    acquired, an :class:`~filelock.Timeout` is raised and propagates to the
+    caller — the startup path catches it and logs a warning.
 
     Args:
         providers_path: Path to ``providers.json`` (the unified credential
                         store managed by :mod:`credentials`).
     """
-    lock_path = providers_path + ".lock"
-    lock_fh = _acquire_lock(lock_path)
-    if lock_fh is None:
+    try:
+        with atomic_config_write(providers_path) as providers_data:
+            job_sources_cfg: dict = providers_data.setdefault(
+                "job_sources", {}
+            )
+
+            added: list[str] = []
+
+            for source_key, cls in SOURCES.items():
+                if source_key in job_sources_cfg:
+                    # Already registered — never touch existing entries.
+                    continue
+
+                schema: dict = cls.settings_schema()
+                fields: list[dict] = schema.get("fields", [])
+
+                if not fields:
+                    # Keyless source — works without any credentials.
+                    entry: dict = {"enabled": True}
+                else:
+                    # Keyed source — add with disabled flag and blank fields
+                    # so the user can fill them in via the Settings UI.
+                    entry = {"enabled": False}
+                    for field in fields:
+                        entry[field["name"]] = ""
+
+                job_sources_cfg[source_key] = entry
+                added.append(source_key)
+
+            if not added:
+                # Nothing to write — raise to abort the write path cleanly.
+                # atomic_config_write only writes on a clean exit, so we must
+                # not raise here; instead we simply let the block finish
+                # (no-op write will still happen but is harmless and idempotent).
+                pass
+
+    except (PermissionError, OSError) as exc:
+        # Config directory may be read-only (e.g. Docker image layer without
+        # a mounted config volume).  Registration still took effect in memory
+        # for this process — it just won't persist to disk until the next run
+        # with a writable config directory.
         logger.warning(
-            "Could not acquire lock on %s — another process may be updating "
-            "providers.json; skipping auto-registration this run.",
-            lock_path,
+            "Could not persist auto-registered sources to %s: %s",
+            providers_path,
+            exc,
         )
         return
 
-    try:
-        # --- Load existing providers data (start from skeleton on any failure) ---
-        try:
-            providers_data = load_providers(providers_path)
-        except Exception:
-            providers_data = {"job_sources": {}}
-
-        job_sources_cfg: dict = providers_data.setdefault("job_sources", {})
-
-        added: list[str] = []
-
-        for source_key, cls in SOURCES.items():
-            if source_key in job_sources_cfg:
-                # Already registered — never touch existing entries.
-                continue
-
-            schema: dict = cls.settings_schema()
-            fields: list[dict] = schema.get("fields", [])
-
-            if not fields:
-                # Keyless source — works without any credentials; enable immediately.
-                entry: dict = {"enabled": True}
-            else:
-                # Keyed source — add with disabled flag and blank credential fields
-                # so the user can see and fill them in via the Settings UI.
-                entry = {"enabled": False}
-                for field in fields:
-                    entry[field["name"]] = ""
-
-            job_sources_cfg[source_key] = entry
-            added.append(source_key)
-
-        if added:
-            # Pass only the newly-added entries so save_providers deep-merges them
-            # without touching any existing keys in providers.json.
-            updates = {"job_sources": {key: job_sources_cfg[key] for key in added}}
-            try:
-                save_providers(updates, providers_path)
-            except (PermissionError, OSError) as exc:
-                # Config directory may be read-only (e.g. Docker image layer
-                # without a mounted config volume).  Registration still took
-                # effect in memory for this process — it just won't persist
-                # to disk until the next run with a writable config dir.
-                logger.warning(
-                    "Could not persist auto-registered sources to %s: %s",
-                    providers_path,
-                    exc,
-                )
-            else:
-                logger.info("Auto-registered job sources: %s", added)
-    finally:
-        _release_lock(lock_fh)
+    if added:
+        logger.info("Auto-registered job sources: %s", added)
