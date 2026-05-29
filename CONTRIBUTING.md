@@ -92,6 +92,10 @@ scripts/           Linux/Docker deployment helpers (docker-setup.sh, docker-stat
 - Commit messages: imperative mood, present tense (`fix:`, `feat:`, `chore:`, `docs:`, `test:`)
 - Reference the issue number in the commit message: `fixes #N` or `closes #N`
 
+### Cross-repo references
+
+This repo (`glitchwerks/job-matcher`) is the public successor to a predecessor private repo (`glitchwerks/job-matcher-pr`), which is retained for issue history. When referencing an issue or PR from that predecessor repo — in commit messages, issue bodies, PR bodies, or docs — always use the fully-qualified form `glitchwerks/job-matcher-pr#N`. Use bare `#N` only for issues and PRs in this repo. GitHub auto-links bare `#N` to the current repo, so an unqualified predecessor reference silently points at the wrong place.
+
 ---
 
 ## Branching and PRs

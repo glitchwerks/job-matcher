@@ -47,6 +47,10 @@ pytest -k "test_title_include"     # By name pattern
 # (emits a warning). This prevents accidental data loss on dev/prod databases.
 ```
 
+## Cross-repo references
+
+This repo (`glitchwerks/job-matcher`) is the public successor to a predecessor private repo (`glitchwerks/job-matcher-pr`), which is retained for issue history. Use the fully-qualified form `glitchwerks/job-matcher-pr#N` whenever referencing an issue or PR from that predecessor repo — in commit messages, issue bodies, PR bodies, and committed docs. Reserve bare `#N` for issues and PRs in this repo only. GitHub auto-links bare `#N` to the current repo, so a bare reference to a predecessor issue silently points at the wrong place.
+
 ## Architecture
 
 The app is two decoupled processes sharing a PostgreSQL database (connection via `DATABASE_URL`):
