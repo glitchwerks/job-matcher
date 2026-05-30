@@ -1,6 +1,6 @@
 ---
 title: job-matcher 2.0 — Cycle 0 (Foundation) + Cycle 1 (Roles ingest/scoring)
-status: revised-v2 — re-review pending
+status: revised-v3 — review complete
 touches:
   - db.py
   - ingest.py
@@ -8,6 +8,7 @@ touches:
   - web/**
   - services/**
   - plugins/sources/**
+  - job_sources/base.py
   - templates/**
   - conftest.py
   - tests/**
@@ -16,9 +17,10 @@ tracking: { epic: 751, milestone: 12, cycles: [747, 748] }
 
 # job-matcher 2.0 — Cycle 0 (Foundation) + Cycle 1 (Roles ingest/scoring) — design spec
 
-> **Status:** REVISED v2 — 2026-05-29. v1 was reviewed on PR glitchwerks/job-matcher#752 by
-> `project-reviewer` + `inquisitor` (aggressive pass); this revision resolves the 3 blockers + the PK
-> contradiction + the concerns they raised. **Not yet re-reviewed.** ("LOCKED" was premature in v1.)
+> **Status:** REVISED v3 — 2026-05-29, **review complete**. v1 → reviewed (`project-reviewer` +
+> `inquisitor`) → v2 fixed the 3 blockers + PK → v2 re-reviewed (both confirmed those PASS) → v3 fixes
+> the 3 *new* blockers the v2 fixes exposed (N1 dedup `RETURNING` idiom, N2 best-fit Match-row selection,
+> N3 cross-process purge lock) + the concern set. Review thread on PR glitchwerks/job-matcher#752.
 > **Tracking:** Epic #751 · milestone #12 · Cycle 0 #747 · Cycle 1 #748.
 > **Scope:** Cycles 0 and 1 only. Cycle 2 (API + UI, #749) and Cycle 3 (Resumes, #750) get their own specs.
 
@@ -215,8 +217,12 @@ Resume / Application — DEFERRED to Cycle 3 (applied_resume_id is link-only)
   `active=false` = paused (temporary); `archived=true` = retired (permanent-ish, hidden). Archived roles
   are excluded from ingest and the UI but their historical Matches stay valid.
 - **Hard purge** (truly delete a role + its Matches, `ON DELETE CASCADE`) is a separate explicit Admin
-  action, **gated on no ingest running** (checked via `ingest_control._ingest_running()`). Not exposed as
-  routine UI delete.
+  action, **gated by a cross-process DB signal — NOT `ingest_control._ingest_running()`** (which only
+  sees web-spawned subprocesses and is blind to `python ingest.py` cron/manual runs, the primary entry
+  point — N3). Use a **PostgreSQL advisory lock** (`pg_advisory_lock`) that both the ingest run
+  (acquired at run start, released at finish) and the hard-purge acquire; the purge refuses if it can't
+  get the lock. Equivalently/additionally, check `ingest_runs` for a `status='running'` row (written by
+  both CLI and web via `db.create_ingest_run`, `db.py:1207`). Not exposed as routine UI delete.
 - **Run-start snapshot + staleness.** Ingest snapshots active roles at run start (§4.7). If a role's
   `updated_at` changes between snapshot and a Match write for that role, ingest logs a staleness warning
   (the run used the snapshot config; the next run picks up edits). No mid-run config reload.
@@ -247,7 +253,8 @@ Resume / Application — DEFERRED to Cycle 3 (applied_resume_id is link-only)
 | `roles` | collection, `id SERIAL PK`, `slug UNIQUE` | Role (2.3); JSONB for `prefilter/scoring_notes/anti_preferences/applicable_skills/overrides`; `active/archived/updated_at` |
 | `matches` | join, PK `(listing_id, role_id)` | Match (2.5); FK `listing_id`→`listings.id` ON DELETE CASCADE, `role_id`→`roles.id`; indexes on `role_id`, `listing_id` |
 
-`listings` additions: `lifecycle TEXT NOT NULL DEFAULT 'scored'`, `applied_resume_id INTEGER NULL`.
+`listings` additions: **`lifecycle TEXT NULL`** (nullable at `ADD COLUMN` — NOT `DEFAULT 'scored'`; see
+§3.3 for why) and `applied_resume_id INTEGER NULL`.
 
 **Table-creation order (was a v1 CONCERN):** `init_db()` must create parents before children —
 `skills`, `roles`, `job_preferences`, `profile` before `matches` (which FKs `roles` + `listings`).
@@ -273,27 +280,44 @@ Run inside `db.init_db()`, gated by `schema_version`. The seed runs in **one exp
 (`raw.autocommit=False` for the block; `conn.commit()` once at the end — the seam at `db.py:297-308`):
 
 ```
+# prereq (schema creation, §3.2): ADD COLUMN lifecycle TEXT NULL   (nullable, NO default — see below)
 if schema_version < 1:
-  BEGIN
-    1. Seed Profile from config/profile.json
-         (skills: description→name + assign slug + serial id; drop `active`;
-          education/anti_preferences→baseline/scoring_notes→baseline; seniority/preferred_industries→defaults;
-          location.center→current_location.label; base_salary/residency/current_role → empty defaults)
-    2. Seed JobPreferences from config.json (radius_km from search.distance/location.radius_km;
-         max_days_old; salary_min → salary_mode='floor', floor_amount=salary_min;
+  conn._conn.autocommit = False                 # explicit txn on this checked-out connection
+  try:
+    BEGIN
+      1. Seed Profile (skills: description→name + slug + serial id, drop `active`; education/
+         anti_preferences/scoring_notes → baselines; seniority/preferred_industries → defaults;
+         location.center → current_location.label; base_salary/residency/current_role → empty defaults)
+      2. Seed JobPreferences (radius_km; max_days_old; salary_min → salary_mode='floor'+floor_amount;
          require_contract_* → job_types/work_arrangement per the table below)
-    3. Seed one Role from config.json search (search_what, prefilter, threshold, active=true,
-         archived=false, applicable_skills = ALL skill ids → behavior unchanged, empty additions/overrides)
-    4. Backfill matches: one Match per seen=1 listing against the seeded Role (copy score/verdict/
-         skills/concerns/model/tokens); set listing.lifecycle='scored'.
-         seen=0 listings (score failed) → lifecycle='discovered' (O3 RESOLVED) so Cycle-1 retry re-scores.
-    5. INSERT schema_version (1, now())
-  COMMIT   // all-or-nothing: an interrupted run rolls back; re-run repeats cleanly
-  ASSERT  (post-commit) COUNT(matches) == COUNT(listings WHERE seen=1)   // log + alert if mismatch
+      3. Seed one Role (search_what/prefilter/threshold; active=true, archived=false;
+         applicable_skills = ALL skill ids → behavior unchanged; empty additions/overrides)
+      4. Backfill matches: one Match per seen=1 listing vs the seeded Role (copy score/verdict/skills/
+         concerns/model/tokens).
+         Set lifecycle for ALL rows IN THIS TXN: seen=1 → 'scored'; seen=0 → 'discovered' (O3).
+         Then ALTER TABLE listings ALTER COLUMN lifecycle SET NOT NULL   # safe: every row now populated
+      5. ASSERT COUNT(matches) == COUNT(listings WHERE seen=1); on mismatch RAISE → rolls the txn back
+         (the assertion is INSIDE the txn — a corrupt migration is NEVER marked done)
+      6. INSERT schema_version (1, now())
+    COMMIT       # all-or-nothing: interrupted run rolls back; re-run repeats cleanly
+  finally:
+    conn._conn.autocommit = True                # RESTORE before the pool recycles this connection
 ```
 
-The guard is **`schema_version`**, not "profile row exists" — an interrupted run (no commit) leaves
-`schema_version` unset, so the next `init_db()` re-runs the whole seed cleanly. No half-migrated lock.
+Why these specifics (from the v2 review):
+- **`lifecycle` is added nullable, then backfilled + `SET NOT NULL` inside the txn** — not
+  `ADD COLUMN … DEFAULT 'scored'` (which would stamp `seen=0` rows `'scored'` via DDL outside the txn;
+  a crash before step 4 would leave them permanently mislabeled).
+- **The guard is `schema_version`, not "profile row exists"** — an interrupted run (no commit) leaves
+  `schema_version` unset, so the next `init_db()` re-runs the whole seed cleanly. No half-migrated lock.
+- **The consistency assertion is INSIDE the txn** (before the `schema_version` insert) — a mismatch
+  rolls everything back rather than committing a corrupt state and marking it done-forever.
+- **`autocommit` is restored to `True` in a `finally`** — the pooled connection (`db.py:297-308`) is
+  recycled by other callers that expect autocommit mode; not restoring it silently breaks their writes.
+- **Migration #114 ordering:** the existing `#114` reclassify (`db.py:388-405`, bare `UPDATE` under
+  autocommit) runs at `init_db()` level outside this txn. On a fresh DB it no-ops (no listings); on an
+  upgrade it may run before/after the seed — benign (it only touches `description_source`, never
+  `lifecycle`/`matches`). The seed must run after the new tables exist (FK order, §3.2).
 
 **Contract-type mapping (O5 — RESOLVED, enumerated):**
 
@@ -331,22 +355,30 @@ Outer per-source/plugin loop is **unchanged** (`ingest.py` is DB-aware: `import 
 2nd role; it is replaced by upsert-listing-then-check-match-per-role:
 
 ```
+# upsert_listing(source, source_id, redirect_url, fields) -> listing_id:
+#   1. URL cross-source dedup (RETAINED from today): if listing_exists_by_url(redirect_url) → reuse that id
+#   2. INSERT ... ON CONFLICT (source, source_id) DO NOTHING RETURNING id
+#   3. if NO row returned (conflict path — listing already existed): SELECT id WHERE (source, source_id)
+#      ── the SELECT is MANDATORY (N1): ON CONFLICT DO NOTHING returns NO row on conflict, so the
+#         RETURNING id is null exactly in the pre-exists case the fan-out fix targets.
+# score_role(listing_id, role): INSERT INTO matches (...) ON CONFLICT (listing_id, role_id) DO NOTHING
+#      ── idempotent: a concurrent or re-run write cannot double-insert a (listing, role) Match.
+
 for each active SOURCE/PLUGIN:
-  if plugin.supports_role_query:                 # A-capable
-    for each active ROLE:
+  if plugin.supports_role_query:                       # A-capable
+    for each active ROLE (from run-start snapshot):
       fetch role-scoped query (role.search_what + filters)
       per listing:
-        hours → geo/residency → UPSERT listing (INSERT ... ON CONFLICT(source,source_id) DO NOTHING
-                                                 RETURNING id; else SELECT id)
-        if Match(listing_id, role_id) absent:
-            prefilter(role) → scrape JD (once, cached) → score(role) → write Match
-        # else: already scored for this role → skip
-  else:                                          # B-only global list
+        hours → geo/residency → id = upsert_listing(...)
+        if Match(id, role.id) absent:
+            prefilter(role) → scrape JD (once, cached) → score(role) → score_role(id, role)
+        # else: already scored for this (listing, role) → skip
+  else:                                                # B-only global list
     fetch global list
     per listing:
-      hours → geo/residency → UPSERT listing → scrape JD (once)
-      for each active ROLE whose prefilter(role) passes AND Match(listing_id, role_id) absent:
-          score(role) → write Match
+      hours → geo/residency → id = upsert_listing(...) → scrape JD (once)
+      for each active ROLE (snapshot) whose prefilter passes AND Match(id, role.id) absent:
+          score(role) → score_role(id, role)
 ```
 
 Key change: **dedup is per `(listing, role)` Match, not per listing row.** A role added to a pre-existing
@@ -390,13 +422,40 @@ across the role loop (note in `PLUGIN_DEVELOPMENT.md`).
 Response schema unchanged (`score, matched_skills, missing_skills, concerns, verdict`); written to a
 `Match` row.
 
+**Effective-skills resolution contract:** load the role's `applicable_skills` (JSONB `int[]`) + the
+candidate's `primary_skills`, filter in Python by id-membership (single-user scale; simplest). If done
+in SQL, bind `WHERE id = ANY(%s::int[])`. `applicable_skills` is a JSONB array → **no DB-level FK** to
+`skills.id`; a hard skill purge (rare) must application-level scrub `applicable_skills` arrays — a
+purge-time cleanup, never a hot-path concern.
+
 ### 4.6 Feed read authority during Cycle 1 (decision 2B) — was a v1 CONCERN
 
-`matches` is authoritative the moment it exists. **Cycle 1 includes a contained change to
-`get_feed()`/`get_snippet_feed()`** to read a roll-up `MAX(matches.score)` per listing (over active,
-non-archived roles), instead of `listings.score`. This is the "best-fit" scalar the Cycle-2 badge will
-also use — forward-compatible, not throwaway. Legacy `listings.score` is **not** read after this change
-(kept inert per §3.2). No dual-write, no split-brain window.
+`matches` is authoritative the moment it exists. Cycle 1 changes `get_feed()`/`get_snippet_feed()` to
+read from `matches` instead of `listings.score`. **It selects the best-fit Match ROW per listing, not a
+`MAX(score)` scalar (N2)** — a scalar max can't tell the card which role's `matched_skills`/`verdict`/
+`model_used` to render (`templates/_card.html` shows them), and isn't legal SQL beside non-aggregated
+columns. Use Postgres `DISTINCT ON`:
+
+```sql
+SELECT DISTINCT ON (m.listing_id) l.*, m.role_id, m.score, m.matched_skills, m.missing_skills,
+                                   m.concerns, m.verdict, m.model_used
+FROM listings l
+JOIN matches  m ON m.listing_id = l.id
+JOIN roles    r ON r.id = m.role_id AND r.active AND NOT r.archived   -- exclude paused/archived
+WHERE l.lifecycle = 'scored'
+  AND <get_feed: l.description_source='full' | get_snippet_feed: l.description_source='snippet'>
+  -- + existing feed filters (remote_only, search, job_type, sort, min_score/threshold)
+ORDER BY m.listing_id, m.score DESC;   -- best-fit role wins per listing
+```
+
+- **`get_snippet_feed()`** uses the same join with `description_source='snippet'` (N1 from the v2
+  review — its join shape is now explicit, not left to the implementer).
+- **All-archived / no-active-match listings** have no row from this join → **excluded from the feed**
+  (the `JOIN` + `r.active` predicate drops them; this is the intended behavior, stated explicitly).
+- The best-fit row is exactly what the Cycle-2 "best-fit" badge uses; the multi-role "also matches"
+  pills + Combined view layer on top in Cycle 2 — forward-compatible, not throwaway.
+- Legacy `listings.score`/`verdict`/… are **not** read after this change (inert per §3.2). No dual-write,
+  no split-brain window.
 
 ### 4.7 Snippets (store-then-score) + control surface
 
@@ -419,7 +478,13 @@ also use — forward-compatible, not throwaway. Legacy `listings.score` is **not
 - [ ] Remote-residency filter behaves (incompatible remote dropped; compatible passes outside radius).
 - [ ] `lifecycle` discovered→scored promotion; `lifecycle` × `description_source` coexist on one row correctly.
 - [ ] **Mid-run role edit/delete test:** archiving a role mid-run does not crash Match writes; staleness warning logged.
-- [ ] Feed reads `MAX(matches.score)` roll-up (decision 2B).
+- [ ] Feed selects the **best-fit Match row** (`DISTINCT ON`); the feed card renders that role's
+      `matched_skills`/`missing_skills`/`verdict`/`model_used`; listings whose only matches are
+      paused/archived roles are **excluded** (N2).
+- [ ] **Dedup-on-conflict test (N1):** `upsert_listing` returns a valid `id` on the *conflict* path
+      (pre-existing listing), not null; a re-run does not double-insert Matches (`ON CONFLICT DO NOTHING`).
+- [ ] **Hard-purge safety test (N3):** a purge is refused while a `python ingest.py` run holds the
+      advisory lock / has an `ingest_runs.status='running'` row (not just web-spawned ingest).
 - [ ] **Full CI gate green** (mirror CI, not a subset): `ruff check`, `pytest` (test DB), plus any
       `black --check` / `mypy` the workflow runs. State expected test count at plan time.
 
@@ -446,6 +511,10 @@ also use — forward-compatible, not throwaway. Legacy `listings.score` is **not
 | **D15** | Roles soft-delete only (`archived`); hard-purge is ingest-quiescent admin action (3A) | no mid-run FK crash; matches history preserved |
 | **D16** | PK = serial int; `slug` is a separate UNIQUE display key; FKs target the int | resolves the v1 PK/slug contradiction |
 | **D17** | B-mode worst case = K scoring calls for K matched roles; accepted + budget-logged (no hard cap) | single-user scale |
+| **D18** | Dedup: `RETURNING` is null on conflict → mandatory `SELECT id`; Match insert `ON CONFLICT DO NOTHING`; URL dedup retained | N1 (v2-review) |
+| **D19** | Cycle-1 feed selects best-fit Match **row** via `DISTINCT ON … ORDER BY score DESC` (not a scalar); all-archived listings excluded | N2 (v2-review) |
+| **D20** | Hard-purge gated by a cross-process DB signal (advisory lock / `ingest_runs.status`), not in-process `_ingest_running()` | N3 (v2-review) |
+| **D21** | Migration: `lifecycle` added nullable; backfill + `SET NOT NULL` + consistency assertion all INSIDE the txn; `autocommit` restored in `finally` | migration safety (v2-review) |
 
 ## 6. Open items
 
