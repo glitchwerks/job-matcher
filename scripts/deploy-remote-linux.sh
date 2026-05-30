@@ -193,7 +193,84 @@ if [[ "${PREREQ_FAILED}" == "1" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 4 — Create remote directory and copy deployment files via scp
+# Step 4 — Validate local .env files before pushing
+#
+# Mirrors the GHA deploy-prod preflight so malformed or placeholder-filled env
+# files are caught at the workstation, before they travel over the wire.
+# Two checks per live env file (same checks as deploy.yml):
+#   1. changeme_* placeholder grep — catches unedited copies of .env.*.example
+#   2. docker compose config   — expands variable references and fails fast on
+#      unresolved ${VAR} substitutions, missing required keys (:? syntax), or
+#      malformed YAML; the -p flag matches the project name used in production
+#      so any project-specific overrides are exercised.
+# ---------------------------------------------------------------------------
+
+step "Validating local .env files before push..."
+
+# Map each live env file to its matching compose file and compose project name.
+# Pairs: "<live-env>|<compose-file>|<project-name>"
+VALIDATE_PAIRS=(
+    ".env.prod|docker-compose.prod.yml|job-matcher-pr-prod"
+    ".env.dev|docker-compose.dev.yml|job-matcher-pr-dev"
+)
+
+VALIDATION_FAILED=0
+
+for PAIR in "${VALIDATE_PAIRS[@]}"; do
+    IFS='|' read -r LIVE_ENV COMPOSE_FILE PROJECT_NAME <<< "${PAIR}"
+    LOCAL_LIVE="${LOCAL_PROJECT_ROOT}/${LIVE_ENV}"
+    LOCAL_COMPOSE="${LOCAL_PROJECT_ROOT}/${COMPOSE_FILE}"
+
+    # Skip if the local live file doesn't exist — the push loop below will
+    # also skip it, so no need to error here.
+    if [[ ! -f "${LOCAL_LIVE}" ]]; then
+        continue
+    fi
+
+    # Skip if the matching compose file doesn't exist locally — can't validate.
+    if [[ ! -f "${LOCAL_COMPOSE}" ]]; then
+        warn "Cannot validate ${LIVE_ENV}: ${COMPOSE_FILE} not found locally."
+        continue
+    fi
+
+    # --- Check 1: changeme_* placeholders ---
+    # Pattern matches the same fields as the GHA deploy-prod preflight.
+    if grep -qE '^(POSTGRES_PASSWORD|SECRET_KEY|POSTGRES_USER|POSTGRES_DB)=changeme' "${LOCAL_LIVE}"; then
+        fail "${LIVE_ENV} still contains changeme_* placeholder values."
+        grep -nE '^(POSTGRES_PASSWORD|SECRET_KEY|POSTGRES_USER|POSTGRES_DB)=changeme' "${LOCAL_LIVE}" >&2 || true
+        fail "Edit ${LOCAL_LIVE} before pushing to the remote."
+        VALIDATION_FAILED=1
+        continue
+    fi
+
+    # --- Check 2: docker compose config ---
+    # Expands all variable references; exits non-zero on unresolved ${VAR:?}
+    # required variables, bad YAML, or missing compose directives.
+    # --quiet suppresses the resolved YAML on stdout; errors still reach stderr.
+    if ! docker compose \
+            -p "${PROJECT_NAME}" \
+            --env-file "${LOCAL_LIVE}" \
+            -f "${LOCAL_COMPOSE}" \
+            config --quiet; then
+        fail "docker compose config failed for ${LIVE_ENV} + ${COMPOSE_FILE}."
+        fail "Fix the errors above before pushing ${LIVE_ENV} to the remote."
+        VALIDATION_FAILED=1
+        continue
+    fi
+
+    ok "${LIVE_ENV}: changeme check passed, compose config resolved OK."
+done
+
+if [[ "${VALIDATION_FAILED}" == "1" ]]; then
+    echo "" >&2
+    fail "One or more local .env files failed validation. Push aborted."
+    echo "  Fix the errors listed above, then re-run this script." >&2
+    echo "" >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Step 5 — Create remote directory and copy deployment files via scp
 # ---------------------------------------------------------------------------
 
 step "Preparing ${REMOTE_PATH} on ${REMOTE_HOST}..."
@@ -470,7 +547,7 @@ ok "Line endings converted."
 ok "All deployment files copied to ${REMOTE_PATH}."
 
 # ---------------------------------------------------------------------------
-# Step 5 — Run docker-setup.sh (interactive, requires sudo)
+# Step 6 — Run docker-setup.sh (interactive, requires sudo)
 # ---------------------------------------------------------------------------
 
 echo ""
@@ -488,7 +565,7 @@ if [[ "${RUN_SETUP}" =~ ^[Yy]$ ]]; then
     # shellcheck disable=SC2029  # ${REMOTE_PATH} and ${SSH_TARGET} intentionally expand client-side
     if ! ssh "${SSH_TARGET}" "[[ -f '${REMOTE_PATH}/scripts/docker-setup.sh' ]]" 2>/dev/null; then
         fail "scripts/docker-setup.sh not found at ${REMOTE_PATH}/scripts/docker-setup.sh on the remote."
-        fail "The file copy in Step 4 may have failed. Re-run this script."
+        fail "The file copy in Step 5 may have failed. Re-run this script."
         exit 1
     fi
 
@@ -512,7 +589,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 6 — Summary
+# Step 7 — Summary
 # ---------------------------------------------------------------------------
 
 banner "Deployment Complete"
