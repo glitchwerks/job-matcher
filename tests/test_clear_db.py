@@ -376,12 +376,34 @@ def tmp_keys_path(tmp_path, monkeypatch):
     return path
 
 
+@pytest.fixture()
+def tmp_config_path(tmp_path, monkeypatch):
+    """Isolate config.json from the real config directory.
+
+    Prevents _get_search_validation_issues from reading or being affected by
+    any real config/config.json that may exist on a developer machine, and
+    ensures the lru_cache keyed on (providers_mtime, config_mtime) does not
+    share entries with other tests that use different path pairs.
+
+    Without this fixture the settings route uses the real _CONFIG_PATH
+    (which may exist on some machines) while other fixtures redirect
+    _PROVIDERS_PATH to a temp file — creating a mixed-path cache key that
+    can interact with other test sessions or a stale lru_cache entry.
+    """
+    import services.profile_store as _profile_store_module
+    import web.settings as _settings_module
+    path = str(tmp_path / "config.json")
+    monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", path)
+    monkeypatch.setattr(_settings_module, "_CONFIG_PATH", path)
+    return path
+
+
 class TestSettingsPageRenders:
     def teardown_method(self):
         _cleanup(_PREFIX)
 
     def test_settings_page_renders_ok(
-        self, client, tmp_providers_path, tmp_keys_path
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
     ):
         """GET /settings page renders without error (listing_count is no longer shown here)."""
         _insert("cdb-st-001")
@@ -391,7 +413,7 @@ class TestSettingsPageRenders:
         assert resp.data
 
     def test_settings_page_renders_ok_when_empty(
-        self, client, tmp_providers_path, tmp_keys_path
+        self, client, tmp_providers_path, tmp_keys_path, tmp_config_path
     ):
         """GET /settings renders without error even when no listings inserted."""
         resp = client.get("/settings")

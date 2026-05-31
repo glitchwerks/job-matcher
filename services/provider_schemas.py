@@ -278,6 +278,12 @@ def _get_search_validation_issues(
     ``/api/ingest/preflight`` endpoint so the same validation logic is never
     duplicated.
 
+    Any unexpected exception from the underlying validation (e.g. a
+    :class:`filelock.Timeout` when :func:`credentials.migrate_from_legacy`
+    tries to acquire a write lock on the providers path) is caught here and
+    logged as a warning.  This prevents a transient I/O error from turning
+    into a ``GET /settings`` HTTP 500.
+
     Args:
         providers_path: Override path to ``providers.json``.  Defaults to
             :data:`services.profile_store._PROVIDERS_PATH`.
@@ -293,7 +299,16 @@ def _get_search_validation_issues(
     if config_path is None:
         config_path = _CONFIG_PATH
     mts = (_mtime(providers_path), _mtime(config_path))
-    return _cached_validation(mts, providers_path, config_path)
+    try:
+        return _cached_validation(mts, providers_path, config_path)
+    except Exception as exc:
+        _logger.warning(
+            "Search-config validation failed unexpectedly; "
+            "returning empty issue list so /settings can still render. "
+            "Error: %s",
+            exc,
+        )
+        return []
 
 
 # ---------------------------------------------------------------------------
