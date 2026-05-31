@@ -171,3 +171,80 @@ class TestValidationIssuesCache:
         )
         assert result_first == [first_issue]
         assert result_second == [second_issue]
+
+
+class TestGetSearchValidationIssuesSafetyNet:
+    """_get_search_validation_issues() must not propagate any exception.
+
+    The function is called from GET /settings and GET /api/ingest/preflight.
+    Any uncaught exception from _cached_validation would produce an HTTP 500.
+    This class verifies the outer wrapper catches unexpected errors gracefully.
+
+    Regression test for issue #757: test_settings_page_renders failed with
+    HTTP 500 when _cached_validation was called without a tmp_config_path
+    fixture isolating _CONFIG_PATH, leaving an opportunity for an unexpected
+    exception (e.g. filelock.Timeout) to escape to the Flask route.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        _schemas_mod._cached_validation.cache_clear()
+        yield
+        _schemas_mod._cached_validation.cache_clear()
+
+    def test_returns_empty_list_when_cached_validation_raises(self, tmp_path):
+        """Any exception from _cached_validation is caught; empty list returned."""
+        providers_path = str(tmp_path / "providers.json")
+        config_path = str(tmp_path / "config.json")
+        _write_providers(providers_path)
+        _write_config(config_path)
+
+        def _exploding_validate(*_args, **_kwargs):
+            raise RuntimeError("simulated filelock.Timeout or other I/O error")
+
+        with patch.object(
+            _schemas_mod, "_cached_validation", side_effect=_exploding_validate
+        ):
+            result = _get_search_validation_issues(
+                providers_path=providers_path,
+                config_path=config_path,
+            )
+
+        assert result == [], (
+            "_get_search_validation_issues must return [] when _cached_validation raises, "
+            "never propagate the exception to the Flask route"
+        )
+
+    def test_settings_page_renders_when_config_path_not_isolated(self, tmp_path, monkeypatch):
+        """GET /settings returns 200 even when _CONFIG_PATH is not overridden in a test.
+
+        This is the regression scenario from issue #757: TestSettingsPageRenders
+        used tmp_providers_path and tmp_keys_path but lacked tmp_config_path.
+        The real _CONFIG_PATH (which may or may not exist) was used alongside
+        the temp providers path, creating a mixed-path cache key.  Any
+        exception from that combination must not bubble up as a 500.
+        """
+        import web.settings as _settings_module
+        import services.profile_store as _profile_store_module
+        from app import app as flask_app
+
+        flask_app.config["TESTING"] = True
+        providers_path = str(tmp_path / "providers.json")
+        keys_path = str(tmp_path / "keys.json")
+        # Intentionally do NOT create a config.json at config_path.
+        missing_config = str(tmp_path / "config.json")
+
+        monkeypatch.setattr(_profile_store_module, "_PROVIDERS_PATH", providers_path)
+        monkeypatch.setattr(_profile_store_module, "_KEYS_PATH", keys_path)
+        monkeypatch.setattr(_profile_store_module, "_CONFIG_PATH", missing_config)
+        monkeypatch.setattr(_settings_module, "_PROVIDERS_PATH", providers_path)
+        monkeypatch.setattr(_settings_module, "_KEYS_PATH", keys_path)
+        monkeypatch.setattr(_settings_module, "_CONFIG_PATH", missing_config)
+
+        with flask_app.test_client() as c:
+            resp = c.get("/settings")
+
+        assert resp.status_code == 200, (
+            "GET /settings must return 200 even when config.json is absent and "
+            "the config path is not isolated by tmp_config_path"
+        )
